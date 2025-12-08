@@ -1,0 +1,17 @@
+{
+  "name": "backend",
+  "scripts": {
+    "dev": "bun run --hot src/index.js"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "cloudinary": "^2.8.0",
+    "hono": "^4.10.7",
+    "jsonwebtoken": "^9.0.2",
+    "logger": "^0.0.1",
+    "mongoose": "8.9.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
