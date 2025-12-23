@@ -92,4 +92,13 @@ const EmployeeHistorySchema = new mongoose.Schema(
 
 EmployeeHistorySchema.index({ created_at: -1 }); 
 
+const transformSalaryFields = (doc, ret) => {
+  if (ret.old_salary) ret.old_salary = ret.old_salary.toString();
+  if (ret.new_salary) ret.new_salary = ret.new_salary.toString();
+  return ret;
+};
+
+EmployeeHistorySchema.set("toJSON", { transform: transformSalaryFields });
+EmployeeHistorySchema.set("toObject", { transform: transformSalaryFields });
+
 export default mongoose.model("EmployeeHistory", EmployeeHistorySchema);

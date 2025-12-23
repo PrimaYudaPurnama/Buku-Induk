@@ -30,8 +30,25 @@ const AccountRequestSchema = new mongoose.Schema(
     division_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Division",
-      required: true,
+      required: function() {
+        // Required for account_request and transfer
+        // Optional for promotion and termination (user might not have division)
+        return this.request_type === "account_request" || this.request_type === "transfer";
+      },
       index: true, // idx_account_requests_division
+    },
+
+    request_type: {
+      type: String,
+      enum: ["account_request", "promotion", "termination", "transfer"],
+      default: "account_request",
+      index: true,
+    },
+
+    user_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null, // For account_request, this is null. For promotion/termination/transfer, this is the user being affected
     },
 
     status: {
@@ -64,6 +81,17 @@ const AccountRequestSchema = new mongoose.Schema(
     },
 
     processed_at: {
+      type: Date,
+      default: null,
+    },
+
+    setup_token: {
+      type: String,
+      default: null,
+      index: true, // idx_account_requests_setup_token
+    },
+
+    setup_token_expires_at: {
       type: Date,
       default: null,
     },

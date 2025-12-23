@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, User, LogOut, ChevronDown } from 'lucide-react';
+import { Menu, User, LogOut, ChevronDown, Sparkles } from 'lucide-react';
+import { motion } from 'framer-motion';
+import toast, { Toaster } from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
 
-const getToken = () => {
-  return useAuthStore.getState().token;
-};
 
 const Header = ({ toggleSidebar, onNavigateToProfile }) => {
   const user = useAuthStore((state) => state.user);
@@ -36,9 +35,7 @@ const Header = ({ toggleSidebar, onNavigateToProfile }) => {
   const fetchProfilePhoto = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/files/${user._id}`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
+        credentials: "include",
       });
       
       if (response.ok) {
@@ -60,86 +57,170 @@ const Header = ({ toggleSidebar, onNavigateToProfile }) => {
     if (onNavigateToProfile) {
       onNavigateToProfile(user._id);
     }
-    // Atau jika menggunakan react-router:
-    // navigate(`/profile/${user._id}`);
   };
 
-  const handleLogout = () => {
-    logout();
-    // navigate('/login');
-    window.location.href = '/login';
+  const handleLogout = async () => {
+    setShowDropdown(false); 
+  
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (_) {
+      // sengaja kosong — logout client tetap jalan
+    } finally {
+      logout();
+      toast.success("Logged out successfully");
+      window.location.replace("/"); // lebih bersih dari href
+    }
+  };
+  
+  
+
+  const floatingVariants = {
+    animate: {
+      y: [0, -10, 0],
+      transition: {
+        duration: 4,
+        repeat: Infinity,
+        ease: "easeInOut"
+      }
+    }
   };
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={toggleSidebar}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <Menu className="w-6 h-6 text-gray-600" />
-        </button>
-        <h1 className="text-xl font-semibold text-gray-800">Dashboard</h1>
-      </div>
+    <>
+      <Toaster position="top-center" />
+      <header className="relative z-50 px-6 py-5 flex items-center justify-between">
+        {/* Background Glass Effect */}
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xl border-b border-blue-900/50" />
+        
+        <div className="relative flex items-center gap-6 flex-1">
+          <motion.button 
+            onClick={toggleSidebar}
+            className="p-3 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 hover:bg-slate-700/70 transition-all group"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Menu className="w-6 h-6 text-blue-400 group-hover:text-white transition-colors" />
+          </motion.button>
 
-      <div className="relative" ref={dropdownRef}>
-        <button
-          onClick={() => setShowDropdown(!showDropdown)}
-          className="flex items-center gap-3 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors"
-        >
-          <div className="text-right">
-            <p className="text-sm font-medium text-gray-800">{user?.full_name || 'Loading...'}</p>
-            <p className="text-xs text-gray-500">
-              {user?.role_id?.name || "Loading..."}
-            </p>
-          </div>
-          
-          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200">
-            {profilePhoto || user?.profile_photo_url ? (
-              <img 
-                src={profilePhoto || user?.profile_photo_url} 
-                alt={user?.full_name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm">
-                {getInitials(user?.full_name)}
-              </div>
-            )}
-          </div>
+          <motion.div 
+            className="flex items-center gap-3"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <motion.div
+              className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center"
+              variants={floatingVariants}
+              animate="animate"
+            >
+              <Sparkles className="w-7 h-7 text-white" />
+            </motion.div>
+            <div>
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                Dashboard
+              </h1>
+              <p className="text-sm text-slate-400 mt-0.5">Welcome back, {user?.full_name?.split(' ')[0] || 'User'}</p>
+            </div>
+          </motion.div>
+        </div>
 
-          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
-        </button>
-
-        {/* Dropdown Menu */}
-        {showDropdown && (
-          <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <p className="text-sm font-medium text-gray-900">{user?.full_name}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{user?.email}</p>
+        {/* User Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <motion.button
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="flex items-center gap-4 px-5 py-3 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 hover:bg-slate-700/70 transition-all group"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <div className="text-right">
+              <p className="text-sm font-semibold text-white">{user?.full_name || 'Loading...'}</p>
+              <p className="text-xs text-slate-400 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                {user?.role_id?.name || "Loading..."}
+              </p>
+            </div>
+            
+            <div className="w-12 h-12 rounded-2xl overflow-hidden border-4 border-blue-900/50 shadow-lg">
+              {profilePhoto || user?.profile_photo_url ? (
+                <img 
+                  src={profilePhoto || user?.profile_photo_url} 
+                  alt={user?.full_name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-lg">
+                  {getInitials(user?.full_name)}
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={handleViewProfile}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <User className="w-4 h-4" />
-              View Profile
-            </button>
+            <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${showDropdown ? 'rotate-180' : ''}`} />
+          </motion.button>
 
-            <div className="border-t border-gray-100 my-1"></div>
+          {/* Dropdown Menu */}
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: showDropdown ? 1 : 0, y: showDropdown ? 0 : -10, scale: showDropdown ? 1 : 0.95 }}
+            transition={{ duration: 0.2 }}
+            className={`absolute right-0 mt-3 w-64 bg-slate-900/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-blue-900/50 overflow-hidden z-50 pointer-events-${showDropdown ? 'auto' : 'none'}`}
+          >
+            {/* User Info Header */}
+            <div className="px-6 py-5 border-b border-slate-700/50">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl overflow-hidden border-4 border-blue-900/50">
+                  {profilePhoto || user?.profile_photo_url ? (
+                    <img 
+                      src={profilePhoto || user?.profile_photo_url} 
+                      alt={user?.full_name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-xl">
+                      {getInitials(user?.full_name)}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-white">{user?.full_name}</p>
+                  <p className="text-sm text-slate-400">{user?.email}</p>
+                  <p className="text-xs text-blue-400 mt-1 flex items-center gap-1">
+                    
+                    {user?.role_id?.name}
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
-            </button>
-          </div>
-        )}
-      </div>
-    </header>
+            {/* Menu Items */}
+            <div className="py-2">
+              <motion.button
+                onClick={handleViewProfile}
+                className="w-full flex items-center gap-4 px-6 py-4 text-slate-300 hover:bg-slate-800/50 hover:text-white transition-all"
+                whileHover={{ x: 5 }}
+              >
+                <User className="w-5 h-5 text-blue-400" />
+                <span className="font-medium">View Profile</span>
+              </motion.button>
+
+              <div className="border-t border-slate-700/50 my-2 mx-6" />
+
+              <motion.button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-4 px-6 py-4 text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-all"
+                whileHover={{ x: 5 }}
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="font-medium">Logout</span>
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </header>
+    </>
   );
 };
 

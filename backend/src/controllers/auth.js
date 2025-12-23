@@ -2,6 +2,9 @@ import jwt from "jsonwebtoken";
 import argon2 from "argon2";
 import User from "../models/user.js";
 import Role from "../models/role.js";
+import { logAudit } from "../utils/auditLogger.js";
+import { setCookie, getCookie, deleteCookie } from "hono/cookie";
+
 
 class AuthController {
   // POST /api/v1/auth/login
@@ -16,35 +19,47 @@ class AuthController {
       // Find user by email
       const user = await User.findOne({ email }).populate("role_id");
       if (!user) {
+        await logAudit(c, "login_failed", "auth", null, null, { email, reason: "user_not_found" });
         return c.json({ message: "Invalid email or password" }, 401);
       }
 
       // Check if user is active
       if (user.status !== "active") {
+        await logAudit(c, "login_failed", "auth", user._id, null, { email, reason: "inactive" });
         return c.json({ message: "Account is not active" }, 403);
       }
 
       // Verify password
       const isPasswordValid = await argon2.verify(user.password, password);
-      console.log(isPasswordValid)
       if (!isPasswordValid) {
+        await logAudit(c, "login_failed", "auth", user._id, null, { email, reason: "wrong_password" });
         return c.json({ message: "Invalid email or password" }, 401);
       }
 
       // Generate JWT token
       const token = jwt.sign(
-        { id: user._id, email: user.email },
+        { id: user._id, role: user.role },
         process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+        { expiresIn: "7d" }
       );
+      
+      setCookie(c, "access_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "Strict",
+        maxAge: 60 * 60 * 24 * 7, // detik
+        path: "/",
+      });      
+      
 
       // Return user data without password
       const userData = user.toObject();
       delete userData.password;
 
+      await logAudit(c, "login_success", "auth", user._id, null, { email });
+
       return c.json({
         message: "Login successful",
-        token,
         user: userData,
       });
     } catch (err) {
@@ -55,17 +70,11 @@ class AuthController {
 
   // POST /api/v1/auth/logout
   static async logout(c) {
-    try {
-      // Karena JWT stateless, logout di client-side (hapus token)
-      // Bisa tambahkan blacklist token di Redis jika diperlukan
-      return c.json({
-        message: "Logout successful",
-        ok: true,
-      });
-    } catch (err) {
-      console.error("Logout error:", err);
-      return c.json({ message: "Internal server error" }, 500);
-    }
+    deleteCookie(c, "access_token", {
+      path: "/",
+    });
+  
+    return c.json({ ok: true });
   }
 
   // GET /api/v1/auth/me
@@ -165,7 +174,6 @@ class AuthController {
       // const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
       // await sendEmail(user.email, "Password Reset", resetLink);
 
-      console.log("Reset token for", email, ":", resetToken);
 
       return c.json({
         message: "If the email exists, a reset link has been sent",

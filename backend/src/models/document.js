@@ -5,8 +5,15 @@ const DocumentSchema = new mongoose.Schema(
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false, // Can be null if account_request_id is set
       index: true, // idx_documents_user
+    },
+
+    account_request_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AccountRequest",
+      default: null,
+      index: true, // idx_documents_account_request
     },
 
     document_type: {
@@ -73,5 +80,16 @@ const DocumentSchema = new mongoose.Schema(
 
 // created_at DESC index
 DocumentSchema.index({ created_at: -1 }); // idx_documents_created_at
+
+// Compound index for account_request documents
+DocumentSchema.index({ account_request_id: 1, document_type: 1 }); // idx_documents_account_request_type
+
+// Validation: either user_id or account_request_id must be set
+DocumentSchema.pre("validate", function (next) {
+  if (!this.user_id && !this.account_request_id) {
+    return next(new Error("Either user_id or account_request_id must be provided"));
+  }
+  next();
+});
 
 export default mongoose.model("Document", DocumentSchema);

@@ -10,16 +10,28 @@ if (!MONGO_URI) {
 }
 
 let isConnected = false;
+let isConnecting = false;
 
+/**
+ * Establish a single shared Mongo connection with sensible pooling limits
+ * to avoid exhausting the cluster connection threshold.
+ */
 export async function connectDB() {
-  if (isConnected) return;
+  if (isConnected || isConnecting) return;
+  isConnecting = true;
 
   try {
     await mongoose.connect(MONGO_URI, {
       retryWrites: true,
       w: "majority",
-      serverSelectionTimeoutMS: 5000, // jangan lebih
-      dbName: "buku_induk",           // ***INI PENTING***
+      dbName: "buku_induk",
+      // Pooling tuned to keep connection count low
+      maxPoolSize: 20,       // reduce from default 100
+      minPoolSize: 1,
+      maxIdleTimeMS: 60_000, // close idle sockets promptly
+      serverSelectionTimeoutMS: 5_000,
+      socketTimeoutMS: 45_000,
+      connectTimeoutMS: 10_000,
     });
 
     isConnected = mongoose.connection.readyState === 1;
@@ -28,6 +40,8 @@ export async function connectDB() {
     console.error("❌ Failed to connect MongoDB:");
     console.error(err.message);
     process.exit(1);
+  } finally {
+    isConnecting = false;
   }
 }
 
@@ -39,3 +53,15 @@ mongoose.connection.on("error", (err) => {
 mongoose.connection.on("disconnected", () => {
   console.warn("⚠️ MongoDB disconnected");
 });
+
+// Graceful shutdown to free connections
+const closeConnection = async () => {
+  if (isConnected) {
+    await mongoose.connection.close();
+    isConnected = false;
+    console.log("🛑 MongoDB connection closed gracefully");
+  }
+};
+
+process.on("SIGINT", closeConnection);
+process.on("SIGTERM", closeConnection);

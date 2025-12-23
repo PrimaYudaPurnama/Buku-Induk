@@ -73,6 +73,40 @@ class cloudinary_metaData {
       return c.json({ success: false, message: err.message }, 500);
     }
   }
+
+  // Upload profile photo for account setup (no userId required)
+  async uploadProfilePhotoForSetup(c) {
+    try {
+      const file = await c.req.formData().then(fd => fd.get("file"));
+      if (!file) return c.json({ success: false, message: "No file uploaded" }, 400);
+
+      // Convert ke Buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Convert ke Base64
+      const base64String = `data:${file.type};base64,${buffer.toString("base64")}`;
+
+      const uploadResult = await cloudinary.uploader.upload(base64String, {
+        folder: `temp/profile_photos`,
+        resource_type: "image",
+        public_id: `setup_${Date.now()}`,
+        overwrite: false,
+      });
+
+      // Return only URL (don't save to database, user doesn't exist yet)
+      return c.json({ 
+        success: true, 
+        data: { 
+          url: uploadResult.secure_url,
+          public_id: uploadResult.public_id 
+        } 
+      });
+    } catch (err) {
+      console.error(err);
+      return c.json({ success: false, message: err.message }, 500);
+    }
+  }
 }
 
 export default new cloudinary_metaData();

@@ -1,104 +1,152 @@
 import User from "../models/user.js";
 import EmployeeHistory from "../models/employeeHistory.js";
 import Division from "../models/division.js";
+import Role from "../models/role.js";
 import argon2 from "argon2";
-import user from "../models/user.js";
+import mongoose from "mongoose";
+import { logAudit } from "../utils/auditLogger.js";
+import { maskSalaryForUsers } from "../services/userService.js";
+
 
 class UserController {
   /**
    * GET /api/v1/users
    * List users with pagination, filtering, and sorting
    */
+
   async getUsers(c) {
-  try {
-    const currentUser = c.get("user");
-    const currentPermission = c.get("currentPermission");
-    const userPermission = c.get("userPermission");
-    console.log("Permission matched:", currentPermission);
+    try {
+      const currentUser = c.get("user");
+      const userPermissions = currentUser?.role_id?.permissions || [];
 
-    // Pagination
-    const page = parseInt(c.req.query("page[number]")) || 1;
-    const limit = parseInt(c.req.query("page[size]")) || 10;
-    const skip = (page - 1) * limit;
+      const isSuperAdmin = currentUser?.role_id?.hierarchy_level === 1; 
 
-    // Base filters dari query (opsional)
-    const filters = {};
-    if (c.req.query("filter[division_id]")) filters.division_id = c.req.query("filter[division_id]");
-    if (c.req.query("filter[status]")) filters.status = c.req.query("filter[status]");
-    if (c.req.query("filter[role_id]")) filters.role_id = c.req.query("filter[role_id]");
-    if (c.req.query("search")) filters.$text = { $search: c.req.query("search") };
+  
+      const has = (perm) => userPermissions.includes(perm);
+  
+      // ===============================
+      // Pagination
+      // ===============================
+      const page = parseInt(c.req.query("page[number]")) || 1;
+      const limit = parseInt(c.req.query("page[size]")) || 10;
+      const skip = (page - 1) * limit;
+  
+      const filters = {};
+  
+      // ===============================
+      // Filters
+      // ===============================
 
-    if (currentPermission === "user:read:any") {
-      // tidak menambah filter apapun (lihat semua)
-      console.log("Access: FULL — user:read:any");
-    }
+      if (!isSuperAdmin) {
+        const superAdminRole = await Role.findOne({ hierarchy_level: 1 })
+          .select("_id")
+          .lean();
+      
+        if (superAdminRole) {
+          filters.role_id = {
+            ...(filters.role_id || {}),
+            $ne: superAdminRole._id,
+          };
+        }
+      }      
 
-    else if (currentPermission === "user:read:own_division") {
-      console.log("Access: OWN DIVISION ONLY");
-      filters.division_id = currentUser.division_id;
-    }
-
-    else if (currentPermission === "user:read:self") {
-      console.log("Access: SELF ONLY");
-      filters._id = currentUser._id;
-    }
-
-    // ------------------------------------------
-
-    // Sorting
-    let sort = { created_at: -1 };
-    const sortParam = c.req.query("sort");
-
-    if (sortParam) {
-      sort = {};
-      sortParam.split(",").forEach((field) => {
-        if (field.startsWith("-")) sort[field.substring(1)] = -1;
-        else sort[field] = 1;
+      const safeQuery = (q) => {
+        if (!q || typeof q !== "string") return null;
+        const v = q.trim();
+        return v === "" || v === "null" ? null : v;
+      };
+  
+      const divisionQuery = safeQuery(c.req.query("filter[division_id]"));
+      if (divisionQuery) filters.division_id = divisionQuery;
+  
+      const statusQuery = safeQuery(c.req.query("filter[status]"));
+      if (statusQuery) filters.status = statusQuery;
+  
+      const roleQuery = safeQuery(c.req.query("filter[role_id]"));
+      if (roleQuery) filters.role_id = roleQuery;
+  
+      const search = safeQuery(c.req.query("search"));
+      if (search) filters.$text = { $search: search };
+  
+      // ===============================
+      // READ PERMISSION
+      // ===============================
+      let divisionId = null;
+  
+      if (has("user:read:any") || has("dashboard:read")) {
+        // full access
+      } else if (has("user:read:own_division")) {
+        const division = await Division.findOne({ manager_id: currentUser._id })
+          .select("_id")
+          .lean();
+  
+        if (!division) {
+          filters._id = { $in: [] };
+        } else {
+          divisionId = division._id.toString();
+          filters.division_id = divisionId;
+        }
+      } else if (has("user:read:self")) {
+        filters._id = currentUser._id;
+      } else {
+        return c.json({ error: "Access denied" }, 403);
+      }
+  
+      // ===============================
+      // Query DB
+      // ===============================
+      const [users, total] = await Promise.all([
+        User.find(filters)
+          .populate("role_id", "name hierarchy_level")
+          .populate("division_id", "name")
+          .select("-password")
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        User.countDocuments(filters),
+      ]);
+  
+      // ===============================
+      // SALARY MASKING CONTEXT
+      // ===============================
+      const salaryContext = {
+        canViewAny: has("user:view_salary:any"),
+        canViewOwnDivision: has("user:view_salary:own_division"),
+        canViewSelf: has("user:view_salary:self"),
+        divisionId,
+        currentUserId: currentUser._id.toString(),
+      };
+  
+      const usersMasked = maskSalaryForUsers(users, salaryContext);
+  
+      return c.json({
+        success: true,
+        data: usersMasked,
+        meta: {
+          pagination: {
+            page,
+            page_size: limit,
+            total_items: total,
+            total_pages: Math.ceil(total / limit),
+          },
+        },
       });
+  
+    } catch (error) {
+      console.error("getUsers error:", error);
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message,
+            code: "USER_LIST_ERROR",
+          },
+        },
+        500
+      );
     }
-
-    // Query final
-    const [users, total] = await Promise.all([
-      User.find(filters)
-        .populate("role_id", "name description hierarchy_level")
-        .populate("division_id", "name")
-        .populate("full_name email")
-        .select("-password")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-
-      User.countDocuments(filters),
-    ]);
-
-    return c.json({
-      success: true,
-      data: users,
-      meta: {
-        pagination: {
-          page,
-          page_size: limit,
-          total_items: total,
-          total_pages: Math.ceil(total / limit),
-        },
-      },
-    });
-
-  } catch (error) {
-    console.error("getUsers error:", error);
-    return c.json(
-      {
-        success: false,
-        error: {
-          message: error.message || "Internal server error",
-          code: "USER_LIST_ERROR",
-        },
-      },
-      500
-    );
   }
-}
+  
 
 
   /**
@@ -108,7 +156,6 @@ class UserController {
   async getUserById(c) {
     try {
       const userId = c.req.param("id");
-      console.log("id user: ", userId)
 
       const user = await User.findById(userId)
         .populate("role_id", "name description hierarchy_level permissions")
@@ -116,6 +163,10 @@ class UserController {
         .populate("full_name email phone")
         .select("-password")
         .lean();
+
+      const userWithSalary = user
+        ? { ...user, salary: user.salary ? user.salary.toString() : null }
+        : null;
 
       if (!user) {
         return c.json(
@@ -132,7 +183,7 @@ class UserController {
 
       return c.json({
         success: true,
-        data: user,
+        data: userWithSalary,
       });
     } catch (error) {
       if (error.name === "CastError") {
@@ -221,6 +272,11 @@ class UserController {
       const hashedPassword = await argon2.hash(data.password);
 
       // Create user
+      const salaryValue =
+        data.salary !== undefined && data.salary !== null && data.salary !== ""
+          ? mongoose.Types.Decimal128.fromString(data.salary.toString())
+          : null;
+
       const newUser = await User.create({
         email: data.email,
         password: hashedPassword,
@@ -239,6 +295,7 @@ class UserController {
         state: data.state || null,
         postal_code: data.postal_code || null,
         country: data.country || "Indonesia",
+        salary: salaryValue,
         date_of_birth: data.date_of_birth || null,
         national_id: data.national_id || null,
       });
@@ -249,6 +306,7 @@ class UserController {
         event_type: "hired",
         new_role: data.role_id,
         new_division: data.division_id || null,
+        new_salary: salaryValue,
         effective_date: data.hire_date || new Date(),
         notes: "Initial hiring",
         created_by: currentUser._id,
@@ -262,10 +320,24 @@ class UserController {
         .select("-password")
         .lean();
 
+      const populatedWithSalary = {
+        ...populatedUser,
+        salary: populatedUser?.salary ? populatedUser.salary.toString() : null,
+      };
+
+      await logAudit(
+        c,
+        "user_create",
+        "user",
+        newUser._id,
+        null,
+        populatedWithSalary
+      );
+
       return c.json(
         {
           success: true,
-          data: populatedUser,
+          data: populatedWithSalary,
           message: "User created successfully",
         },
         201
@@ -346,11 +418,19 @@ class UserController {
         "status", "hire_date", "termination_date", "profile_photo_url",
         "emergency_contact_name", "emergency_contact_phone", "emergency_contact_relation",
         "address", "city", "state", "postal_code", "country",
-        "date_of_birth", "national_id"
+        "date_of_birth", "national_id", "salary"
       ];
 
       allowedFields.forEach(field => {
         if (data[field] !== undefined) {
+          if (field === "salary") {
+            if (data[field] === "") return;
+            updateData[field] =
+              data[field] !== null
+                ? mongoose.Types.Decimal128.fromString(data[field].toString())
+                : null;
+            return;
+          }
           updateData[field] = data[field];
         }
       });
@@ -379,6 +459,8 @@ class UserController {
       }
 
       // Update user
+      const oldSnapshot = existingUser.toObject();
+      delete oldSnapshot.password;
       const updatedUser = await User.findByIdAndUpdate(
         userId,
         { $set: updateData },
@@ -392,8 +474,9 @@ class UserController {
 
       // Create history record for significant changes
       const historyEvents = [];
+      const existingSalaryStr = existingUser.salary ? existingUser.salary.toString() : null;
 
-      if (data.role_id && data.role_id !== existingUser.role_id.toString()) {
+      if (data.role_id && data.role_id !== existingUser.role_id._id.toString()) {
         historyEvents.push({
           user_id: userId,
           event_type: "promotion",
@@ -429,13 +512,42 @@ class UserController {
         });
       }
 
+      if (Object.prototype.hasOwnProperty.call(updateData, "salary")) {
+        const newSalaryStr = updateData.salary ? updateData.salary.toString() : null;
+        if (newSalaryStr !== existingSalaryStr) {
+          historyEvents.push({
+            user_id: userId,
+            event_type: "salary_change",
+            old_salary: existingUser.salary,
+            new_salary: updateData.salary,
+            effective_date: new Date(),
+            reason: data.salary_reason || "Salary updated",
+            notes: data.notes || `Salary updated from ${existingSalaryStr || "null"} to ${newSalaryStr || "null"}`,
+            created_by: currentUser._id,
+          });
+        }
+      }
+
       if (historyEvents.length > 0) {
         await EmployeeHistory.insertMany(historyEvents);
       }
 
+      await logAudit(
+        c,
+        "user_update",
+        "user",
+        userId,
+        { ...oldSnapshot, salary: existingSalaryStr },
+        updatedUser
+      );
+
+      const userWithSalary = updatedUser
+        ? { ...updatedUser, salary: updatedUser.salary ? updatedUser.salary.toString() : null }
+        : updatedUser;
+
       return c.json({
         success: true,
-        data: updatedUser,
+        data: userWithSalary,
         message: "User updated successfully",
       });
     } catch (error) {
@@ -552,6 +664,15 @@ class UserController {
         created_by: currentUser._id,
       });
 
+      await logAudit(
+        c,
+        "user_delete",
+        "user",
+        userId,
+        user.toObject(),
+        { status: "terminated" }
+      );
+
       return c.json({
         success: true,
         message: "User deleted successfully",
@@ -589,51 +710,128 @@ class UserController {
    * GET /api/v1/users/:id/history
    * Get user history with pagination and filtering
    */
+  /**
+ * GET /api/v1/users/:id/history
+ * Get user history with pagination and filtering
+ */
   async getUserHistory(c) {
     try {
       const userId = c.req.param("id");
       const currentUser = c.get("user");
-      const currentPermission = c.get("currentPermission");
-
-      const objectiveUser = await User.findById(userId);
+      const userPermissions = c.get("userPermissions") || [];
+  
+      const has = (perm) => userPermissions.includes(perm);
+      const isSelf = currentUser._id.toString() === userId;
+  
+      // ===============================
+      // LOAD TARGET USER
+      // ===============================
+      const objectiveUser = await User.findById(userId).lean();
       if (!objectiveUser) {
-        return c.json(
-          {
+        return c.json({
+          success: false,
+          error: { message: "User not found", code: "USER_NOT_FOUND" },
+        }, 404);
+      }
+  
+      // ===============================
+      // RESOLVE DIVISION (ONLY IF NEEDED)
+      // ===============================
+      let managerDivisionId = null;
+  
+      if (has("user:view_history:own_division") || has("user:view_salary:own_division")) {
+        const division = await Division.findOne({ manager_id: currentUser._id })
+          .select("_id")
+          .lean();
+  
+        if (!division) {
+          return c.json({
             success: false,
-            error: {
-              message: "User not found",
-              code: "USER_NOT_FOUND",
-            },
-          },
-          404
-        );
+            error: { message: "Division not found", code: "DIVISION_NOT_FOUND" },
+          }, 404);
+        }
+  
+        managerDivisionId = division._id.toString();
       }
-
-      let canView = false;
-
-      if (currentPermission === "user:view_history:any") {
-        canView = true
-      } else if (currentPermission === "user:view_history:own_division" && currentUser.division_id === objectiveUser.division_id){
-        canView = true
-      } else if(currentPermission === "user:view_history:self" && currentUser._id.toString() === userId){
-        canView = true
+  
+      // ===============================
+      // HISTORY PERMISSION CHECK
+      // ===============================
+      let canViewHistory = false;
+  
+      if (has("user:view_history:any")) {
+        canViewHistory = true;
+      } else if (
+        has("user:view_history:own_division") &&
+        managerDivisionId &&
+        objectiveUser.division_id?.toString() === managerDivisionId
+      ) {
+        canViewHistory = true;
+      } else if (has("user:view_history:self") && isSelf) {
+        canViewHistory = true;
       }
-
-      if (!canView) return c.json({ error: "Access Denied" }, 403);
-
-      // Pagination
+  
+      if (!canViewHistory) {
+        return c.json({ error: "Access Denied" }, 403);
+      }
+  
+      // ===============================
+      // SALARY PERMISSION CHECK
+      // ===============================
+      let canViewSalary = false;
+  
+      if (has("user:view_salary:any")) {
+        canViewSalary = true;
+      } else if (
+        has("user:view_salary:own_division") &&
+        managerDivisionId &&
+        objectiveUser.division_id?.toString() === managerDivisionId
+      ) {
+        canViewSalary = true;
+      } else if (has("user:view_salary:self") && isSelf) {
+        canViewSalary = true;
+      }
+  
+      // ===============================
+      // PAGINATION
+      // ===============================
       const page = parseInt(c.req.query("page[number]")) || 1;
       const limit = parseInt(c.req.query("page[size]")) || 10;
       const skip = (page - 1) * limit;
-
-      // Filters
+  
+      // ===============================
+      // FILTERS
+      // ===============================
       const filters = { user_id: userId };
-
-      if (c.req.query("filter[event_type]")) {
-        filters.event_type = c.req.query("filter[event_type]");
+  
+      const eventType = c.req.query("filter[event_type]");
+      if (eventType) {
+        filters.event_type = eventType;
       }
-
-      // Query
+  
+      // salary_change disembunyikan kalau tidak punya izin
+      if (!canViewSalary) {
+        if (filters.event_type === "salary_change") {
+          return c.json({
+            success: true,
+            data: [],
+            meta: {
+              pagination: {
+                page,
+                page_size: limit,
+                total_items: 0,
+                total_pages: 0,
+              },
+            },
+          });
+        }
+  
+        filters.event_type = { $ne: "salary_change" };
+      }
+  
+      // ===============================
+      // QUERY DB
+      // ===============================
       const [history, total] = await Promise.all([
         EmployeeHistory.find(filters)
           .populate("old_role", "name")
@@ -645,19 +843,30 @@ class UserController {
           .skip(skip)
           .limit(limit)
           .lean(),
+  
         EmployeeHistory.countDocuments(filters),
       ]);
-
-      // Transform Decimal128 to string for JSON serialization
-      const transformedHistory = history.map((item) => ({
-        ...item,
-        old_salary: item.old_salary ? item.old_salary.toString() : null,
-        new_salary: item.new_salary ? item.new_salary.toString() : null,
-      }));
-
+  
+      // ===============================
+      // MASK SALARY FIELD
+      // ===============================
+      const data = history.map((item) => {
+        if (!canViewSalary) {
+          delete item.old_salary;
+          delete item.new_salary;
+          return item;
+        }
+  
+        return {
+          ...item,
+          old_salary: item.old_salary?.toString() || null,
+          new_salary: item.new_salary?.toString() || null,
+        };
+      });
+  
       return c.json({
         success: true,
-        data: transformedHistory,
+        data,
         meta: {
           pagination: {
             page,
@@ -667,32 +876,20 @@ class UserController {
           },
         },
       });
+  
     } catch (error) {
-      if (error.name === "CastError") {
-        return c.json(
-          {
-            success: false,
-            error: {
-              message: "Invalid user ID format",
-              code: "INVALID_USER_ID",
-            },
-          },
-          400
-        );
-      }
-
-      return c.json(
-        {
-          success: false,
-          error: {
-            message: error.message,
-            code: "USER_HISTORY_ERROR",
-          },
+      console.error("getUserHistory error:", error);
+      return c.json({
+        success: false,
+        error: {
+          message: error.message,
+          code: "USER_HISTORY_ERROR",
         },
-        500
-      );
+      }, 500);
     }
   }
+  
+
 
   async changePassword(c) {
     try {
@@ -796,6 +993,332 @@ class UserController {
     }
   }
 
+  /**
+   * GET /api/v1/users/:id/salary
+   * Get user salary
+   */
+  async getUserSalary(c) {
+    try {
+      const userId = c.req.param("id");
+      const currentUser = c.get("user");
+      const currentPermission = c.get("currentPermission");
+
+      const targetUser = await User.findById(userId)
+        .populate("role_id", "name")
+        .populate("division_id", "name")
+        .select("salary full_name email division_id role_id");
+
+      if (!targetUser) {
+        return c.json({
+          success: false,
+          error: {
+            message: "User not found",
+            code: "USER_NOT_FOUND",
+          },
+        }, 404);
+      }
+
+      // Check permission
+      let canView = false;
+      if (currentPermission === "user:view_salary:any") {
+        canView = true;
+      } else if (currentPermission === "user:view_salary:own_division") {
+        const userDivisionId = await Division.findOne({manager_id: currentUser._id});
+        const targetDivisionId = targetUser?.division_id?.toString();
+        if (userDivisionId && targetDivisionId && userDivisionId._id.toString() === targetDivisionId.toString()) {
+          canView = true;
+        }
+      } else if (currentPermission === "user:view_salary:self") {
+        if (currentUser._id.toString() === userId) {
+          canView = true;
+        }
+      }
+      
+
+      if (!canView) {
+        return c.json({
+          success: false,
+          error: {
+            message: "Forbidden: Access denied",
+            code: "ACCESS_DENIED",
+          },
+        }, 403);
+      }
+
+      return c.json({
+        success: true,
+        data: {
+          user_id: targetUser._id,
+          full_name: targetUser.full_name,
+          email: targetUser.email,
+          salary: targetUser.salary ? targetUser.salary.toString() : null,
+          division: targetUser.division_id?.name || null,
+          role: targetUser.role_id?.name || null,
+        },
+      });
+    } catch (error) {
+      console.error("Get user salary error:", error);
+      if (error.name === "CastError") {
+        return c.json({
+          success: false,
+          error: {
+            message: "Invalid user ID format",
+            code: "INVALID_USER_ID",
+          },
+        }, 400);
+      }
+      return c.json({
+        success: false,
+        error: {
+          message: error.message || "Internal server error",
+          code: "SALARY_FETCH_ERROR",
+        },
+      }, 500);
+    }
+  }
+
+  /**
+   * PATCH /api/v1/users/:id/salary
+   * Update user salary
+   */
+  async updateUserSalary(c) {
+    try {
+      const userId = c.req.param("id");
+      const currentUser = c.get("user");
+      const currentPermission = c.get("currentPermission");
+      const body = await c.req.json();
+      const { salary, reason, effective_date } = body;
+
+      if (!salary || salary <= 0) {
+        return c.json({
+          success: false,
+          error: {
+            message: "Salary must be greater than 0",
+            code: "VALIDATION_ERROR",
+          },
+        }, 400);
+      }
+
+      // Check permission
+      const userPerms = currentUser?.role_id?.permissions || [];
+      let canUpdate = false;
+
+      if (userPerms.includes("employee:promote:any")) {
+        canUpdate = true;
+      } else if (userPerms.includes("employee:promote:own_division")) {
+        const targetUser = await User.findById(userId).select("division_id");
+        if (targetUser) {
+          const userDivisionId = currentUser?.division_id?.toString();
+          const targetDivisionId = targetUser?.division_id?.toString();
+          if (userDivisionId && targetDivisionId && userDivisionId === targetDivisionId) {
+            canUpdate = true;
+          }
+        }
+      }
+
+      if (!canUpdate) {
+        return c.json({
+          success: false,
+          error: {
+            message: "Forbidden: You don't have permission to update salary",
+            code: "ACCESS_DENIED",
+          },
+        }, 403);
+      }
+
+      // Get existing user
+      const existingUser = await User.findById(userId);
+      if (!existingUser) {
+        return c.json({
+          success: false,
+          error: {
+            message: "User not found",
+            code: "USER_NOT_FOUND",
+          },
+        }, 404);
+      }
+
+      const oldSalary = existingUser.salary;
+
+      // Update salary
+      existingUser.salary = mongoose.Types.Decimal128.fromString(salary.toString());
+      await existingUser.save();
+
+      // Create history record
+      await EmployeeHistory.create({
+        user_id: userId,
+        event_type: "salary_change",
+        old_salary: oldSalary,
+        new_salary: existingUser.salary,
+        effective_date: effective_date ? new Date(effective_date) : new Date(),
+        reason: reason || "Salary update",
+        notes: `Salary updated from ${oldSalary ? oldSalary.toString() : "null"} to ${salary}`,
+        created_by: currentUser._id,
+      });
+
+      return c.json({
+        success: true,
+        message: "Salary updated successfully",
+        data: {
+          user_id: userId,
+          old_salary: oldSalary ? oldSalary.toString() : null,
+          new_salary: salary,
+        },
+      });
+    } catch (error) {
+      console.error("Update user salary error:", error);
+      if (error.name === "CastError") {
+        return c.json({
+          success: false,
+          error: {
+            message: "Invalid user ID format",
+            code: "INVALID_USER_ID",
+          },
+        }, 400);
+      }
+      return c.json({
+        success: false,
+        error: {
+          message: error.message || "Internal server error",
+          code: "SALARY_UPDATE_ERROR",
+        },
+      }, 500);
+    }
+  }
+
+  /**
+ * GET /api/v1/users/salary-report
+ * Get salary report with filtering
+ */
+  async getSalaryReport(c) {
+    try {
+      const currentUser = c.get("user");
+      const userPerms = currentUser?.role_id?.permissions || [];
+
+      const query = c.req.query();
+      const { page = 1, limit = 50, division_id, status, search } = query;
+
+      const filters = {};
+
+      // ============================================================
+      // 1️⃣ PERMISSION: user:view_salary:any → TAMPILKAN SEMUA
+      // ============================================================
+      if (userPerms.includes("user:view_salary:any")) {
+        // Kalau ANY, tetapi user juga mengirim division_id, gunakan filter manual
+        if (division_id && division_id !== "" && division_id !== "null") {
+          filters.division_id = division_id;
+        }
+
+      } else if (userPerms.includes("user:view_salary:own_division")) {
+        // ============================================================
+        // 2️⃣ PERMISSION: user:view_salary:own_division
+        // Cari division dengan manager_id == currentUser._id
+        // ============================================================
+
+        const division = await Division.findOne({
+          manager_id: currentUser._id,
+        }).select("_id");
+
+        if (!division) {
+          // Manager tidak memimpin division manapun → tidak boleh lihat siapapun
+          return c.json({
+            success: true,
+            data: [],
+            meta: {
+              pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: 0,
+                total_pages: 0,
+              },
+            },
+          });
+        }
+
+        // filter user dalam division tersebut
+        filters.division_id = division._id;
+      } else if (userPerms.includes("user:view_salary:self")) {
+        filters._id = currentUser._id;
+      } else {
+        return c.json({
+          success: false,
+          error: {
+            message: "Forbidden: Access denied",
+            code: "ACCESS_DENIED",
+          },
+        }, 403);
+      }
+
+      // ============================================================
+      // 3️⃣ FILTER TAMBAHAN (status, search)
+      // ============================================================
+
+      if (status) filters.status = status;
+
+      if (search) {
+        filters.$or = [
+          { full_name: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+        ];
+      }
+
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      const [users, total] = await Promise.all([
+        User.find(filters)
+          .populate("role_id", "name")
+          .populate("division_id", "name")
+          .select("full_name email salary status division_id role_id")
+          .sort({ created_at: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .lean(),
+        User.countDocuments(filters),
+      ]);
+
+      const report = users.map((user) => ({
+        user_id: user._id,
+        full_name: user.full_name,
+        email: user.email,
+        salary: user.salary ? user.salary.toString() : null,
+        status: user.status,
+        division: user.division_id?.name || null,
+        role: user.role_id?.name || null,
+      }));
+
+      await logAudit(c, "export", "salary_report", null, null, {
+        filters,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+      });
+
+      return c.json({
+        success: true,
+        data: report,
+        meta: {
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            total_pages: Math.ceil(total / parseInt(limit)),
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Get salary report error:", error);
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message || "Internal server error",
+            code: "SALARY_REPORT_ERROR",
+          },
+        },
+        500
+      );
+    }
+  }
 
 }
 

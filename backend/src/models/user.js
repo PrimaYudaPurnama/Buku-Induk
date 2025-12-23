@@ -72,6 +72,11 @@ const UserSchema = new mongoose.Schema(
 
     date_of_birth: Date,
     national_id: String,
+
+    salary: {
+      type: mongoose.Types.Decimal128,
+      default: null,
+    },
   },
   {
     timestamps: {

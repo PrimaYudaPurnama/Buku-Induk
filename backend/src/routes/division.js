@@ -12,7 +12,7 @@ divisionRouter.get(
 
 divisionRouter.get(
   "/",
-  authenticate(),
+  // authenticate(),
   (c) => DivisionController.getDivisions(c)  
 );
 

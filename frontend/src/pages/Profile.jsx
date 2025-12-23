@@ -16,10 +16,16 @@ import {
   Eye,
   EyeOff,
   Check,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import toast, { Toaster } from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+
 
 const getToken = () => {
   return useAuthStore.getState().token;
@@ -35,6 +41,8 @@ const UserProfile = () => {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const navigate = useNavigate();
   
   // Photo upload states
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -75,9 +83,7 @@ const UserProfile = () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
+        credentials: "include",
       });
       
       if (!response.ok) throw new Error('Failed to fetch user data');
@@ -87,6 +93,7 @@ const UserProfile = () => {
       setError(null);
     } catch (err) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -98,9 +105,7 @@ const UserProfile = () => {
       const response = await fetch(
         `${API_BASE_URL}/users/${userId}/history?page[number]=${historyPage}&page[size]=10`,
         {
-          headers: {
-            'Authorization': `Bearer ${getToken()}`
-          }
+          credentials: "include",
         }
       );
       
@@ -110,7 +115,7 @@ const UserProfile = () => {
       setHistoryData(result.data);
       setHistoryMeta(result.meta);
     } catch (err) {
-      console.error('History fetch error:', err);
+      toast.error('Failed to load history');
     } finally {
       setHistoryLoading(false);
     }
@@ -120,11 +125,11 @@ const UserProfile = () => {
     const file = e.target.files[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
-        alert('Please select an image file');
+        toast.error('Please select an image file');
         return;
       }
       if (file.size > 5 * 1024 * 1024) {
-        alert('File size must be less than 5MB');
+        toast.error('File size must be less than 5MB');
         return;
       }
       setSelectedFile(file);
@@ -144,9 +149,7 @@ const UserProfile = () => {
         `${API_BASE_URL}/files/${userId}/upload`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${getToken()}`
-          },
+          credentials: "include",
           body: formData
         }
       );
@@ -154,14 +157,19 @@ const UserProfile = () => {
       if (!response.ok) throw new Error('Upload failed');
       
       await fetchUserData();
+      toast.success('Photo updated successfully');
       setShowPhotoModal(false);
       setSelectedFile(null);
       setPreviewUrl(null);
     } catch (err) {
-      alert('Failed to upload photo: ' + err.message);
+      toast.error('Failed to upload photo');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleBackToDashboard = () => {
+    navigate('/dashboard');
   };
 
   const handlePasswordChange = async () => {
@@ -187,9 +195,9 @@ const UserProfile = () => {
       const response = await fetch(`${API_BASE_URL}/users/${userId}/change-password`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${getToken()}`,
           'Content-Type': 'application/json'
         },
+        credentials: "include",
         body: JSON.stringify({
           currentPassword: passwordData.currentPassword,
           newPassword: passwordData.newPassword
@@ -201,12 +209,13 @@ const UserProfile = () => {
         throw new Error(error.error?.message || 'Failed to change password');
       }
 
+      toast.success('Password changed successfully');
       setPasswordSuccess(true);
       setTimeout(() => {
         setShowPasswordModal(false);
         setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
         setPasswordSuccess(false);
-      }, 2000);
+      }, 1500);
     } catch (err) {
       setPasswordError(err.message);
     }
@@ -228,448 +237,631 @@ const UserProfile = () => {
 
   const getEventTypeBadge = (eventType) => {
     const badges = {
-      'role_change': 'bg-blue-100 text-blue-800',
-      'division_change': 'bg-purple-100 text-purple-800',
-      'salary_change': 'bg-green-100 text-green-800',
-      'status_change': 'bg-orange-100 text-orange-800',
-      'promotion': 'bg-yellow-100 text-yellow-800'
+      'role_change': 'bg-blue-900/30 text-blue-400 border border-blue-800/50',
+      'division_change': 'bg-purple-900/30 text-purple-400 border border-purple-800/50',
+      'salary_change': 'bg-green-900/30 text-green-400 border border-green-800/50',
+      'status_change': 'bg-orange-900/30 text-orange-400 border border-orange-800/50',
+      'promotion': 'bg-yellow-900/30 text-yellow-400 border border-yellow-800/50'
     };
-    return badges[eventType] || 'bg-gray-100 text-gray-800';
+    return badges[eventType] || 'bg-slate-800/50 text-slate-400 border border-slate-700/50';
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        delayChildren: 0.3,
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: {
+        type: "spring",
+        stiffness: 100
+      }
+    }
+  };
+
+  const floatingVariants = {
+    animate: {
+      y: [0, -15, 0],
+      transition: {
+        duration: 4,
+        repeat: Infinity,
+        ease: "easeInOut"
+      }
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full"
+        />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Profile</h2>
-          <p className="text-gray-600">{error}</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center"
+        >
+          <AlertCircle className="w-20 h-20 text-red-400 mx-auto mb-6" />
+          <h2 className="text-2xl font-bold text-white mb-3">Error Loading Profile</h2>
+          <p className="text-slate-400 max-w-sm">{error}</p>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-6xl mx-auto">
-        {/* Header Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
-          <div className="h-32 bg-gradient-to-r from-blue-500 to-blue-600"></div>
-          <div className="px-8 pb-8">
-            <div className="flex flex-col md:flex-row items-start md:items-end gap-6 -mt-16">
-              {/* Profile Photo */}
-              <div className="relative group">
-                <div className="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-100">
-                  {userData?.profile_photo_url ? (
-                    <img 
-                      src={userData.profile_photo_url} 
-                      alt={userData.full_name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-3xl font-bold">
-                      {getInitials(userData?.full_name)}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setShowPhotoModal(true)}
-                  className="absolute bottom-2 right-2 bg-white rounded-full p-2 shadow-lg hover:bg-gray-50 transition-colors"
-                >
-                  <Camera className="w-4 h-4 text-gray-700" />
-                </button>
-              </div>
-
-              {/* User Info */}
-              <div className="flex-1 mt-4 md:mt-0">
-                <h1 className="text-3xl font-bold text-gray-900">{userData?.full_name}</h1>
-                <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
-                    <Shield className="w-4 h-4" />
-                    {userData?.role_id?.name}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                    <Building2 className="w-4 h-4" />
-                    {userData?.division_id?.name}
-                  </span>
-                </div>
-              </div>
-
-              {/* Action Button */}
-              <button
-                onClick={() => setShowPasswordModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                <Key className="w-4 h-4" />
-                Change Password
-              </button>
-            </div>
-          </div>
+    <>
+      <Toaster position="top-center" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-4 relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="absolute inset-0 overflow-hidden">
+          <motion.div
+            className="absolute top-20 left-20 w-72 h-72 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20"
+            animate={{
+              scale: [1, 1.2, 1],
+              x: [0, 50, 0],
+              y: [0, 30, 0],
+            }}
+            transition={{
+              duration: 8,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+          />
+          <motion.div
+            className="absolute bottom-20 right-20 w-96 h-96 bg-indigo-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20"
+            animate={{
+              scale: [1, 1.3, 1],
+              x: [0, -50, 0],
+              y: [0, -30, 0],
+            }}
+            transition={{
+              duration: 10,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+          />
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex gap-8 px-8">
-              <button
-                onClick={() => setActiveTab('profile')}
-                className={`py-4 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'profile'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                <User className="w-4 h-4 inline mr-2" />
-                Profile Information
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`py-4 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'history'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                <History className="w-4 h-4 inline mr-2" />
-                History
-              </button>
-            </nav>
-          </div>
+        {/* Tombol Kembali ke Dashboard - Fixed di pojok kiri atas */}
+        <motion.button
+          onClick={handleBackToDashboard}
+          className="fixed top-6 left-6 z-50 flex items-center gap-3 px-5 py-3 bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl text-white font-medium shadow-2xl hover:bg-slate-800/90 transition-all group"
+          whileHover={{ scale: 1.05, x: -3 }}
+          whileTap={{ scale: 0.95 }}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+          Kembali ke Dashboard
+        </motion.button>
+        <motion.div
+          className="max-w-6xl mx-auto relative z-10"
+          initial="hidden"
+          animate="visible"
+          variants={containerVariants}
+        >
+          {/* Header Card */}
+          <motion.div
+            className="bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 overflow-hidden mb-8"
+            variants={itemVariants}
+            whileHover={{ scale: 1.01 }}
+          >
+            <div className="h-40 bg-gradient-to-r from-blue-600 to-indigo-700 relative overflow-hidden">
+              <motion.div
+                className="absolute inset-0 bg-gradient-to-t from-slate-900/50 to-transparent"
+              />
+            </div>
 
-          {/* Tab Content */}
-          <div className="p-8">
-            {activeTab === 'profile' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <InfoCard icon={Mail} label="Email" value={userData?.email} />
-                <InfoCard icon={Phone} label="Phone" value={userData?.phone} />
-                <InfoCard icon={Briefcase} label="Role" value={userData?.role_id?.name} />
-                <InfoCard icon={Building2} label="Division" value={userData?.division_id?.name} />
-                <InfoCard icon={Calendar} label="Join Date" value={formatDate(userData?.created_at)} />
-                <InfoCard icon={Clock} label="Last Updated" value={formatDate(userData?.updated_at)} />
-                
-                {userData?.role_id?.description && (
-                  <div className="md:col-span-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Role Description</h3>
-                    <p className="text-gray-600">{userData.role_id.description}</p>
-                  </div>
-                )}
-                
-                {userData?.division_id?.description && (
-                  <div className="md:col-span-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Division Description</h3>
-                    <p className="text-gray-600">{userData.division_id.description}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'history' && (
-              <div>
-                {historyLoading ? (
-                  <div className="flex justify-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                  </div>
-                ) : historyData.length === 0 ? (
-                  <div className="text-center py-12">
-                    <History className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500">No history records found</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-4">
-                      {historyData.map((item, index) => (
-                        <div key={index} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                          <div className="flex items-start justify-between mb-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getEventTypeBadge(item.event_type)}`}>
-                              {item.event_type.replace('_', ' ').toUpperCase()}
-                            </span>
-                            <span className="text-sm text-gray-500">{formatDate(item.effective_date)}</span>
-                          </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {item.old_role && (
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Role Change</p>
-                                <p className="text-sm">
-                                  <span className="text-gray-600">{item.old_role?.name}</span>
-                                  <span className="mx-2">→</span>
-                                  <span className="font-medium text-gray-900">{item.new_role?.name}</span>
-                                </p>
-                              </div>
-                            )}
-                            
-                            {item.old_division && (
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Division Change</p>
-                                <p className="text-sm">
-                                  <span className="text-gray-600">{item.old_division?.name}</span>
-                                  <span className="mx-2">→</span>
-                                  <span className="font-medium text-gray-900">{item.new_division?.name}</span>
-                                </p>
-                              </div>
-                            )}
-                            
-                            {item.old_salary && (
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Salary Change</p>
-                                <p className="text-sm">
-                                  <span className="text-gray-600">Rp {parseFloat(item.old_salary).toLocaleString('id-ID')}</span>
-                                  <span className="mx-2">→</span>
-                                  <span className="font-medium text-gray-900">Rp {parseFloat(item.new_salary).toLocaleString('id-ID')}</span>
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {item.notes && (
-                            <p className="mt-3 text-sm text-gray-600 bg-gray-50 p-3 rounded">{item.notes}</p>
-                          )}
-                          
-                          {item.created_by && (
-                            <p className="mt-2 text-xs text-gray-500">
-                              Modified by: {item.created_by.full_name}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {historyMeta && historyMeta.pagination.total_pages > 1 && (
-                      <div className="flex justify-center gap-2 mt-6">
-                        <button
-                          onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
-                          disabled={historyPage === 1}
-                          className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                        >
-                          Previous
-                        </button>
-                        <span className="px-4 py-2 text-gray-600">
-                          Page {historyPage} of {historyMeta.pagination.total_pages}
-                        </span>
-                        <button
-                          onClick={() => setHistoryPage(p => p + 1)}
-                          disabled={historyPage === historyMeta.pagination.total_pages}
-                          className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                        >
-                          Next
-                        </button>
+            <div className="px-8 pb-10 relative">
+              <div className="flex flex-col lg:flex-row items-start lg:items-end gap-8 -mt-20">
+                {/* Profile Photo */}
+                <motion.div 
+                  className="relative group"
+                  variants={floatingVariants}
+                  animate="animate"
+                >
+                  <div className="w-40 h-40 rounded-3xl border-4 border-slate-900 shadow-2xl overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700">
+                    {userData?.profile_photo_url ? (
+                      <img 
+                        src={userData.profile_photo_url} 
+                        alt={userData.full_name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-white text-5xl font-bold">
+                        {getInitials(userData?.full_name)}
                       </div>
                     )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Photo Upload Modal */}
-      {showPhotoModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Upload Profile Photo</h3>
-              <button
-                onClick={() => {
-                  setShowPhotoModal(false);
-                  setSelectedFile(null);
-                  setPreviewUrl(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="mb-4">
-              {previewUrl ? (
-                <div className="relative">
-                  <img src={previewUrl} alt="Preview" className="w-full h-64 object-cover rounded-lg" />
-                  <button
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setPreviewUrl(null);
-                    }}
-                    className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-lg hover:bg-gray-100"
+                  </div>
+                  <motion.button
+                    onClick={() => setShowPhotoModal(true)}
+                    className="absolute bottom-3 right-3 bg-blue-600 rounded-2xl p-3 shadow-xl hover:bg-blue-700 transition-all"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
                   >
-                    <X className="w-4 h-4" />
-                  </button>
+                    <Camera className="w-6 h-6 text-white" />
+                  </motion.button>
+                </motion.div>
+
+                {/* User Info */}
+                <div className="flex-1">
+                  <motion.h1 
+                    className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent mb-4"
+                    variants={itemVariants}
+                  >
+                    {userData?.full_name}
+                  </motion.h1>
+                  <motion.div 
+                    className="flex flex-wrap items-center gap-4"
+                    variants={itemVariants}
+                  >
+                    <span className="inline-flex items-center gap-2 px-5 py-2 bg-blue-900/50 border border-blue-800/50 rounded-2xl text-blue-300 backdrop-blur-sm">
+                      <Shield className="w-5 h-5" />
+                      <span className="font-medium">{userData?.role_id?.name}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-900/50 border border-indigo-800/50 rounded-2xl text-indigo-300 backdrop-blur-sm">
+                      <Building2 className="w-5 h-5" />
+                      <span className="font-medium">{userData?.division_id?.name}</span>
+                    </span>
+                  </motion.div>
                 </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                  <Upload className="w-12 h-12 text-gray-400 mb-2" />
-                  <span className="text-sm text-gray-600">Click to upload image</span>
-                  <span className="text-xs text-gray-400 mt-1">Max 5MB</span>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={handleFileSelect}
-                  />
-                </label>
+
+                {/* Change Password Button */}
+                <motion.button
+                  onClick={() => setShowPasswordModal(true)}
+                  className="inline-flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-2xl transition-all shadow-lg relative overflow-hidden group"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Key className="w-5 h-5" />
+                  Change Password
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Tabs Card */}
+          <motion.div
+            className="bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50"
+            variants={itemVariants}
+          >
+            <div className="border-b border-slate-700/50">
+              <nav className="flex gap-10 px-10 pt-6">
+                <motion.button
+                  onClick={() => setActiveTab('profile')}
+                  className={`pb-4 border-b-4 font-medium text-lg flex items-center gap-3 transition-all ${
+                    activeTab === 'profile'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-300'
+                  }`}
+                  whileHover={{ y: -2 }}
+                >
+                  <User className="w-6 h-6" />
+                  Profile Information
+                </motion.button>
+                <motion.button
+                  onClick={() => setActiveTab('history')}
+                  className={`pb-4 border-b-4 font-medium text-lg flex items-center gap-3 transition-all ${
+                    activeTab === 'history'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-300'
+                  }`}
+                  whileHover={{ y: -2 }}
+                >
+                  <History className="w-6 h-6" />
+                  Activity History
+                </motion.button>
+              </nav>
+            </div>
+
+            <div className="p-10">
+              {activeTab === 'profile' && (
+                <motion.div 
+                  className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  <InfoCard icon={Mail} label="Email Address" value={userData?.email} />
+                  <InfoCard icon={Phone} label="Phone Number" value={userData?.phone} />
+                  <InfoCard icon={Briefcase} label="Job Role" value={userData?.role_id?.name} />
+                  <InfoCard icon={Building2} label="Division" value={userData?.division_id?.name} />
+                  <InfoCard icon={Calendar} label="Join Date" value={formatDate(userData?.created_at)} />
+                  <InfoCard icon={Clock} label="Last Updated" value={formatDate(userData?.updated_at)} />
+
+                  {userData?.role_id?.description && (
+                    <motion.div 
+                      className="md:col-span-2 p-6 bg-slate-800/50 border border-slate-700/50 rounded-2xl backdrop-blur-sm"
+                      variants={itemVariants}
+                    >
+                      <h3 className="text-lg font-semibold text-blue-400 mb-3 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5" />
+                        Role Description
+                      </h3>
+                      <p className="text-slate-300 leading-relaxed">{userData.role_id.description}</p>
+                    </motion.div>
+                  )}
+
+                  {userData?.division_id?.description && (
+                    <motion.div 
+                      className="md:col-span-2 p-6 bg-slate-800/50 border border-slate-700/50 rounded-2xl backdrop-blur-sm"
+                      variants={itemVariants}
+                    >
+                      <h3 className="text-lg font-semibold text-indigo-400 mb-3 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5" />
+                        Division Description
+                      </h3>
+                      <p className="text-slate-300 leading-relaxed">{userData.division_id.description}</p>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === 'history' && (
+                <div>
+                  {historyLoading ? (
+                    <div className="flex justify-center py-20">
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full"
+                      />
+                    </div>
+                  ) : historyData.length === 0 ? (
+                    <motion.div 
+                      className="text-center py-20"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <History className="w-20 h-20 text-slate-600 mx-auto mb-6" />
+                      <p className="text-slate-400 text-lg">No history records found</p>
+                    </motion.div>
+                  ) : (
+                    <motion.div 
+                      className="space-y-6"
+                      variants={containerVariants}
+                      initial="hidden"
+                      animate="visible"
+                    >
+                      {historyData.map((item, index) => (
+                        <motion.div 
+                          key={index} 
+                          className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 hover:bg-slate-800/70 transition-all backdrop-blur-sm"
+                          variants={itemVariants}
+                          whileHover={{ scale: 1.02 }}
+                        >
+                          <div className="flex items-center justify-between mb-5">
+                            <span className={`px-4 py-2 rounded-xl text-sm font-medium ${getEventTypeBadge(item.event_type)} backdrop-blur-sm`}>
+                              {item.event_type.replace('_', ' ').toUpperCase()}
+                            </span>
+                            <span className="text-slate-400 flex items-center gap-2">
+                              <Calendar className="w-4 h-4" />
+                              {formatDate(item.effective_date)}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {item.old_role && (
+                              <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                                <p className="text-xs text-slate-500 mb-2">Role Change</p>
+                                <p className="text-slate-300">
+                                  {item.old_role?.name} → <span className="font-semibold text-blue-400">{item.new_role?.name}</span>
+                                </p>
+                              </div>
+                            )}
+                            {item.old_division && (
+                              <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                                <p className="text-xs text-slate-500 mb-2">Division Change</p>
+                                <p className="text-slate-300">
+                                  {item.old_division?.name} → <span className="font-semibold text-indigo-400">{item.new_division?.name}</span>
+                                </p>
+                              </div>
+                            )}
+                            {item.old_salary && (
+                              <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/30">
+                                <p className="text-xs text-slate-500 mb-2">Salary Change</p>
+                                <p className="text-slate-300">
+                                  Rp {parseFloat(item.old_salary).toLocaleString('id-ID')} → <span className="font-semibold text-green-400">Rp {parseFloat(item.new_salary).toLocaleString('id-ID')}</span>
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {item.notes && (
+                            <div className="mt-5 p-4 bg-slate-900/50 rounded-xl border border-slate-700/30">
+                              <p className="text-slate-300 italic">"{item.notes}"</p>
+                            </div>
+                          )}
+
+                          {item.created_by && (
+                            <p className="mt-4 text-sm text-slate-500">
+                              Modified by: <span className="text-slate-300 font-medium">{item.created_by.full_name}</span>
+                            </p>
+                          )}
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  )}
+
+                  {historyMeta && historyMeta.pagination.total_pages > 1 && (
+                    <motion.div 
+                      className="flex justify-center items-center gap-4 mt-10"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <motion.button
+                        onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                        disabled={historyPage === 1}
+                        className="px-6 py-3 bg-slate-800/70 border border-slate-700 rounded-xl text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700/70 transition-all"
+                        whileHover={{ scale: historyPage === 1 ? 1 : 1.05 }}
+                      >
+                        Previous
+                      </motion.button>
+                      <span className="text-slate-400 font-medium">
+                        Page {historyPage} of {historyMeta.pagination.total_pages}
+                      </span>
+                      <motion.button
+                        onClick={() => setHistoryPage(p => p + 1)}
+                        disabled={historyPage === historyMeta.pagination.total_pages}
+                        className="px-6 py-3 bg-slate-800/70 border border-slate-700 rounded-xl text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700/70 transition-all"
+                        whileHover={{ scale: historyPage === historyMeta.pagination.total_pages ? 1 : 1.05 }}
+                      >
+                        Next
+                      </motion.button>
+                    </motion.div>
+                  )}
+                </div>
               )}
             </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowPhotoModal(false);
-                  setSelectedFile(null);
-                  setPreviewUrl(null);
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePhotoUpload}
-                disabled={!selectedFile || uploading}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploading ? 'Uploading...' : 'Upload'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        </motion.div>
 
-      {/* Change Password Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
-              <button
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                  setPasswordError('');
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {passwordSuccess && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-800">
-                <Check className="w-5 h-5" />
-                <span className="text-sm">Password changed successfully!</span>
+        {/* Photo Upload Modal */}
+        {showPhotoModal && (
+          <motion.div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div 
+              className="bg-slate-900/90 backdrop-blur-2xl rounded-3xl max-w-lg w-full p-8 border border-blue-900/50 shadow-2xl"
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-white">Upload Profile Photo</h3>
+                <motion.button
+                  onClick={() => {
+                    setShowPhotoModal(false);
+                    setSelectedFile(null);
+                    setPreviewUrl(null);
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                  whileHover={{ scale: 1.1 }}
+                >
+                  <X className="w-7 h-7" />
+                </motion.button>
               </div>
-            )}
 
-            {passwordError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800">
-                <AlertCircle className="w-5 h-5" />
-                <span className="text-sm">{passwordError}</span>
+              <div className="mb-8">
+                {previewUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden">
+                    <img src={previewUrl} alt="Preview" className="w-full h-80 object-cover" />
+                    <motion.button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="absolute top-4 right-4 bg-slate-800/80 backdrop-blur-sm rounded-full p-3 shadow-lg hover:bg-slate-700/80"
+                      whileHover={{ scale: 1.1 }}
+                    >
+                      <X className="w-5 h-5 text-white" />
+                    </motion.button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-80 border-2 border-dashed border-slate-600 rounded-2xl cursor-pointer hover:border-blue-500 hover:bg-slate-800/30 transition-all group">
+                    <Upload className="w-16 h-16 text-slate-500 group-hover:text-blue-400 mb-4 transition-colors" />
+                    <span className="text-lg text-slate-300 group-hover:text-white">Click to upload image</span>
+                    <span className="text-sm text-slate-500 mt-2">Max 5MB • JPG, PNG</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                    />
+                  </label>
+                )}
               </div>
-            )}
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.current ? 'text' : 'password'}
-                    value={passwordData.currentPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              <div className="flex gap-4">
+                <motion.button
+                  onClick={() => {
+                    setShowPhotoModal(false);
+                    setSelectedFile(null);
+                    setPreviewUrl(null);
+                  }}
+                  className="flex-1 py-4 bg-slate-800/70 border border-slate-700 rounded-2xl text-slate-300 hover:bg-slate-700/70 transition-all font-medium"
+                  whileHover={{ scale: 1.03 }}
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  onClick={handlePhotoUpload}
+                  disabled={!selectedFile || uploading}
+                  className="flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
+                  whileHover={{ scale: selectedFile ? 1.05 : 1 }}
+                >
+                  {uploading ? 'Uploading...' : 'Upload Photo'}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Change Password Modal */}
+        {showPasswordModal && (
+          <motion.div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div 
+              className="bg-slate-900/90 backdrop-blur-2xl rounded-3xl max-w-lg w-full p-8 border border-blue-900/50 shadow-2xl"
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <Key className="w-8 h-8 text-blue-400" />
+                  Change Password
+                </h3>
+                <motion.button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                    setPasswordError('');
+                    setPasswordSuccess(false);
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                  whileHover={{ scale: 1.1 }}
+                >
+                  <X className="w-7 h-7" />
+                </motion.button>
+              </div>
+
+              {passwordSuccess && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-5 bg-green-900/30 border border-green-700/50 rounded-2xl flex items-center gap-4 backdrop-blur-sm"
+                >
+                  <Check className="w-8 h-8 text-green-400" />
+                  <span className="text-green-300 font-medium">Password changed successfully!</span>
+                </motion.div>
+              )}
+
+              {passwordError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-5 bg-red-900/30 border border-red-700/50 rounded-2xl flex items-start gap-4 backdrop-blur-sm"
+                >
+                  <AlertCircle className="w-8 h-8 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-red-300 font-medium">Password Change Failed</p>
+                    <p className="text-red-400 text-sm mt-1">{passwordError}</p>
+                  </div>
+                </motion.div>
+              )}
+
+              <div className="space-y-6">
+                {['current', 'new', 'confirm'].map((field, idx) => (
+                  <motion.div key={field} variants={itemVariants}>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      {field === 'current' ? 'Current Password' : field === 'new' ? 'New Password' : 'Confirm New Password'}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPasswords[field] ? 'text' : 'password'}
+                        value={passwordData[field === 'current' ? 'currentPassword' : field === 'new' ? 'newPassword' : 'confirmPassword']}
+                        onChange={(e) => setPasswordData({ ...passwordData, [field === 'current' ? 'currentPassword' : field === 'new' ? 'newPassword' : 'confirmPassword']: e.target.value })}
+                        className="w-full pl-5 pr-14 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm"
+                        placeholder="••••••••"
+                      />
+                      <motion.button
+                        type="button"
+                        onClick={() => setShowPasswords({ ...showPasswords, [field]: !showPasswords[field] })}
+                        className="absolute inset-y-0 right-0 pr-5 flex items-center"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                      >
+                        {showPasswords[field] ? (
+                          <EyeOff className="h-6 w-6 text-slate-400 hover:text-blue-400 transition-colors" />
+                        ) : (
+                          <Eye className="h-6 w-6 text-slate-400 hover:text-blue-400 transition-colors" />
+                        )}
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <motion.button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                    setPasswordError('');
+                    setPasswordSuccess(false);
+                  }}
+                  className="flex-1 py-4 bg-slate-800/70 border border-slate-700 rounded-2xl text-slate-300 hover:bg-slate-700/70 transition-all font-medium"
+                  whileHover={{ scale: 1.03 }}
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  onClick={handlePasswordChange}
+                  className="flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-semibold relative overflow-hidden group"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-0 group-hover:opacity-20"
+                    animate={{ x: ['-100%', '100%'] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+                  Change Password
+                </motion.button>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.new ? 'text' : 'password'}
-                    value={passwordData.newPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.confirm ? 'text' : 'password'}
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                  setPasswordError('');
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePasswordChange}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Change Password
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </div>
+    </>
   );
 };
 
 const InfoCard = ({ icon: Icon, label, value }) => (
-  <div className="p-4 border border-gray-200 rounded-lg hover:shadow-sm transition-shadow">
-    <div className="flex items-center gap-3">
-      <div className="p-2 bg-gray-100 rounded-lg">
-        <Icon className="w-5 h-5 text-gray-600" />
+  <motion.div 
+    className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 hover:bg-slate-800/70 transition-all backdrop-blur-sm"
+    variants={{
+      hidden: { y: 20, opacity: 0 },
+      visible: { y: 0, opacity: 1 }
+    }}
+    whileHover={{ scale: 1.03, y: -5 }}
+  >
+    <div className="flex items-center gap-5">
+      <div className="p-4 bg-blue-900/30 rounded-2xl border border-blue-800/50">
+        <Icon className="w-7 h-7 text-blue-400" />
       </div>
       <div>
-        <p className="text-xs text-gray-500 mb-0.5">{label}</p>
-        <p className="text-sm font-medium text-gray-900">{value || 'N/A'}</p>
+        <p className="text-sm text-slate-400 mb-1">{label}</p>
+        <p className="text-lg font-semibold text-white">{value || 'N/A'}</p>
       </div>
     </div>
-  </div>
+  </motion.div>
 );
 
-// Demo dengan user ID
-export default UserProfile
+export default UserProfile;

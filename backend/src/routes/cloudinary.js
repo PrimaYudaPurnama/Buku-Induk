@@ -5,6 +5,9 @@ const cloudinaryRouter = new Hono();
 
 //app.route("/api/v1/files", cloudinaryRouter);
 
+// Upload profile photo for account setup (no auth required) - MUST BE BEFORE /:id
+cloudinaryRouter.post("/upload", (c) => cloudinary_metaData.uploadProfilePhotoForSetup(c));
+
 // Upload profile picture
 cloudinaryRouter.post("/:id/upload", (c) => cloudinary_metaData.uploadProfilePhoto(c));
 

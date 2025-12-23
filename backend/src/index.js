@@ -7,6 +7,14 @@ import argon2 from "argon2"
 import userRouter from "./routes/user.js";
 import authRouter from "./routes/auth.js"
 import cloudinaryRouter from './routes/cloudinary.js';
+import accountRequestRouter from './routes/accountRequest.js';
+import approvalRouter from './routes/approval.js';
+import documentRouter from './routes/document.js';
+import notificationRouter from './routes/notification.js';
+import auditLogRouter from './routes/auditLog.js';
+import roleRouter from './routes/role.js';
+import analyticsRouter from './routes/analytics.js';
+import orgChartRouter from './routes/orgChart.js';
 
 import Role from "./models/role.js";
 import divisionRouter from './routes/division.js';
@@ -32,6 +40,14 @@ app.route("/api/v1/files", cloudinaryRouter);
 app.route("/api/v1/users", userRouter);
 app.route("/api/v1/divisions", divisionRouter);
 app.route("/api/v1/auth", authRouter);
+app.route("/api/v1/account-requests", accountRequestRouter);
+app.route("/api/v1/approvals", approvalRouter);
+app.route("/api/v1/documents", documentRouter);
+app.route("/api/v1/notifications", notificationRouter);
+app.route("/api/v1/audit-logs", auditLogRouter);
+app.route("/api/v1/roles", roleRouter);
+app.route("/api/v1/analytics", analyticsRouter);
+app.route("/api/v1/org-chart", orgChartRouter);
 
 
 // app.post("/tes/masukin", async (c) => {
@@ -40,7 +56,7 @@ app.route("/api/v1/auth", authRouter);
 //   return c.json(data, 201);
 // })
 
-app.post("/tobcrypt", async(c) => {
+app.post("/toargon2", async(c) => {
   const body = await c.req.json();
   const hash = await argon2.hash(body.password);
 

@@ -42,10 +42,10 @@ class DivisionController {
             const fields = include.split(",").map((x) => x.trim());
 
             if (fields.includes("manager")) {
-            mongoQuery = mongoQuery.populate("manager_id", "name email role");
+            mongoQuery = mongoQuery.populate("manager_id", "full_name email role_id");
             }
             if (fields.includes("active_general")) {
-            mongoQuery = mongoQuery.populate("active_general_id", "name email role");
+            mongoQuery = mongoQuery.populate("active_general_id", "full_name email role_id");
             }
         }
 
