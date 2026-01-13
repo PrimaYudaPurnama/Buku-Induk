@@ -1,5 +1,122 @@
-konteks : @controllers/ 
+✅ DAFTAR HARDCODED VALUES YANG SUDAH DIUBAH MENJADI ENVIRONMENT VARIABLES:
 
-lakukan : 
-- cek seluruh controller saya dan tambahkan jika saya ada lengah/kurang dalam pemberian riwayat ke @employeeHistory.js ataupun @auditLog.js 
-- lalu update @project.md 
+================================================================================
+1. API BASE URL - SUDAH DIUBAH ✅
+================================================================================
+
+✅ File: src/utils/api.jsx (line 6)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+
+✅ File: src/App.jsx (line 21)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+✅ File: src/pages/Login.jsx (lines 34, 46)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+✅ File: src/components/Sidebar.jsx (line 37)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+
+✅ File: src/components/Header.jsx (line 7)
+   Changed to: const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+✅ File: src/pages/Profile.jsx (line 34)
+   Changed to: const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+✅ File: src/pages/PendingUsers.jsx (line 12)
+   Changed to: const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') || "http://localhost:3000";
+
+✅ File: src/pages/DocumentViewer.jsx (line 7)
+   Changed to: const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') || "http://localhost:3000";
+
+✅ File: src/pages/AccountSetup.jsx (line 122)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+✅ File: src/pages/ApprovalInbox.jsx (line 10)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+
+✅ File: src/components/ApprovalCard.jsx (line 7)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+
+✅ File: src/subs/DocumentList.jsx (line 23)
+   Changed to: const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+
+================================================================================
+2. ENVIRONMENT VARIABLES YANG PERLU DIBUAT
+================================================================================
+
+📝 VITE_API_BASE_URL
+   - Deskripsi: Base URL untuk API backend (dengan /api/v1)
+   - Default: http://localhost:3000/api/v1
+   - Contoh Production: https://api.example.com/api/v1
+
+📝 VITE_API_URL (Optional)
+   - Deskripsi: Base URL tanpa /api/v1 untuk file serving
+   - Default: Otomatis diambil dari VITE_API_BASE_URL dengan menghapus /api/v1
+   - Contoh Production: https://api.example.com
+
+================================================================================
+3. CARA SETUP ENVIRONMENT VARIABLES
+================================================================================
+
+🔧 DEVELOPMENT:
+   1. Buat file .env.local di folder frontend/
+   2. Tambahkan:
+      VITE_API_BASE_URL=http://localhost:3000/api/v1
+      VITE_API_URL=http://localhost:3000
+
+🔧 PRODUCTION:
+   Set environment variables di hosting platform:
+   
+   - Vercel: Settings > Environment Variables
+   - Netlify: Site settings > Environment variables
+   - Railway: Variables tab
+   - Docker: docker-compose.yml atau docker run -e
+
+   Contoh:
+   VITE_API_BASE_URL=https://api.yourdomain.com/api/v1
+   VITE_API_URL=https://api.yourdomain.com
+
+================================================================================
+4. FILE YANG PERLU DIBUAT (OPSIONAL)
+================================================================================
+
+📄 .env.example (Template - bisa dibuat manual)
+   Isi:
+   # API Configuration
+   VITE_API_BASE_URL=http://localhost:3000/api/v1
+   VITE_API_URL=http://localhost:3000
+
+📄 .env.local (Development - jangan commit ke git)
+   - File ini sudah otomatis di-ignore oleh .gitignore (*.local)
+   - Buat manual untuk development
+
+================================================================================
+5. CATATAN PENTING
+================================================================================
+
+✅ Semua hardcoded API URL sudah diubah
+✅ Menggunakan import.meta.env.VITE_* untuk akses environment variables
+✅ Fallback ke localhost:3000 untuk development jika env var tidak di-set
+✅ .env.local sudah ada di .gitignore (*.local)
+✅ Untuk production, set environment variables di hosting platform
+
+⚠️  PENTING:
+   - Jangan hardcode URL lagi di file manapun
+   - Selalu gunakan environment variables
+   - Test di production dengan environment variables yang benar
+   - Pastikan CORS di backend mengizinkan domain production
+
+================================================================================
+6. CARA TESTING
+================================================================================
+
+🧪 Development:
+   - Tanpa .env.local: Akan menggunakan default localhost:3000
+   - Dengan .env.local: Akan menggunakan nilai dari .env.local
+
+🧪 Production:
+   - Set environment variables di hosting platform
+   - Build: npm run build
+   - Deploy: Environment variables akan di-inject saat build
+
+================================================================================

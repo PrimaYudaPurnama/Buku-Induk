@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import toast, { Toaster } from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
 
-const API_BASE_URL = 'http://localhost:3000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
 
 
 const Header = ({ toggleSidebar, onNavigateToProfile }) => {

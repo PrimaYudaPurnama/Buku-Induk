@@ -30,8 +30,10 @@ const Login = () => {
 
     try {
 
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+      
       const fetchMe = async () => {
-        const res = await fetch('http://localhost:3000/api/v1/auth/me', {
+        const res = await fetch(`${API_BASE}/auth/me`, {
           credentials: 'include',
         });
       
@@ -43,7 +45,7 @@ const Login = () => {
         }
       };
 
-      const response = await fetch('http://localhost:3000/api/v1/auth/login', {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

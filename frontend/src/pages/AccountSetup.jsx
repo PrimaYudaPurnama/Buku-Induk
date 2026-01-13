@@ -119,7 +119,8 @@ const AccountSetup = () => {
       formDataUpload.append('file', profilePhotoFile);
       
       // Upload to cloudinary endpoint for account setup
-      const response = await fetch('http://localhost:3000/api/v1/files/upload', {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+      const response = await fetch(`${API_BASE}/files/upload`, {
         method: 'POST',
         credentials: "include",
         body: formDataUpload,

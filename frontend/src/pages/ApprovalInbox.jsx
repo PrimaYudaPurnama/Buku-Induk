@@ -7,7 +7,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { motion } from "framer-motion";
 import { CheckCircle, XCircle, Upload, FileText, Eye, User, Clock, AlertCircle, Sparkles, ArrowRight } from "lucide-react";
 
-const API_BASE = "http://localhost:3000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
 
 const containerVariants = {
   hidden: { opacity: 0 },

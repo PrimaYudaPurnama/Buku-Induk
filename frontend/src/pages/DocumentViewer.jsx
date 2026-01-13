@@ -4,7 +4,7 @@ import { fetchUserDocuments } from "../utils/api";
 import DocumentCard from "../components/DocumentCard";
 import toast from "react-hot-toast";
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') || "http://localhost:3000";
 
 const DocumentViewer = () => {
   const { id } = useParams();
