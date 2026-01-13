@@ -51,8 +51,8 @@ class AuthController {
       
       setCookie(c, "access_token", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Strict",
+        secure: process.env.BUN_ENV === "production",
+        sameSite: "none",
         maxAge: 60 * 60 * 24 * 7, // detik
         path: "/",
       });      
@@ -193,7 +193,7 @@ class AuthController {
       return c.json({
         message: "If the email exists, a reset link has been sent",
         // Development only - remove in production
-        ...(process.env.NODE_ENV === "development" && { resetToken }),
+        ...(process.env.BUN_ENV === "development" && { resetToken }),
       });
     } catch (err) {
       console.error("Forgot password error:", err);
