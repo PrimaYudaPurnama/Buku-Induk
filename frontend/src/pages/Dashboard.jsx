@@ -13,6 +13,7 @@ import AuditLogs from './AuditLogs.jsx'
 import RoleManagement from './RoleManagement.jsx'
 import WorkflowAnalytics from './WorkflowAnalytics.jsx'
 import OrgChart from './OrgChart.jsx'
+import PendingUsers from './PendingUsers.jsx'
 import { useAuthStore } from '../stores/useAuthStore' 
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser } from '../utils/api.jsx';
@@ -66,6 +67,8 @@ export default function Dashboard() {
         return <Home />
       case 'UserList':
         return <UserList />
+      case 'PendingUsers':
+        return <PendingUsers />
       case 'DivisionList':
         return <DivisionList />
       case 'AccountRequest':

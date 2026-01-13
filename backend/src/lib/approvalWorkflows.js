@@ -20,11 +20,11 @@ export const generateApprovalSteps = (requestType, userData = {}, payload = {}) 
       const steps = [];
       
       // Skip level 1 (Manager) if user has no division_id
-      if (userData.currentDivision) {
-        steps.push({ level: 1, approver_role: "Manager" });
-      }
+      // if (userData.currentDivision) {
+      //   steps.push({ level: 1, approver_role: "Manager" });
+      // }
       
-      steps.push({ level: 2, approver_role: "Manager HR" });
+      // steps.push({ level: 2, approver_role: "Manager HR" });
       steps.push({ level: 3, approver_role: "Director" });
       
       return steps;
@@ -37,11 +37,11 @@ export const generateApprovalSteps = (requestType, userData = {}, payload = {}) 
       const steps = [];
       
       // Skip level 1 (Manager) if user has no division_id
-      if (userData.currentDivision) {
-        steps.push({ level: 1, approver_role: "Manager" }); // Division Manager
-      }
+      // if (userData.currentDivision) {
+      //   steps.push({ level: 1, approver_role: "Manager" }); // Division Manager
+      // }
       
-      steps.push({ level: 2, approver_role: "Manager HR" });
+      // steps.push({ level: 2, approver_role: "Manager HR" });
       steps.push({ level: 3, approver_role: "Director" })
       
       return steps;
@@ -55,13 +55,14 @@ export const generateApprovalSteps = (requestType, userData = {}, payload = {}) 
       const steps = [];
       
       // Skip level 1 (Current Manager) if user has no division_id
-      if (userData.currentDivision) {
-        steps.push({ level: 1, approver_role: "Manager" }); // Current Manager
-      }
+      // if (userData.currentDivision) {
+      //   steps.push({ level: 1, approver_role: "Manager" }); // Current Manager
+      // }
       
-      // Level 2: Target Division Manager (always present if transfer has target division)
-      steps.push({ level: 2, approver_role: "Manager" }); // Target Division Manager
-      steps.push({ level: 3, approver_role: "Manager HR" });
+      // // Level 2: Target Division Manager (always present if transfer has target division)
+      // steps.push({ level: 2, approver_role: "Manager" }); // Target Division Manager
+      // steps.push({ level: 3, approver_role: "Manager HR" });
+      steps.push({ level: 3, approver_role: "Director" });
       
       return steps;
     },
@@ -71,7 +72,7 @@ export const generateApprovalSteps = (requestType, userData = {}, payload = {}) 
       // Step 1 → Manager HR
       // Step 2 → Director
       return [
-        { level: 1, approver_role: "Manager HR" },
+        // { level: 1, approver_role: "Manager HR" },
         { level: 2, approver_role: "Director" },
       ];
     },

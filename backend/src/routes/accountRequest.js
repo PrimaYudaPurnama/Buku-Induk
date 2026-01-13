@@ -7,10 +7,10 @@ const accountRequestRouter = new Hono();
 // POST /api/v1/account-requests
 accountRequestRouter.post(
   "/",
-  // authenticate(),
-  // authorize({
-  //   permissions: ["account:create"],
-  // }),
+  authenticate(),
+  authorize({
+    permissions: ["account:create"],
+  }),
   (c) => AccountRequestController.createAccountRequest(c)
 );
 

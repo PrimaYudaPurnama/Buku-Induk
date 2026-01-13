@@ -14,6 +14,12 @@ import { Resend } from "resend";
  * @returns {Promise<object>} Created notification
  */
 export const notifyUser = async (userId, type, title, message, metadata = {}) => {
+  console.log("[DEBUG notifyUser] userId:", userId);
+
+  if (!userId) {
+    throw new Error("notifyUser called with invalid userId");
+  }
+
   const notification = await Notification.create({
     user_id: userId,
     type,
@@ -482,6 +488,7 @@ export const handleApprovalStepApproved = async (approval, request, nextLevel) =
  * Handle approval step rejected
  */
 export const handleApprovalStepRejected = async (approval, request, requester) => {
+
   // Notify requester
   if (requester) {
     await notifyUser(

@@ -18,6 +18,8 @@ export const authenticate = () => {
         return c.json({ message: "Unauthorized: User not found" }, 401);
       }
 
+      console.log("[DEBUG user] user:", user);
+
       c.set("user", user);
       await next();
     } catch (err) {

@@ -89,6 +89,7 @@ const UserProfile = () => {
       if (!response.ok) throw new Error('Failed to fetch user data');
       
       const result = await response.json();
+      console.log(result.data);
       setUserData(result.data);
       setError(null);
     } catch (err) {
@@ -477,44 +478,148 @@ const UserProfile = () => {
             </div>
 
             <div className="p-10">
-              {activeTab === 'profile' && (
+            {activeTab === 'profile' && (
                 <motion.div 
-                  className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                  className="space-y-8"
                   variants={containerVariants}
                   initial="hidden"
                   animate="visible"
                 >
-                  <InfoCard icon={Mail} label="Email Address" value={userData?.email} />
-                  <InfoCard icon={Phone} label="Phone Number" value={userData?.phone} />
-                  <InfoCard icon={Briefcase} label="Job Role" value={userData?.role_id?.name} />
-                  <InfoCard icon={Building2} label="Division" value={userData?.division_id?.name} />
-                  <InfoCard icon={Calendar} label="Join Date" value={formatDate(userData?.created_at)} />
-                  <InfoCard icon={Clock} label="Last Updated" value={formatDate(userData?.updated_at)} />
+                  {/* Basic Information */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-blue-400 mb-4 flex items-center gap-2">
+                      <User className="w-5 h-5" />
+                      Informasi Dasar
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <InfoCard icon={Mail} label="Email" value={userData?.email} />
+                      <InfoCard icon={Phone} label="No. Telepon" value={userData?.phone} />
+                      <InfoCard icon={User} label="Jenis Kelamin" value={userData?.gender === 'male' ? 'Laki-laki' : 'Perempuan'} />
+                      <InfoCard icon={Calendar} label="Tanggal Lahir" value={formatDate(userData?.date_of_birth)} />
+                      <InfoCard icon={User} label="NIK" value={userData?.national_id} />
+                      <InfoCard icon={User} label="Kode Karyawan" value={userData?.employee_code} />
+                    </div>
+                  </div>
 
-                  {userData?.role_id?.description && (
-                    <motion.div 
-                      className="md:col-span-2 p-6 bg-slate-800/50 border border-slate-700/50 rounded-2xl backdrop-blur-sm"
-                      variants={itemVariants}
-                    >
-                      <h3 className="text-lg font-semibold text-blue-400 mb-3 flex items-center gap-2">
-                        <Sparkles className="w-5 h-5" />
-                        Role Description
+                  {/* Employment Information */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-indigo-400 mb-4 flex items-center gap-2">
+                      <Briefcase className="w-5 h-5" />
+                      Informasi Pekerjaan
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <InfoCard icon={Shield} label="Role" value={userData?.role_id?.name} />
+                      <InfoCard icon={Building2} label="Divisi" value={userData?.division_id?.name} />
+                      <InfoCard icon={Briefcase} label="Tipe Pekerjaan" value={userData?.employment_type === 'contract' ? 'Kontrak' : 'Tetap'} />
+                      <InfoCard icon={User} label="Status" value={userData?.status === 'active' ? 'Aktif' : 'Tidak Aktif'} />
+                      <InfoCard icon={Calendar} label="Tanggal Bergabung" value={formatDate(userData?.hire_date)} />
+                      <InfoCard icon={Calendar} label="Berakhir Kontrak" value={formatDate(userData?.expired_date)} />
+                    </div>
+                  </div>
+
+                  {/* Address Information */}
+                  {userData?.address && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-purple-400 mb-4 flex items-center gap-2">
+                        <Building2 className="w-5 h-5" />
+                        Alamat
                       </h3>
-                      <p className="text-slate-300 leading-relaxed">{userData.role_id.description}</p>
-                    </motion.div>
+                      <motion.div 
+                        className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 backdrop-blur-sm"
+                        variants={itemVariants}
+                      >
+                        <div className="space-y-3 text-slate-300">
+                          <p><span className="text-slate-400">Domisili:</span> {userData.address.domicile}</p>
+                          <p><span className="text-slate-400">Jalan:</span> {userData.address.street}</p>
+                          <p><span className="text-slate-400">Kota:</span> {userData.address.city}</p>
+                          <p><span className="text-slate-400">Provinsi:</span> {userData.address.state}</p>
+                          <p><span className="text-slate-400">Kode Pos:</span> {userData.address.postal_code}</p>
+                          <p><span className="text-slate-400">Negara:</span> {userData.address.country}</p>
+                        </div>
+                      </motion.div>
+                    </div>
                   )}
 
-                  {userData?.division_id?.description && (
-                    <motion.div 
-                      className="md:col-span-2 p-6 bg-slate-800/50 border border-slate-700/50 rounded-2xl backdrop-blur-sm"
-                      variants={itemVariants}
-                    >
-                      <h3 className="text-lg font-semibold text-indigo-400 mb-3 flex items-center gap-2">
-                        <Sparkles className="w-5 h-5" />
-                        Division Description
+                  {/* Emergency Contact */}
+                  {userData?.emergency_contact_name && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-orange-400 mb-4 flex items-center gap-2">
+                        <Phone className="w-5 h-5" />
+                        Kontak Darurat
                       </h3>
-                      <p className="text-slate-300 leading-relaxed">{userData.division_id.description}</p>
-                    </motion.div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <InfoCard icon={User} label="Nama" value={userData?.emergency_contact_name} />
+                        <InfoCard icon={Phone} label="No. Telepon" value={userData?.emergency_contact_phone} />
+                        <InfoCard icon={User} label="Hubungan" value={userData?.emergency_contact_relation} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Salary Information */}
+                  {userData?.salary_data && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-green-400 mb-4 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5" />
+                        Informasi Gaji
+                      </h3>
+                      <motion.div 
+                        className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 backdrop-blur-sm"
+                        variants={itemVariants}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center pb-3 border-b border-slate-700/50">
+                            <span className="text-slate-400">Gaji Pokok</span>
+                            <span className="text-white font-semibold">Rp {parseFloat(userData.salary_data.base_salary).toLocaleString('id-ID')}</span>
+                          </div>
+                          
+                          {userData.salary_data.allowances?.length > 0 && (
+                            <div>
+                              <p className="text-slate-400 text-sm mb-2">Tunjangan:</p>
+                              {userData.salary_data.allowances.map((allowance, idx) => (
+                                <div key={idx} className="flex justify-between items-center pl-4 py-1">
+                                  <span className="text-slate-300 text-sm">• {allowance.name}</span>
+                                  <span className="text-green-400 text-sm">+Rp {parseFloat(allowance.amount).toLocaleString('id-ID')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {userData.salary_data.deductions?.length > 0 && (
+                            <div>
+                              <p className="text-slate-400 text-sm mb-2">Potongan:</p>
+                              {userData.salary_data.deductions.map((deduction, idx) => (
+                                <div key={idx} className="flex justify-between items-center pl-4 py-1">
+                                  <span className="text-slate-300 text-sm">• {deduction.name} ({deduction.category})</span>
+                                  <span className="text-red-400 text-sm">-Rp {parseFloat(deduction.amount).toLocaleString('id-ID')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex justify-between items-center pt-3 border-t border-slate-700/50">
+                            <span className="text-white font-semibold">Take Home Pay</span>
+                            <span className="text-green-400 font-bold text-lg">Rp {parseFloat(userData.salary_data.take_home_pay).toLocaleString('id-ID')}</span>
+                          </div>
+
+                          {userData.salary_data.bank_account?.account_number && (
+                            <div className="mt-4 pt-4 border-t border-slate-700/50">
+                              <p className="text-slate-400 text-sm mb-2">Informasi Bank:</p>
+                              <div className="space-y-1 pl-4">
+                                <p className="text-slate-300 text-sm">Bank: {userData.salary_data.bank_account.bank_name}</p>
+                                <p className="text-slate-300 text-sm">No. Rekening: {userData.salary_data.bank_account.account_number}</p>
+                                <p className="text-slate-300 text-sm">Atas Nama: {userData.salary_data.bank_account.account_holder_name}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {userData.salary_data.note && (
+                            <div className="mt-4 p-3 bg-slate-900/50 rounded-xl border border-slate-700/30">
+                              <p className="text-slate-300 text-sm italic">Catatan: {userData.salary_data.note}</p>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    </div>
                   )}
                 </motion.div>
               )}

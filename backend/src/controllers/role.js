@@ -314,8 +314,21 @@ class RoleController {
         }, 409);
       }
 
+      // Store role data before deletion for audit
+      const roleData = role.toObject();
+
       // Delete role
       await Role.findByIdAndDelete(roleId);
+
+      // Log audit
+      await logAudit(
+        c,
+        "role_delete",
+        "role",
+        roleId,
+        roleData,
+        { deleted: true }
+      );
 
       return c.json({
         success: true,

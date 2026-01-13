@@ -5,6 +5,33 @@ import { authenticate, authorize} from "../middleware/auth.js"
 const userRouter = new Hono();
 
 userRouter.get(
+  "/pending",
+  authenticate(),
+  authorize({
+    permissions: ["user:read:any", "user:create", "user:update"],
+  }),
+  (c) => UserController.getPendingUsers(c)
+);
+
+userRouter.post(
+  "/:id/approve",
+  authenticate(),
+  authorize({
+    permissions: ["user:read:any", "user:create", "user:update"],
+  }),
+  (c) => UserController.approveUser(c)
+);
+
+userRouter.post(
+  "/:id/reject",
+  authenticate(),
+  authorize({
+    permissions: ["user:read:any", "user:create", "user:update"],
+  }),
+  (c) => UserController.rejectUser(c)
+);
+
+userRouter.get(
   "/salary-report",
   authenticate(),
   authorize({
@@ -76,7 +103,7 @@ userRouter.patch(
   "/:id/salary",
   authenticate(),
   authorize({
-    permissions: ["employee:promote:any", "employee:promote:own_division"],
+    permissions: ["user:update_salary:any", "user:update_salary:own_division"],
   }),
   (c) => UserController.updateUserSalary(c)
 );

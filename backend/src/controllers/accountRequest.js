@@ -12,6 +12,9 @@ import {
   handleAccountRequestApproved,
   handleAccountRequestRejected,
   handleAccountSetupCompleted,
+  handlePromotion,
+  handleTransfer,
+  handleTerminationNotice,
 } from "../services/notificationService.js";
 import argon2 from "argon2";
 import crypto from "crypto";
@@ -20,6 +23,7 @@ import { mapEventToDocumentType, createDocumentForEvent } from "../services/docu
 import { canAccessResource } from "../middleware/auth.js";
 import { generateApprovalSteps, isValidRequestType } from "../lib/approvalWorkflows.js";
 import { getRoleHierarchyLevel } from "../lib/roleHierarchy.js";
+import { logAudit } from "../utils/auditLogger.js";
 
 class AccountRequestController {
   /**
@@ -78,6 +82,8 @@ class AccountRequestController {
 
       // Resolve requester role + hierarchy (default very low authority)
       const currentUser = c.get("user");
+
+
       let requesterRoleName = "";
       let requesterLevel = 999;
       if (currentUser?.role_id) {
@@ -149,9 +155,152 @@ class AccountRequestController {
       // Generate approvals for this request
       await createApprovalsForRequest(request);
 
+      // ============================================
+      // Auto-approve if requester is Director
+      // ============================================
+      if (requesterRoleName === "Director") {
+        try {
+          // Mark all approvals as approved
+          const approvals = await Approval.find({
+            request_type,
+            request_id: request._id,
+          });
+
+          const now = new Date();
+          for (const approval of approvals) {
+            approval.status = "approved";
+            approval.comments =
+              approval.comments || "Auto-approved (requested by Director)";
+            approval.processed_at = now;
+            await approval.save();
+          }
+
+          // Reload request with requester info
+          const byRequest = await AccountRequest.findById(request._id).populate(
+            "requested_by",
+            "email full_name"
+          );
+          const by = byRequest?.requested_by || null;
+
+          // Finalize base request status
+          await finalizeRequest(request);
+
+          // Apply business effect based on request type
+          if (request.request_type === "promotion") {
+            const targetUser = await User.findById(request.user_id).populate(
+              "role_id"
+            );
+            if (targetUser) {
+              const oldRole = targetUser.role_id;
+              targetUser.role_id = request.requested_role;
+              await targetUser.save();
+
+              const newRole = await Role.findById(request.requested_role);
+
+              await autoCreateHistory(
+                "promotion",
+                { role_id: oldRole?._id },
+                { role_id: newRole?._id },
+                by,
+                {
+                  user_id: targetUser._id,
+                  effective_date: new Date(),
+                  reason: request.notes || "Promotion approved (auto by Director)",
+                }
+              );
+
+              await handlePromotion(targetUser, oldRole, newRole);
+            }
+          } else if (request.request_type === "transfer") {
+            const targetUser = await User.findById(request.user_id)
+              .populate("division_id")
+              .populate("role_id");
+            if (targetUser) {
+              const oldDivision = targetUser.division_id;
+              targetUser.division_id = request.division_id;
+              await targetUser.save();
+
+              const newDivision = await Division.findById(
+                request.division_id
+              );
+
+              await autoCreateHistory(
+                "transfer",
+                { division_id: oldDivision?._id },
+                { division_id: newDivision?._id },
+                by,
+                {
+                  user_id: targetUser._id,
+                  effective_date: new Date(),
+                  reason: request.notes || "Transfer approved (auto by Director)",
+                }
+              );
+
+              await handleTransfer(targetUser, oldDivision, newDivision);
+            }
+          } else if (request.request_type === "termination") {
+            const targetUser = await User.findById(request.user_id).populate(
+              "role_id"
+            );
+            if (targetUser) {
+              const oldStatus = targetUser.status;
+              targetUser.status = "terminated";
+              targetUser.termination_date = new Date();
+              await targetUser.save();
+
+              await autoCreateHistory(
+                "terminated",
+                { status: oldStatus },
+                { status: "terminated" },
+                by,
+                {
+                  user_id: targetUser._id,
+                  effective_date: targetUser.termination_date,
+                  reason:
+                    request.notes || "Termination approved (auto by Director)",
+                }
+              );
+
+              await handleTerminationNotice(
+                targetUser,
+                targetUser.termination_date,
+                request.notes
+              );
+            }
+          }
+
+          // Ensure request is marked approved
+          request.status = "approved";
+          request.processed_at = new Date();
+          await request.save();
+        } catch (autoErr) {
+          console.error(
+            "Auto-approve by Director failed, request will stay pending:",
+            autoErr
+          );
+        }
+      }
+
       // Notify approvers
-      const requester = currentUser || { email };
-      await handleAccountRequestSubmitted(request, requester);
+      // const requester = currentUser || { email };
+      // await handleAccountRequestSubmitted(request, requester);
+
+      // Log audit
+      await logAudit(
+        c,
+        "account_request_create",
+        "account_request",
+        request._id,
+        null,
+        {
+          request_type: request.request_type,
+          requester_name: request.requester_name,
+          email: request.email,
+          requested_role: request.requested_role,
+          division_id: request.division_id,
+          user_id: request.user_id,
+        }
+      );
 
       return c.json(
         {
@@ -713,8 +862,18 @@ class AccountRequestController {
       request.setup_token_expires_at = null;
       await request.save();
 
+      // Log audit
+      await logAudit(
+        c,
+        "account_setup_complete",
+        "account_request",
+        request._id,
+        { status: "approved", setup_token: request.setup_token },
+        { status: "approved", user_id: newUser._id, setup_completed: true }
+      );
+
       // Notify user that setup is completed
-      await handleAccountSetupCompleted(newUser);
+      // await handleAccountSetupCompleted(newUser);
 
       return c.json(
         {

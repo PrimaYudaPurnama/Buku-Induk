@@ -155,7 +155,7 @@ class ApprovalController {
         const byRequest = await AccountRequest
           .findById(request._id)
           .populate("requested_by", "email full_name");
-
+        
         const by = byRequest?.requested_by || null;
 
         // Finalize the request
@@ -348,6 +348,11 @@ class ApprovalController {
       } else if (request.user_id) {
         requester = await User.findById(request.user_id);
       }
+
+      console.log("[DEBUG reject] request_type:", request.request_type);
+      console.log("[DEBUG reject] requester object:", requester);
+      console.log("[DEBUG reject] requester._id:", requester?._id);
+
 
       // Notify requester
       await handleApprovalStepRejected(approval, request, requester);

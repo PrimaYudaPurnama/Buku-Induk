@@ -23,8 +23,25 @@ const UserSchema = new mongoose.Schema(
       required: true,
     },
 
+    employee_code: {
+      type: String,
+      unique: true,
+      index: true,
+    },
+
+    gender: {
+      type: String,
+      enum: ["male", "female", "other"],
+    },
+
     phone: {
       type: String,
+      default: null,
+    },
+
+    manager_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       default: null,
     },
 
@@ -49,7 +66,15 @@ const UserSchema = new mongoose.Schema(
       index: true,
     },
 
+    employment_type: {
+      type: String,
+      enum: ["full-time", "contract", "intern", "freelance", "unspecified"],
+      required: true,
+      default: "unspecified",
+    },
+
     hire_date: Date,
+    expired_date: Date, // For contract/intern/freelance employment types
     termination_date: Date,
 
     profile_photo_url: {
@@ -61,22 +86,25 @@ const UserSchema = new mongoose.Schema(
     emergency_contact_phone: String,
     emergency_contact_relation: String,
 
-    address: String,
-    city: String,
-    state: String,
-    postal_code: String,
-    country: {
+    address: {
+      domicile: String,
+      street: String,
+      subdistrict: String,
+      city: String,
+      state: String,
+      postal_code: String,
+      country: {
+        type: String,
+        default: "Indonesia",
+      },
+    },
+
+    npwp: {
       type: String,
-      default: "Indonesia",
     },
 
     date_of_birth: Date,
     national_id: String,
-
-    salary: {
-      type: mongoose.Types.Decimal128,
-      default: null,
-    },
   },
   {
     timestamps: {

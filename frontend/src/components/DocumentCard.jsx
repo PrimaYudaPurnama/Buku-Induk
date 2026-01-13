@@ -6,7 +6,9 @@ const DocumentCard = ({ document, onView, onDownload }) => {
     const labels = {
       contract: "Contract",
       id_card: "ID Card",
+      certificate: "Certificate",
       certification: "Certification",
+      resume: "Resume / CV",
       performance_review: "Performance Review",
       disciplinary: "Disciplinary",
       resignation: "Resignation",
@@ -20,7 +22,9 @@ const DocumentCard = ({ document, onView, onDownload }) => {
     const colors = {
       contract: "from-blue-600 to-indigo-600",
       id_card: "from-cyan-600 to-blue-600",
+      certificate: "from-green-600 to-emerald-600",
       certification: "from-green-600 to-emerald-600",
+      resume: "from-purple-600 to-violet-600",
       performance_review: "from-purple-600 to-pink-600",
       disciplinary: "from-orange-600 to-red-600",
       resignation: "from-gray-600 to-slate-600",
@@ -122,7 +126,7 @@ const DocumentCard = ({ document, onView, onDownload }) => {
             </motion.button>
           )}
 
-          {onDownload && (
+          {/* {onDownload && (
             <motion.button
               onClick={() => onDownload(document)}
               className="flex-1 flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold rounded-2xl shadow-lg relative overflow-hidden group/button"
@@ -137,7 +141,7 @@ const DocumentCard = ({ document, onView, onDownload }) => {
               <Download className="w-6 h-6" />
               Download
             </motion.button>
-          )}
+          )} */}
         </div>
 
         {/* Hover Glow Effect */}

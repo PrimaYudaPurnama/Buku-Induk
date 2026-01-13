@@ -7,6 +7,7 @@ const authRouter = new Hono();
 
 // Public routes
 authRouter.post("/login", (c) => AuthController.login(c));
+authRouter.post("/register", (c) => AuthController.register(c));
 authRouter.post("/password/forgot", (c) => AuthController.forgotPassword(c));
 
 // Protected routes (require authentication)

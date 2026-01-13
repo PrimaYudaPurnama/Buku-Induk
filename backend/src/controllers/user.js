@@ -1,11 +1,12 @@
 import User from "../models/user.js";
+import Salary from "../models/salary.js";
 import EmployeeHistory from "../models/employeeHistory.js";
 import Division from "../models/division.js";
 import Role from "../models/role.js";
 import argon2 from "argon2";
 import mongoose from "mongoose";
 import { logAudit } from "../utils/auditLogger.js";
-import { maskSalaryForUsers } from "../services/userService.js";
+import { maskSalaryForUsers, populateSalaryForUsers } from "../services/userService.js";
 
 
 class UserController {
@@ -107,6 +108,11 @@ class UserController {
       ]);
   
       // ===============================
+      // POPULATE SALARY DATA
+      // ===============================
+      const usersWithSalary = await populateSalaryForUsers(users);
+  
+      // ===============================
       // SALARY MASKING CONTEXT
       // ===============================
       const salaryContext = {
@@ -117,7 +123,7 @@ class UserController {
         currentUserId: currentUser._id.toString(),
       };
   
-      const usersMasked = maskSalaryForUsers(users, salaryContext);
+      const usersMasked = maskSalaryForUsers(usersWithSalary, salaryContext);
   
       return c.json({
         success: true,
@@ -164,10 +170,6 @@ class UserController {
         .select("-password")
         .lean();
 
-      const userWithSalary = user
-        ? { ...user, salary: user.salary ? user.salary.toString() : null }
-        : null;
-
       if (!user) {
         return c.json(
           {
@@ -180,6 +182,9 @@ class UserController {
           404
         );
       }
+
+      // Populate salary data
+      const [userWithSalary] = await populateSalaryForUsers([user]);
 
       return c.json({
         success: true,
@@ -271,12 +276,11 @@ class UserController {
       // Hash password
       const hashedPassword = await argon2.hash(data.password);
 
-      // Create user
-      const salaryValue =
-        data.salary !== undefined && data.salary !== null && data.salary !== ""
-          ? mongoose.Types.Decimal128.fromString(data.salary.toString())
-          : null;
+      // Generate employee code
+      const { generateEmployeeCode } = await import("../utils/employeeCode.js");
+      const employeeCode = await generateEmployeeCode();
 
+      // Create user (no salary field - salary is managed separately)
       const newUser = await User.create({
         email: data.email,
         password: hashedPassword,
@@ -285,6 +289,8 @@ class UserController {
         role_id: data.role_id,
         division_id: data.division_id || null,
         status: data.status || "pending",
+        employment_type: data.employment_type || "unspecified",
+        employee_code: employeeCode,
         hire_date: data.hire_date || new Date(),
         profile_photo_url: data.profile_photo_url || null,
         emergency_contact_name: data.emergency_contact_name || null,
@@ -295,18 +301,18 @@ class UserController {
         state: data.state || null,
         postal_code: data.postal_code || null,
         country: data.country || "Indonesia",
-        salary: salaryValue,
         date_of_birth: data.date_of_birth || null,
         national_id: data.national_id || null,
+        npwp: data.npwp || null,
+        gender: data.gender || "male",
       });
 
-      // Create history record
+      // Create history record (no salary - salary will be created when user is approved)
       await EmployeeHistory.create({
         user_id: newUser._id,
         event_type: "hired",
         new_role: data.role_id,
         new_division: data.division_id || null,
-        new_salary: salaryValue,
         effective_date: data.hire_date || new Date(),
         notes: "Initial hiring",
         created_by: currentUser._id,
@@ -320,10 +326,8 @@ class UserController {
         .select("-password")
         .lean();
 
-      const populatedWithSalary = {
-        ...populatedUser,
-        salary: populatedUser?.salary ? populatedUser.salary.toString() : null,
-      };
+      // Populate salary data
+      const [populatedWithSalary] = await populateSalaryForUsers([populatedUser]);
 
       await logAudit(
         c,
@@ -411,26 +415,18 @@ class UserController {
         );
       }
 
-      // Prepare update data
+      // Prepare update data (salary is managed separately via Salary model)
       const updateData = {};
       const allowedFields = [
         "full_name", "phone", "role_id", "division_id",
-        "status", "hire_date", "termination_date", "profile_photo_url",
+        "status", "hire_date", "expired_date", "termination_date", "profile_photo_url",
         "emergency_contact_name", "emergency_contact_phone", "emergency_contact_relation",
         "address", "city", "state", "postal_code", "country",
-        "date_of_birth", "national_id", "salary"
+        "date_of_birth", "national_id", "npwp", "gender", "employment_type"
       ];
 
       allowedFields.forEach(field => {
         if (data[field] !== undefined) {
-          if (field === "salary") {
-            if (data[field] === "") return;
-            updateData[field] =
-              data[field] !== null
-                ? mongoose.Types.Decimal128.fromString(data[field].toString())
-                : null;
-            return;
-          }
           updateData[field] = data[field];
         }
       });
@@ -474,7 +470,6 @@ class UserController {
 
       // Create history record for significant changes
       const historyEvents = [];
-      const existingSalaryStr = existingUser.salary ? existingUser.salary.toString() : null;
 
       if (data.role_id && data.role_id !== existingUser.role_id._id.toString()) {
         historyEvents.push({
@@ -512,22 +507,6 @@ class UserController {
         });
       }
 
-      if (Object.prototype.hasOwnProperty.call(updateData, "salary")) {
-        const newSalaryStr = updateData.salary ? updateData.salary.toString() : null;
-        if (newSalaryStr !== existingSalaryStr) {
-          historyEvents.push({
-            user_id: userId,
-            event_type: "salary_change",
-            old_salary: existingUser.salary,
-            new_salary: updateData.salary,
-            effective_date: new Date(),
-            reason: data.salary_reason || "Salary updated",
-            notes: data.notes || `Salary updated from ${existingSalaryStr || "null"} to ${newSalaryStr || "null"}`,
-            created_by: currentUser._id,
-          });
-        }
-      }
-
       if (historyEvents.length > 0) {
         await EmployeeHistory.insertMany(historyEvents);
       }
@@ -537,13 +516,12 @@ class UserController {
         "user_update",
         "user",
         userId,
-        { ...oldSnapshot, salary: existingSalaryStr },
+        oldSnapshot,
         updatedUser
       );
 
-      const userWithSalary = updatedUser
-        ? { ...updatedUser, salary: updatedUser.salary ? updatedUser.salary.toString() : null }
-        : updatedUser;
+      // Populate salary data
+      const [userWithSalary] = await populateSalaryForUsers([updatedUser]);
 
       return c.json({
         success: true,
@@ -958,9 +936,20 @@ class UserController {
       // Hash password baru
       const hashedPassword = await argon2.hash(newPassword);
 
+      const oldUpdatedAt = user.updated_at;
       user.password = hashedPassword;
       user.updated_at = new Date();
       await user.save();
+
+      // Log audit (don't log actual password, just that it was changed)
+      await logAudit(
+        c,
+        "password_change",
+        "user",
+        userId,
+        { password_changed_at: oldUpdatedAt },
+        { password_changed_at: user.updated_at, changed_by: currentUser._id.toString() === userId ? "self" : "admin" }
+      );
 
       return c.json({
         success: true,
@@ -995,7 +984,7 @@ class UserController {
 
   /**
    * GET /api/v1/users/:id/salary
-   * Get user salary
+   * Get user salary from Salary model
    */
   async getUserSalary(c) {
     try {
@@ -1006,7 +995,7 @@ class UserController {
       const targetUser = await User.findById(userId)
         .populate("role_id", "name")
         .populate("division_id", "name")
-        .select("salary full_name email division_id role_id");
+        .select("full_name email division_id role_id");
 
       if (!targetUser) {
         return c.json({
@@ -1045,15 +1034,56 @@ class UserController {
         }, 403);
       }
 
+      // Get salary from Salary model
+      const salary = await Salary.findOne({ 
+        user_id: userId,
+        status: "active"
+      }).lean();
+
+      if (!salary) {
+        return c.json({
+          success: true,
+          data: {
+            user_id: targetUser._id,
+            full_name: targetUser.full_name,
+            email: targetUser.email,
+            division: targetUser.division_id?.name || null,
+            role: targetUser.role_id?.name || null,
+            salary: null,
+            salary_data: null,
+          },
+        });
+      }
+
       return c.json({
         success: true,
         data: {
           user_id: targetUser._id,
           full_name: targetUser.full_name,
           email: targetUser.email,
-          salary: targetUser.salary ? targetUser.salary.toString() : null,
           division: targetUser.division_id?.name || null,
           role: targetUser.role_id?.name || null,
+          salary: salary.take_home_pay?.toString() || null, // Backward compatibility
+          salary_data: {
+            _id: salary._id,
+            base_salary: salary.base_salary?.toString() || null,
+            currency: salary.currency,
+            allowances: salary.allowances?.map(a => ({
+              name: a.name,
+              amount: a.amount?.toString() || null,
+            })) || [],
+            deductions: salary.deductions?.map(d => ({
+              name: d.name,
+              amount: d.amount?.toString() || null,
+              category: d.category,
+            })) || [],
+            total_allowance: salary.total_allowance?.toString() || null,
+            total_deduction: salary.total_deduction?.toString() || null,
+            take_home_pay: salary.take_home_pay?.toString() || null,
+            status: salary.status,
+            bank_account: salary.bank_account,
+            note: salary.note,
+          },
         },
       });
     } catch (error) {
@@ -1079,7 +1109,7 @@ class UserController {
 
   /**
    * PATCH /api/v1/users/:id/salary
-   * Update user salary
+   * Update user salary in Salary model
    */
   async updateUserSalary(c) {
     try {
@@ -1087,13 +1117,23 @@ class UserController {
       const currentUser = c.get("user");
       const currentPermission = c.get("currentPermission");
       const body = await c.req.json();
-      const { salary, reason, effective_date } = body;
+      const { 
+        base_salary, 
+        currency = "IDR", 
+        allowances = [], 
+        deductions = [],
+        bank_account,
+        note,
+        reason, 
+        effective_date 
+      } = body;
 
-      if (!salary || salary <= 0) {
+      // Validate base_salary
+      if (!base_salary || base_salary <= 0) {
         return c.json({
           success: false,
           error: {
-            message: "Salary must be greater than 0",
+            message: "base_salary is required and must be greater than 0",
             code: "VALIDATION_ERROR",
           },
         }, 400);
@@ -1103,14 +1143,14 @@ class UserController {
       const userPerms = currentUser?.role_id?.permissions || [];
       let canUpdate = false;
 
-      if (userPerms.includes("employee:promote:any")) {
+      if (userPerms.includes("user:update_salary:any")) {
         canUpdate = true;
-      } else if (userPerms.includes("employee:promote:own_division")) {
+      } else if (userPerms.includes("user:update_salary:own_division")) {
         const targetUser = await User.findById(userId).select("division_id");
         if (targetUser) {
-          const userDivisionId = currentUser?.division_id?.toString();
+          const division = await Division.findOne({ manager_id: currentUser._id });
           const targetDivisionId = targetUser?.division_id?.toString();
-          if (userDivisionId && targetDivisionId && userDivisionId === targetDivisionId) {
+          if (division && targetDivisionId && division._id.toString() === targetDivisionId) {
             canUpdate = true;
           }
         }
@@ -1138,31 +1178,99 @@ class UserController {
         }, 404);
       }
 
-      const oldSalary = existingUser.salary;
+      // Get existing salary
+      const existingSalary = await Salary.findOne({ user_id: userId /*, status: "active" */});
+      const oldTakeHomePay = existingSalary?.take_home_pay;
 
-      // Update salary
-      existingUser.salary = mongoose.Types.Decimal128.fromString(salary.toString());
-      await existingUser.save();
+      // Calculate totals
+      const totalAllowance = allowances.reduce((sum, a) => {
+        return sum + (parseFloat(a.amount) || 0);
+      }, 0);
+      const totalDeduction = deductions.reduce((sum, d) => {
+        return sum + (parseFloat(d.amount) || 0);
+      }, 0);
+      const takeHomePay = parseFloat(base_salary) + totalAllowance - totalDeduction;
+
+      // Update or create salary record
+      const salaryData = {
+        user_id: userId,
+        base_salary: mongoose.Types.Decimal128.fromString(base_salary.toString()),
+        currency: currency,
+        allowances: allowances.map(a => ({
+          name: a.name,
+          amount: mongoose.Types.Decimal128.fromString(a.amount.toString()),
+        })),
+        deductions: deductions.map(d => ({
+          name: d.name,
+          amount: mongoose.Types.Decimal128.fromString(d.amount.toString()),
+          category: d.category || "other",
+        })),
+        total_allowance: mongoose.Types.Decimal128.fromString(totalAllowance.toString()),
+        total_deduction: mongoose.Types.Decimal128.fromString(totalDeduction.toString()),
+        take_home_pay: mongoose.Types.Decimal128.fromString(takeHomePay.toString()),
+        status: "active",
+        bank_account: bank_account || existingSalary?.bank_account,
+        note: note || existingSalary?.note || "",
+      };
+
+      let updatedSalary;
+      if (existingSalary) {
+        updatedSalary = await Salary.findOneAndUpdate(
+          { user_id: userId },
+          {
+            ...salaryData,
+            // status: "active",
+          },
+          { new: true, upsert: true }
+        );
+        
+      } else {
+        updatedSalary = await Salary.create(salaryData);
+      }
 
       // Create history record
       await EmployeeHistory.create({
         user_id: userId,
         event_type: "salary_change",
-        old_salary: oldSalary,
-        new_salary: existingUser.salary,
+        old_salary: oldTakeHomePay,
+        new_salary: updatedSalary.take_home_pay,
         effective_date: effective_date ? new Date(effective_date) : new Date(),
         reason: reason || "Salary update",
-        notes: `Salary updated from ${oldSalary ? oldSalary.toString() : "null"} to ${salary}`,
+        notes: `Salary updated from ${oldTakeHomePay ? oldTakeHomePay.toString() : "null"} to ${takeHomePay}`,
         created_by: currentUser._id,
       });
+
+      // Log audit
+      await logAudit(
+        c,
+        "salary_update",
+        "user",
+        userId,
+        {
+          salary_id: existingSalary?._id || null,
+          old_take_home_pay: oldTakeHomePay ? oldTakeHomePay.toString() : null,
+        },
+        {
+          salary_id: updatedSalary._id,
+          new_take_home_pay: takeHomePay.toString(),
+          base_salary: base_salary.toString(),
+          effective_date: effective_date || new Date(),
+        }
+      );
 
       return c.json({
         success: true,
         message: "Salary updated successfully",
         data: {
           user_id: userId,
-          old_salary: oldSalary ? oldSalary.toString() : null,
-          new_salary: salary,
+          old_salary: oldTakeHomePay ? oldTakeHomePay.toString() : null,
+          new_salary: takeHomePay.toString(),
+          salary_data: {
+            _id: updatedSalary._id,
+            base_salary: updatedSalary.base_salary.toString(),
+            currency: updatedSalary.currency,
+            take_home_pay: updatedSalary.take_home_pay.toString(),
+          },
         },
       });
     } catch (error) {
@@ -1183,6 +1291,439 @@ class UserController {
           code: "SALARY_UPDATE_ERROR",
         },
       }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/users/pending
+   * Get all pending users for HR approval
+   */
+  async getPendingUsers(c) {
+    try {
+      const currentUser = c.get("user");
+      const userPermissions = currentUser?.role_id?.permissions || [];
+
+      // Check permission - HR should have user:read:any or user:create permission
+      const hasPermission = userPermissions.includes("user:read:any") || 
+                           userPermissions.includes("user:create") ||
+                           userPermissions.includes("user:update");
+
+      if (!hasPermission) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "Access denied",
+              code: "PERMISSION_ERROR",
+            },
+          },
+          403
+        );
+      }
+
+      const page = parseInt(c.req.query("page[number]")) || 1;
+      const limit = parseInt(c.req.query("page[size]")) || 10;
+      const skip = (page - 1) * limit;
+
+      const filters = { status: "pending" };
+
+      // Optional search
+      const search = c.req.query("search");
+      if (search && search.trim() !== "") {
+        filters.$text = { $search: search.trim() };
+      }
+
+      const [users, total] = await Promise.all([
+        User.find(filters)
+          .populate("role_id", "name hierarchy_level")
+          .populate("division_id", "name")
+          .select("-password")
+          .sort({ created_at: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        User.countDocuments(filters),
+      ]);
+
+      return c.json({
+        success: true,
+        data: users,
+        meta: {
+          pagination: {
+            page,
+            page_size: limit,
+            total_items: total,
+            total_pages: Math.ceil(total / limit),
+          },
+        },
+      });
+    } catch (error) {
+      console.error("getPendingUsers error:", error);
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message,
+            code: "PENDING_USERS_ERROR",
+          },
+        },
+        500
+      );
+    }
+  }
+
+  /**
+   * POST /api/v1/users/:id/approve
+   * HR approve user: update status to active, set employment_type, generate employee_code, create salary
+   */
+  async approveUser(c) {
+    try {
+      const currentUser = c.get("user");
+      const userPermissions = currentUser?.role_id?.permissions || [];
+
+      // Check permission
+      const hasPermission = userPermissions.includes("user:read:any") || 
+                           userPermissions.includes("user:create") ||
+                           userPermissions.includes("user:update");
+
+      if (!hasPermission) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "Access denied",
+              code: "PERMISSION_ERROR",
+            },
+          },
+          403
+        );
+      }
+
+      const userId = c.req.param("id");
+      const body = await c.req.json();
+      const { employment_type, base_salary, currency = "IDR", allowances = [], deductions = [], /*bpjs = {},*/ note = "", hire_date, expired_date } = body;
+
+      // Validation
+      if (!employment_type) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "employment_type is required",
+              code: "VALIDATION_ERROR",
+            },
+          },
+          400
+        );
+      }
+
+      if (!base_salary || base_salary <= 0) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "base_salary is required and must be greater than 0",
+              code: "VALIDATION_ERROR",
+            },
+          },
+          400
+        );
+      }
+
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "User not found",
+              code: "USER_NOT_FOUND",
+            },
+          },
+          404
+        );
+      }
+
+      if (user.status !== "pending") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: `User status is ${user.status}, not pending`,
+              code: "INVALID_STATUS",
+            },
+          },
+          400
+        );
+      }
+
+      // Generate employee code
+      const { generateEmployeeCode } = await import("../utils/employeeCode.js");
+      const employeeCode = await generateEmployeeCode();
+
+      // Update user
+      user.status = "active";
+      user.employment_type = employment_type;
+      user.employee_code = employeeCode;
+      user.hire_date = hire_date ? new Date(hire_date) : new Date();
+      if (expired_date && employment_type !== "full-time") {
+        user.expired_date = new Date(expired_date);
+      }
+      await user.save();
+
+      // Calculate totals for salary
+      const totalAllowance = allowances.reduce((sum, a) => {
+        return sum + (parseFloat(a.amount) || 0);
+      }, 0);
+      const totalDeduction = deductions.reduce((sum, d) => {
+        return sum + (parseFloat(d.amount) || 0);
+      }, 0);
+      const takeHomePay = parseFloat(base_salary) + totalAllowance - totalDeduction;
+
+      // Create salary record
+      const salaryData = {
+        user_id: user._id,
+        base_salary: mongoose.Types.Decimal128.fromString(base_salary.toString()),
+        currency: currency,
+        allowances: allowances.map(a => ({
+          name: a.name,
+          amount: mongoose.Types.Decimal128.fromString(a.amount.toString()),
+        })),
+        deductions: deductions.map(d => ({
+          name: d.name,
+          amount: mongoose.Types.Decimal128.fromString(d.amount.toString()),
+          category: d.category || "other",
+        })),
+        total_allowance: mongoose.Types.Decimal128.fromString(totalAllowance.toString()),
+        total_deduction: mongoose.Types.Decimal128.fromString(totalDeduction.toString()),
+        take_home_pay: mongoose.Types.Decimal128.fromString(takeHomePay.toString()),
+        status: "active",
+        note: note || "",
+      };
+
+      const salary = await Salary.create(salaryData);
+
+      // Create employee history
+      await EmployeeHistory.create({
+        user_id: user._id,
+        event_type: "hired",
+        new_role: user.role_id,
+        new_division: user.division_id || null,
+        new_salary: salary.take_home_pay, // Use take_home_pay instead of base_salary
+        effective_date: hire_date ? new Date(hire_date) : new Date(),
+        notes: "User approved and activated by HR",
+        created_by: currentUser._id,
+      });
+
+      // Fetch populated user data
+      const populatedUser = await User.findById(user._id)
+        .populate("role_id", "name description hierarchy_level")
+        .populate("division_id", "name")
+        .select("-password")
+        .lean();
+
+      await logAudit(
+        c,
+        "user_approve",
+        "user",
+        user._id,
+        { status: "pending" },
+        { status: "active", employee_code: employeeCode, employment_type }
+      );
+
+      return c.json({
+        success: true,
+        data: {
+          user: populatedUser,
+          salary: {
+            _id: salary._id,
+            base_salary: salary.base_salary.toString(),
+            currency: salary.currency,
+            take_home_pay: salary.take_home_pay.toString(),
+            status: salary.status,
+          },
+        },
+        message: "User approved successfully",
+      });
+    } catch (error) {
+      console.error("approveUser error:", error);
+
+      if (error.name === "CastError") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "Invalid user ID format",
+              code: "INVALID_USER_ID",
+            },
+          },
+          400
+        );
+      }
+
+      if (error.name === "ValidationError") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: error.message,
+              code: "VALIDATION_ERROR",
+            },
+          },
+          400
+        );
+      }
+
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message || "Internal server error",
+            code: "USER_APPROVE_ERROR",
+          },
+        },
+        500
+      );
+    }
+  }
+
+  /**
+   * POST /api/v1/users/:id/reject
+   * HR reject user: update status to inactive with reason
+   */
+  async rejectUser(c) {
+    try {
+      const currentUser = c.get("user");
+      const userPermissions = currentUser?.role_id?.permissions || [];
+
+      // Check permission
+      const hasPermission = userPermissions.includes("user:read:any") || 
+                           userPermissions.includes("user:create") ||
+                           userPermissions.includes("user:update");
+
+      if (!hasPermission) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "Access denied",
+              code: "PERMISSION_ERROR",
+            },
+          },
+          403
+        );
+      }
+
+      const userId = c.req.param("id");
+      const body = await c.req.json();
+      const { reason = "" } = body;
+
+      if (!reason || reason.trim() === "") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "reason is required",
+              code: "VALIDATION_ERROR",
+            },
+          },
+          400
+        );
+      }
+
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "User not found",
+              code: "USER_NOT_FOUND",
+            },
+          },
+          404
+        );
+      }
+
+      if (user.status !== "pending") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: `User status is ${user.status}, not pending`,
+              code: "INVALID_STATUS",
+            },
+          },
+          400
+        );
+      }
+
+      // Update user status to inactive
+      const oldStatus = user.status;
+      user.status = "inactive";
+      await user.save();
+
+      // Create employee history
+      await EmployeeHistory.create({
+        user_id: user._id,
+        event_type: "status_change",
+        old_status: oldStatus,
+        new_status: "inactive",
+        effective_date: new Date(),
+        notes: `User rejected: ${reason}`,
+        reason: reason,
+        created_by: currentUser._id,
+      });
+
+      await logAudit(
+        c,
+        "user_reject",
+        "user",
+        user._id,
+        { status: "pending" },
+        { status: "inactive", reason }
+      );
+
+      return c.json({
+        success: true,
+        message: "User rejected successfully",
+        data: {
+          user: {
+            _id: user._id,
+            email: user.email,
+            full_name: user.full_name,
+            status: user.status,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("rejectUser error:", error);
+
+      if (error.name === "CastError") {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: "Invalid user ID format",
+              code: "INVALID_USER_ID",
+            },
+          },
+          400
+        );
+      }
+
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message || "Internal server error",
+            code: "USER_REJECT_ERROR",
+          },
+        },
+        500
+      );
     }
   }
 
@@ -1268,7 +1809,7 @@ class UserController {
         User.find(filters)
           .populate("role_id", "name")
           .populate("division_id", "name")
-          .select("full_name email salary status division_id role_id")
+          .select("full_name email status division_id role_id")
           .sort({ created_at: -1 })
           .skip(skip)
           .limit(parseInt(limit))
@@ -1276,11 +1817,14 @@ class UserController {
         User.countDocuments(filters),
       ]);
 
-      const report = users.map((user) => ({
+      // Populate salary data
+      const usersWithSalary = await populateSalaryForUsers(users);
+
+      const report = usersWithSalary.map((user) => ({
         user_id: user._id,
         full_name: user.full_name,
         email: user.email,
-        salary: user.salary ? user.salary.toString() : null,
+        salary: user.salary || null, // take_home_pay from salary_data
         status: user.status,
         division: user.division_id?.name || null,
         role: user.role_id?.name || null,

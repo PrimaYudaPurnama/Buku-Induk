@@ -54,7 +54,86 @@ export const fetchCurrentUser = async () => {
   return data?.user || null;
 };
 
+/**
+ * Register new user (public endpoint)
+ * @param {FormData} formData - Form data with user info and documents
+ * @returns {Promise<object>} Created user data
+ */
+export const register = async (formData) => {
+  const response = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal melakukan registrasi");
+  return data;
+};
+
 // ==================== GET USERS ====================
+export const fetchPendingUsers = async ({
+  page = 1,
+  pageSize = 10,
+  search = "",
+} = {}) => {
+  try {
+    const params = new URLSearchParams();
+    params.append("page[number]", page);
+    params.append("page[size]", pageSize);
+    if (search) params.append("search", search.trim());
+
+    const response = await fetch(`${API_BASE}/users/pending?${params.toString()}`, {
+      method: "GET",
+      headers: defaultHeaders(),
+      credentials: "include",
+    });
+    const data = await handleResponse(response);
+
+    if (!data) {
+      return {
+        data: [],
+        meta: { pagination: { total_items: 0, total_pages: 1 } },
+      };
+    }
+
+    return data;
+  } catch (error) {
+    console.error("fetchPendingUsers error:", error);
+    toast.error("Gagal memuat data pengguna pending");
+    return {
+      data: [],
+      meta: { pagination: { total_items: 0, total_pages: 1 } },
+    };
+  }
+};
+
+export const approveUser = async (userId, approvalData) => {
+  const response = await fetch(`${API_BASE}/users/${userId}/approve`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(approvalData),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menyetujui pengguna");
+  return data;
+};
+
+export const rejectUser = async (userId, reason) => {
+  const response = await fetch(`${API_BASE}/users/${userId}/reject`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ reason }),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menolak pengguna");
+  return data;
+};
+
 export const fetchUsers = async ({
   page = 1,
   pageSize = 15,

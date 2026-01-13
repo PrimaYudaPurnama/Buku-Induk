@@ -9,6 +9,7 @@ import { handleDocumentUploaded } from "../services/notificationService.js";
 import { getFileViewUrl } from "../utils/cloudinary.js";
 import User from "../models/user.js";
 import { canAccessResource } from "../middleware/auth.js";
+import { logAudit } from "../utils/auditLogger.js";
 
 /**
  * Enrich document with view_url
@@ -110,13 +111,29 @@ class DocumentController {
         accountRequestId
       );
 
-      // Notify user (only if userId is provided)
-      if (userId) {
-        const targetUser = await User.findById(userId);
-        if (targetUser) {
-          await handleDocumentUploaded(targetUser, documentType);
+      // Log audit
+      await logAudit(
+        c,
+        "document_upload",
+        "document",
+        document._id,
+        null,
+        {
+          document_type: documentType,
+          user_id: userId,
+          account_request_id: accountRequestId,
+          file_name: document.file_name,
+          file_size: document.file_size,
         }
-      }
+      );
+
+      // Notify user (only if userId is provided)
+      // if (userId) {
+      //   const targetUser = await User.findById(userId);
+      //   if (targetUser) {
+      //     await handleDocumentUploaded(targetUser, documentType);
+      //   }
+      // }
 
       return c.json({
         message: "Document uploaded successfully",
@@ -161,6 +178,21 @@ class DocumentController {
 
       // Upload file metadata
       const metadata = await uploadFileMetadata(userId, fileData, user._id, folder);
+
+      // Log audit
+      await logAudit(
+        c,
+        "file_metadata_upload",
+        "file_metadata",
+        metadata._id,
+        null,
+        {
+          user_id: userId,
+          folder,
+          file_name: metadata.original_filename,
+          file_size: metadata.size,
+        }
+      );
 
       return c.json({
         message: "File uploaded successfully",

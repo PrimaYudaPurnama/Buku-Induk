@@ -403,9 +403,9 @@ export default function DivisionList() {
                             {new Date(div.created_at).toLocaleDateString("id-ID")}
                           </div>
                         </td>
+                          {permissions.includes("system:manage_divisions") && (
                         <td className="w-48 px-8 py-6 text-right sticky right-0 bg-slate-900/80 backdrop-blur-sm z-10">
                           <div className="flex justify-end gap-4">
-                          {permissions.includes("system:manage_divisions") && (
                             <>
                               <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openEditModal(div)} className="text-blue-400 hover:text-blue-300">
                                 <Edit className="w-6 h-6" />
@@ -414,9 +414,9 @@ export default function DivisionList() {
                                 <Trash2 className="w-6 h-6" />
                               </motion.button>
                             </>
-                          )}
                           </div>
                         </td>
+                          )}
                       </motion.tr>
                     ))}
                   </tbody>

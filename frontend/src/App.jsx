@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import UserProfile from './pages/Profile';
 import AccountRequestForm from './pages/AccountRequestForm';
@@ -8,6 +9,7 @@ import ApprovalInbox from './pages/ApprovalInbox';
 import ApprovalDetail from './pages/ApprovalDetail';
 import DocumentViewer from './pages/DocumentViewer';
 import NotificationCenter from './pages/NotificationCenter';
+import PendingUsers from './pages/PendingUsers';
 import { useAuthStore } from './stores/useAuthStore';
 import { useEffect } from 'react';
 
@@ -33,6 +35,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/profile/:userId" element={<UserProfile />} />
         <Route path="/account-request" element={<AccountRequestForm />} />
@@ -40,7 +43,8 @@ function App() {
         <Route path="/approvals" element={<ApprovalInbox />} />
         <Route path="/approvals/:id" element={<ApprovalDetail />} />
         <Route path="/documents/user/:id" element={<DocumentViewer />} />
-        <Route path="/notifications" element={<NotificationCenter />} />
+        {/* <Route path="/notifications" element={<NotificationCenter />} /> */}
+        <Route path="/pending-users" element={<PendingUsers />} />
       </Routes>
     </BrowserRouter>
   )

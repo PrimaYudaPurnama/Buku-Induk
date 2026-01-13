@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch } from 'lucide-react';
+import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch, UserCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
@@ -8,10 +8,11 @@ import { useAuthStore } from '../stores/useAuthStore';
 const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage }) => {
   const rawMenu = [
     { id: 'Home', label: 'Home', icon: Home, permission: null },
-    { id: 'WorkflowAnalytics', label: 'Workflow Analytics', icon: BarChart3, permission: ["system:manage_analytics", "dashboard:read"]},
+    // { id: 'WorkflowAnalytics', label: 'Workflow Analytics', icon: BarChart3, permission: ["system:manage_analytics", "dashboard:read"]},
     { id: 'OrgChart', label: 'Company Org Chart', icon: GitBranch, permission: ["dashboard:read", "user:read:any", "user:read:own_division"] },
     { id: 'UserList', label: 'User Management', icon: Users, permission: ["user:read:any", "user:read:own_division", "dashboard:read"] },
-    { id: 'AccountRequest', label: 'Account Request', icon: ClipboardList, permission: ["account:create"] },
+    { id: 'PendingUsers', label: 'Pending Users', icon: UserCheck, permission: ["user:read:any", "user:create", "user:update"] },
+    // { id: 'AccountRequest', label: 'Account Request', icon: ClipboardList, permission: ["account:create"] },
     { id: 'ApprovalInbox', label: 'Approval Inbox', icon: CheckCircle, permission: ["account:approve:any", "account:approve:own_division"] },
     { id: 'Documents', label: 'Documents', icon: FolderOpen, permission: ["user:read:any", "user:read:own_division", "user:read:self"] },
     { id: 'Notifications', label: 'Notifications', icon: Bell, permission: null },

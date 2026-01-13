@@ -132,7 +132,7 @@ export const createApprovalsForRequest = async (accountRequest) => {
       approver._id,
       "approval_pending",
       `New ${requestType} request requires your approval`,
-      `A new ${requestType} request has been submitted by ${requestedBy.full_name}`,
+      `A new ${requestType} request has been submitted by ${approver.full_name}`,
       { action_url: `/approvals/${accountRequest._id}` }
     );
   }

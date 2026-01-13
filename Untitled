@@ -1,0 +1,5 @@
+konteks : @controllers/ 
+
+lakukan : 
+- cek seluruh controller saya dan tambahkan jika saya ada lengah/kurang dalam pemberian riwayat ke @employeeHistory.js ataupun @auditLog.js 
+- lalu update @project.md 

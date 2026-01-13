@@ -3,7 +3,8 @@ import {
   Search, Download, Filter, X, UserPlus, Edit, Trash2, History,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Loader2, Save, AlertCircle, TrendingUp, TrendingDown, 
-  Briefcase, Users, DollarSign, UserX, Clock, ArrowRight, Sparkles
+  Briefcase, Users, DollarSign, UserX, Clock, ArrowRight, Sparkles,
+  Mail, Phone, Calendar, MapPin, Lock, CreditCard, User, FileText, Eye, EyeOff
 } from "lucide-react";
 import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
@@ -19,8 +20,13 @@ import {
   fetchDivisions,
   fetchRoles,
   createAccountRequest,
-  uploadDocument
+  uploadDocument,
+  updateUserSalary
 } from "../utils/api.jsx";
+
+// Components
+import IDCard from "../components/IDCard.jsx";
+import NameCard from "../components/NameCard.jsx";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -39,6 +45,7 @@ export default function UserList() {
   const { user } = useAuthStore();
   const permissions = user?.role_id?.permissions || [];
   const isSuperadmin = user?.role_id?.name === "Superadmin";
+  const isDirector = user?.role_id?.name === "Director";
   const currentRoleLevel = user?.role_id?.hierarchy_level ?? null;
   
   const canCreateUser = permissions.includes("user:create");
@@ -50,6 +57,14 @@ export default function UserList() {
     p.startsWith("employee:terminate") ||
     p.startsWith("employee:transfer")
   );
+  const canViewSalary =
+    isSuperadmin ||
+    permissions.includes("user:view_salary:any") ||
+    permissions.includes("user:view_salary:own_division");
+  const canUpdateSalary =
+    isSuperadmin ||
+    permissions.includes("user:update_salary:any") ||
+    permissions.includes("user:update_salary:own_division");
   // const canViewHistoryUser = permissions.includes("user:view_history");
   const canViewHistoryUser = permissions.some(p => p.startsWith("user:view_history"));
 
@@ -61,6 +76,7 @@ export default function UserList() {
   const [pageSize, setPageSize] = useState(15);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -76,6 +92,9 @@ export default function UserList() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showIDCardModal, setShowIDCardModal] = useState(false);
+  const [showNameCardModal, setShowNameCardModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [requestType, setRequestType] = useState("promotion");
   const [requestForm, setRequestForm] = useState({
     requested_role: "",
@@ -97,8 +116,46 @@ export default function UserList() {
   // Form state
   const [formData, setFormData] = useState({
     email: "", password: "", full_name: "", phone: "", role_id: null,
-    division_id: null, status: "pending", hire_date: "", salary: ""
+    division_id: null, status: "pending", hire_date: "", expired_date: "",
+    gender: "male", date_of_birth: "", national_id: "", npwp: "",
+    employment_type: "unspecified",
+    address_domicile: "", address_street: "", address_city: "",
+    address_state: "", address_subdistrict: "", address_postal_code: "", address_country: "Indonesia",
+    emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: ""
   });
+  const [npwpFile, setNpwpFile] = useState(null);
+  const [documents, setDocuments] = useState({
+    id_card: null,
+    resume: null,
+    certificates: [],
+  });
+
+  // Salary modal state
+  const [showSalaryModal, setShowSalaryModal] = useState(false);
+  const [salaryProcessing, setSalaryProcessing] = useState(false);
+  const [salaryUser, setSalaryUser] = useState(null);
+  const [salaryForm, setSalaryForm] = useState({
+    base_salary: "",
+    currency: "IDR",
+    allowances: [],
+    deductions: [],
+    bank_account: {
+      bank_name: "",
+      account_number: "",
+      account_holder_name: "",
+    },
+    note: "",
+    effective_date: "",
+    reason: "",
+  });
+  
+  // State untuk wilayah Indonesia (api.datawilayah.com)
+  const [provinceOptions, setProvinceOptions] = useState([]);
+  const [cityOptions, setCityOptions] = useState([]);
+  const [subdistrictOptions, setSubdistrictOptions] = useState([]);
+  const [loadingProvinces, setLoadingProvinces] = useState(false);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [loadingSubdistricts, setLoadingSubdistricts] = useState(false);
 
   const activeFiltersCount = [search, statusFilter, roleFilter, divisionFilter].filter(Boolean).length;
 
@@ -106,7 +163,145 @@ export default function UserList() {
     loadUsers();
     loadDivisions();
     loadRoles();
-  }, [page, pageSize, search, statusFilter, roleFilter, divisionFilter, sortBy]);
+    if (showAddModal || showEditModal) {
+      loadProvinces();
+    }
+  }, [page, pageSize, search, statusFilter, roleFilter, divisionFilter, sortBy, showAddModal, showEditModal]);
+
+  // Load Provinsi
+  const loadProvinces = async () => {
+    setLoadingProvinces(true);
+    try {
+      const response = await fetch('https://api.datawilayah.com/api/provinsi.json');
+      const result = await response.json();
+      if (result.status === "success" && Array.isArray(result.data)) {
+        setProvinceOptions(result.data);
+      } else {
+        setProvinceOptions([]);
+      }
+    } catch (error) {
+      console.error('Error loading provinces:', error);
+      setProvinceOptions([]);
+    } finally {
+      setLoadingProvinces(false);
+    }
+  };
+
+  // Load Kabupaten/Kota
+  const loadCities = async (provinceCode) => {
+    if (!provinceCode) {
+      setCityOptions([]);
+      setSubdistrictOptions([]);
+      return;
+    }
+    setLoadingCities(true);
+    try {
+      const response = await fetch(`https://api.datawilayah.com/api/kabupaten_kota/${provinceCode}.json`);
+      const result = await response.json();
+      if (result.status === "success" && Array.isArray(result.data)) {
+        setCityOptions(result.data);
+      } else {
+        setCityOptions([]);
+      }
+    } catch (error) {
+      console.error('Error loading cities:', error);
+      setCityOptions([]);
+    } finally {
+      setLoadingCities(false);
+    }
+  };
+
+  // Load Kecamatan
+  const loadSubdistricts = async (cityCode) => {
+    if (!cityCode) {
+      setSubdistrictOptions([]);
+      return;
+    }
+    setLoadingSubdistricts(true);
+    try {
+      const response = await fetch(`https://api.datawilayah.com/api/kecamatan/${cityCode}.json`);
+      const result = await response.json();
+      if (result.status === "success" && Array.isArray(result.data)) {
+        setSubdistrictOptions(result.data);
+      } else {
+        setSubdistrictOptions([]);
+      }
+    } catch (error) {
+      console.error('Error loading subdistricts:', error);
+      setSubdistrictOptions([]);
+    } finally {
+      setLoadingSubdistricts(false);
+    }
+  };
+
+  // Document upload handlers (add modal)
+  const handleDocChange = (type, file) => {
+    if (!file) return;
+    if (type === "certificates") {
+      setDocuments((prev) => ({
+        ...prev,
+        certificates: [...prev.certificates, file],
+      }));
+      return;
+    }
+    setDocuments((prev) => ({ ...prev, [type]: file }));
+  };
+
+  // Format nomor telepon
+  const formatPhoneNumber = (value) => {
+    let cleaned = value.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '62' + cleaned.substring(1);
+    }
+    if (!cleaned.startsWith('62')) {
+      cleaned = '62' + cleaned;
+    }
+    
+    let formatted = '+' + cleaned.substring(0, 2);
+    if (cleaned.length > 2) formatted += ' ' + cleaned.substring(2, 5);
+    if (cleaned.length > 5) formatted += ' ' + cleaned.substring(5, 9);
+    if (cleaned.length > 9) formatted += ' ' + cleaned.substring(9, 13);
+    
+    return formatted;
+  };
+
+  const handlePhoneChange = (e, field) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setFormData({ ...formData, [field]: formatted });
+  };
+
+  const removeCertificate = (index) => {
+    setDocuments((prev) => ({
+      ...prev,
+      certificates: prev.certificates.filter((_, i) => i !== index),
+    }));
+  };
+
+  // Handle perubahan Provinsi
+  const handleProvinceChange = (e) => {
+    const selectedProvince = provinceOptions.find(p => p.nama_wilayah === e.target.value);
+    const provinceCode = selectedProvince ? selectedProvince.kode_wilayah : '';
+    setFormData({ 
+      ...formData, 
+      address_state: e.target.value,
+      address_city: '',
+      address_subdistrict: ''
+    });
+    loadCities(provinceCode);
+    setSubdistrictOptions([]);
+  };
+
+  // Handle perubahan Kabupaten/Kota
+  const handleCityChange = (e) => {
+    const selectedCity = cityOptions.find(c => c.nama_wilayah === e.target.value);
+    const cityCode = selectedCity ? selectedCity.kode_wilayah : '';
+    setFormData({ 
+      ...formData, 
+      address_city: e.target.value,
+      address_subdistrict: ''
+    });
+    loadSubdistricts(cityCode);
+  };
 
   const loadDivisions = async () => {
     setLoading(true);
@@ -185,6 +380,116 @@ export default function UserList() {
     setHistoryEventFilter("");
   };
 
+  const openSalaryModal = (user) => {
+    setSelectedUser(user);
+    setSalaryUser(user);
+    const salaryData = user.salary_data || null;
+    setSalaryForm({
+      base_salary: salaryData?.base_salary || "",
+      currency: salaryData?.currency || "IDR",
+      allowances: (salaryData?.allowances || []).map((a) => ({
+        name: a.name || "",
+        amount: a.amount || "",
+      })),
+      deductions: (salaryData?.deductions || []).map((d) => ({
+        name: d.name || "",
+        amount: d.amount || "",
+        category: d.category || "other",
+      })),
+      bank_account: salaryData?.bank_account || {
+        bank_name: "",
+        account_number: "",
+        account_holder_name: "",
+      },
+      note: salaryData?.note || "",
+      effective_date: "",
+      reason: "",
+    });
+    setShowSalaryModal(true);
+  };
+
+  const addAllowanceRow = () => {
+    setSalaryForm((prev) => ({
+      ...prev,
+      allowances: [...(prev.allowances || []), { name: "", amount: "" }],
+    }));
+  };
+
+  const addDeductionRow = () => {
+    setSalaryForm((prev) => ({
+      ...prev,
+      deductions: [...(prev.deductions || []), { name: "", amount: "", category: "other" }],
+    }));
+  };
+
+  const updateAllowance = (index, field, value) => {
+    setSalaryForm((prev) => {
+      const next = [...(prev.allowances || [])];
+      next[index] = { ...next[index], [field]: value };
+      return { ...prev, allowances: next };
+    });
+  };
+
+  const removeAllowance = (index) => {
+    setSalaryForm((prev) => ({
+      ...prev,
+      allowances: (prev.allowances || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const updateDeduction = (index, field, value) => {
+    setSalaryForm((prev) => {
+      const next = [...(prev.deductions || [])];
+      next[index] = { ...next[index], [field]: value };
+      return { ...prev, deductions: next };
+    });
+  };
+
+  const removeDeduction = (index) => {
+    setSalaryForm((prev) => ({
+      ...prev,
+      deductions: (prev.deductions || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleSalarySave = async (e) => {
+    e?.preventDefault();
+    if (!salaryUser) return;
+    if (!salaryForm.base_salary) {
+      toast.error("Base salary wajib diisi");
+      return;
+    }
+    setSalaryProcessing(true);
+    try {
+      // Clean empty rows
+      const allowancesClean = (salaryForm.allowances || []).filter(
+        (a) => a.name && a.amount !== ""
+      );
+      const deductionsClean = (salaryForm.deductions || []).filter(
+        (d) => d.name && d.amount !== ""
+      );
+
+      await updateUserSalary(salaryUser._id, {
+        base_salary: salaryForm.base_salary,
+        currency: salaryForm.currency,
+        allowances: allowancesClean,
+        deductions: deductionsClean,
+        bank_account: salaryForm.bank_account,
+        note: salaryForm.note,
+        reason: salaryForm.reason,
+        effective_date: salaryForm.effective_date,
+      });
+      toast.success("Gaji berhasil disimpan");
+      setShowSalaryModal(false);
+      setSalaryUser(null);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err.message || "Gagal menyimpan gaji");
+    } finally {
+      setSalaryProcessing(false);
+    }
+  };
+
   useEffect(() => {
     if (showHistoryModal && selectedUser) {
       loadUserHistory(selectedUser._id);
@@ -194,8 +499,15 @@ export default function UserList() {
   const resetForm = () => {
     setFormData({
       email: "", password: "", full_name: "", phone: "", role_id: "",
-      division_id: "", status: "pending", hire_date: "", salary: ""
+      division_id: "", status: "pending", hire_date: "", expired_date: "",
+      gender: "male", date_of_birth: "", national_id: "", npwp: "",
+      employment_type: "unspecified",
+      address_domicile: "", address_street: "", address_city: "",
+      address_state: "", address_subdistrict: "", address_postal_code: "", address_country: "Indonesia",
+      emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relation: ""
     });
+    setNpwpFile(null);
+    setDocuments({ id_card: null, resume: null, certificates: [] });
   };
 
   const openAddModal = () => {
@@ -218,10 +530,43 @@ export default function UserList() {
       division_id: user.division_id?._id || null,
       status: user.status,
       hire_date: user.hire_date ? user.hire_date.split("T")[0] : "",
-      salary: user.salary ? user.salary.toString() : ""
+      expired_date: user.expired_date ? user.expired_date.split("T")[0] : "",
+      gender: user.gender || "male",
+      date_of_birth: user.date_of_birth ? user.date_of_birth.split("T")[0] : "",
+      national_id: user.national_id || "",
+      npwp: user.npwp || "",
+      employment_type: user.employment_type || "unspecified",
+      address_domicile: user.address?.domicile || "",
+      address_street: user.address?.street || "",
+      address_city: user.address?.city || "",
+      address_state: user.address?.state || "",
+      address_subdistrict: user.address?.subdistrict || "",
+      address_postal_code: user.address?.postal_code || "",
+      address_country: user.address?.country || "Indonesia",
+      emergency_contact_name: user.emergency_contact_name || "",
+      emergency_contact_phone: user.emergency_contact_phone || "",
+      emergency_contact_relation: user.emergency_contact_relation || ""
     });
+    setNpwpFile(null);
     setShowEditModal(true);
   };
+
+  // Load cities and subdistricts when edit modal opens with existing address
+  useEffect(() => {
+    if (showEditModal && selectedUser && selectedUser.address?.state && provinceOptions.length > 0) {
+      const selectedProvince = provinceOptions.find(p => p.nama_wilayah === selectedUser.address.state);
+      if (selectedProvince) {
+        loadCities(selectedProvince.kode_wilayah).then(() => {
+          if (selectedUser.address?.city && cityOptions.length > 0) {
+            const selectedCity = cityOptions.find(c => c.nama_wilayah === selectedUser.address.city);
+            if (selectedCity) {
+              loadSubdistricts(selectedCity.kode_wilayah);
+            }
+          }
+        });
+      }
+    }
+  }, [showEditModal, provinceOptions.length]);
 
   const openDeleteConfirm = (user) => {
     if (!canDeleteDirect) {
@@ -251,33 +596,167 @@ export default function UserList() {
 
     try {
       if (showAddModal) {
-        if (isSuperadmin) {
-          await createUser(formData);
+        // if (isSuperadmin) {
+          // Prepare data for createUser API
+          const userData = {
+            email: formData.email,
+            password: formData.password,
+            full_name: formData.full_name,
+            phone: formData.phone || null,
+            role_id: formData.role_id,
+            division_id: formData.division_id || null,
+            status: formData.status || "pending",
+            employment_type: formData.employment_type || "unspecified",
+            hire_date: formData.hire_date || null,
+            expired_date: formData.employment_type !== "full-time" && formData.expired_date ? formData.expired_date : null,
+            gender: formData.gender || "male",
+            date_of_birth: formData.date_of_birth || null,
+            national_id: formData.national_id || null,
+            npwp: formData.npwp || null,
+            address: {
+              domicile: formData.address_domicile || null,
+              street: formData.address_street || null,
+              subdistrict: formData.address_subdistrict || null,
+              city: formData.address_city || null,
+              state: formData.address_state || null,
+              postal_code: formData.address_postal_code || null,
+              country: formData.address_country || "Indonesia",
+            },
+            emergency_contact_name: formData.emergency_contact_name || null,
+            emergency_contact_phone: formData.emergency_contact_phone || null,
+            emergency_contact_relation: formData.emergency_contact_relation || null,
+          };
+          const createdUser = await createUser(userData);
+          
+          // Upload supporting documents if provided
+          if (createdUser?.data?._id) {
+            const uploadTasks = [];
+            const uid = createdUser.data._id;
+
+            if (documents.id_card) {
+              const formDataUpload = new FormData();
+              formDataUpload.append("file", documents.id_card);
+              formDataUpload.append("document_type", "id_card");
+              formDataUpload.append("user_id", uid);
+              formDataUpload.append("description", "KTP/ID card uploaded during user creation");
+              uploadTasks.push(uploadDocument(formDataUpload));
+            }
+
+            if (documents.resume) {
+              const formDataUpload = new FormData();
+              formDataUpload.append("file", documents.resume);
+              formDataUpload.append("document_type", "resume");
+              formDataUpload.append("user_id", uid);
+              formDataUpload.append("description", "Resume uploaded during user creation");
+              uploadTasks.push(uploadDocument(formDataUpload));
+            }
+
+            if (documents.certificates?.length) {
+              documents.certificates.forEach((cert) => {
+                const formDataUpload = new FormData();
+                formDataUpload.append("file", cert);
+                formDataUpload.append("document_type", "certificate");
+                formDataUpload.append("user_id", uid);
+                formDataUpload.append("description", "Certificate uploaded during user creation");
+                uploadTasks.push(uploadDocument(formDataUpload));
+              });
+            }
+
+            try {
+              if (uploadTasks.length) {
+                await Promise.all(uploadTasks);
+              }
+            } catch (docErr) {
+              console.error("Failed to upload supporting documents:", docErr);
+              toast.error("User dibuat, namun ada dokumen yang gagal diunggah");
+            }
+          }
+
+          // Upload NPWP file if provided
+          if (npwpFile && createdUser?.data?._id) {
+            try {
+              const formDataUpload = new FormData();
+              formDataUpload.append("file", npwpFile);
+              formDataUpload.append("document_type", "npwp");
+              formDataUpload.append("user_id", createdUser.data._id);
+              formDataUpload.append("description", "NPWP document uploaded during user creation");
+              await uploadDocument(formDataUpload);
+            } catch (docErr) {
+              console.error("Failed to upload NPWP document:", docErr);
+              toast.error("User berhasil dibuat, namun upload dokumen NPWP gagal");
+            }
+          }
           toast.success("User berhasil ditambahkan");
           setShowAddModal(false);
-        } else {
-          if (!formData.role_id || !formData.division_id) {
-            toast.error("Role dan divisi wajib diisi");
-            setProcessing(false);
-            return;
-          }
-          await createAccountRequest({
-            requester_name: formData.full_name,
-            email: formData.email,
-            phone: formData.phone,
-            requested_role: formData.role_id,
-            division_id: formData.division_id,
-            request_type: "account_request",
-            notes: formData.notes || ""
-          });
-          toast.success("Permintaan akun dikirim untuk persetujuan");
-          setShowAddModal(false);
-        }
+        // } else {
+        //   if (!formData.role_id || !formData.division_id) {
+        //     toast.error("Role dan divisi wajib diisi");
+        //     setProcessing(false);
+        //     return;
+        //   }
+        //   await createAccountRequest({
+        //     requester_name: formData.full_name,
+        //     email: formData.email,
+        //     phone: formData.phone,
+        //     requested_role: formData.role_id,
+        //     division_id: formData.division_id,
+        //     request_type: "account_request",
+        //     notes: formData.notes || ""
+        //   });
+        //   toast.success("Permintaan akun dikirim untuk persetujuan");
+        //   setShowAddModal(false);
+        // }
       } else if (showEditModal) {
         if (!isSuperadmin) {
           toast.error("Update langsung hanya untuk Superadmin. Gunakan tombol Ajukan.");
         } else {
-          await updateUser(selectedUser._id, formData);
+          // Prepare data for updateUser API
+          const userData = {
+            email: formData.email,
+            full_name: formData.full_name,
+            phone: formData.phone || null,
+            role_id: formData.role_id,
+            division_id: formData.division_id || null,
+            status: formData.status,
+            employment_type: formData.employment_type || "unspecified",
+            hire_date: formData.hire_date || null,
+            expired_date: formData.employment_type !== "full-time" && formData.expired_date ? formData.expired_date : null,
+            gender: formData.gender || "male",
+            date_of_birth: formData.date_of_birth || null,
+            national_id: formData.national_id || null,
+            npwp: formData.npwp || null,
+            address: {
+              domicile: formData.address_domicile || null,
+              street: formData.address_street || null,
+              subdistrict: formData.address_subdistrict || null,
+              city: formData.address_city || null,
+              state: formData.address_state || null,
+              postal_code: formData.address_postal_code || null,
+              country: formData.address_country || "Indonesia",
+            },
+            emergency_contact_name: formData.emergency_contact_name || null,
+            emergency_contact_phone: formData.emergency_contact_phone || null,
+            emergency_contact_relation: formData.emergency_contact_relation || null,
+          };
+          if (formData.password) {
+            userData.password = formData.password;
+          }
+          await updateUser(selectedUser._id, userData);
+          
+          // Upload NPWP file if provided
+          if (npwpFile) {
+            try {
+              const formDataUpload = new FormData();
+              formDataUpload.append("file", npwpFile);
+              formDataUpload.append("document_type", "npwp");
+              formDataUpload.append("user_id", selectedUser._id);
+              formDataUpload.append("description", "NPWP document uploaded during user update");
+              await uploadDocument(formDataUpload);
+            } catch (docErr) {
+              console.error("Failed to upload NPWP document:", docErr);
+              toast.error("User berhasil diperbarui, namun upload dokumen NPWP gagal");
+            }
+          }
           toast.success("User berhasil diperbarui");
           setShowEditModal(false);
         }
@@ -397,7 +876,7 @@ export default function UserList() {
       u.division_id?.name || "-",
       u.phone || "-",
       u.hire_date ? new Date(u.hire_date).toLocaleDateString("id-ID") : "-",
-      u.salary ? formatCurrency(u.salary) : "-"
+      u.salary ? formatCurrency(u.salary) : "-" // salary is now take_home_pay from salary_data
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -541,6 +1020,20 @@ export default function UserList() {
     }).format(parseFloat(value));
   };
 
+  // Helper function to copy KTP address to domicile address
+  const copyKTPAddressToDomicile = () => {
+    const ktpAddress = `${formData.address_street || ""}, ${formData.address_subdistrict || ""}, ${formData.address_city || ""}, ${formData.address_state || ""} ${formData.address_postal_code || ""}`.trim();
+    if (ktpAddress && ktpAddress !== ",") {
+      setFormData({
+        ...formData,
+        address_domicile: ktpAddress,
+      });
+      toast.success("Alamat KTP telah disalin ke alamat domisili");
+    } else {
+      toast.error("Pastikan alamat KTP sudah diisi");
+    }
+  };
+
   return (
     <>
       <Toaster position="top-center" />
@@ -627,7 +1120,7 @@ export default function UserList() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <UserPlus className="w-6 h-6" /> {isSuperadmin ? "Tambah User" : "Ajukan User"}
+                    <UserPlus className="w-6 h-6" /> Tambah User
                   </motion.button>
                 )}
               </div>
@@ -720,20 +1213,37 @@ export default function UserList() {
                     {users.map((user) => (
                       <motion.tr 
                         key={user._id} 
+                        onClick={() => { setSelectedUser(user); setShowDetailModal(true); }} 
                         className="hover:bg-slate-800/50 transition-all"
-                        whileHover={{ x: 4 }}
+                        whileHover={{ x: 4, cursor: "pointer" }}
                       >
                         <td className="px-8 py-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center text-white font-semibold shadow-lg">
-                              {user.full_name?.[0]?.toUpperCase() || "?"}
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-semibold shadow-lg">
+                            {user.profile_photo_url ? (
+                              <img
+                                src={user.profile_photo_url}
+                                alt={user.full_name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-lg">
+                                {user.full_name?.[0]?.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <div className="text-base font-semibold text-white">
+                              {user.full_name}
                             </div>
-                            <div>
-                              <div className="text-base font-semibold text-white">{user.full_name}</div>
-                              <div className="text-sm text-slate-400">{user.email}</div>
+                            <div className="text-sm text-slate-400">
+                              {user.email}
                             </div>
                           </div>
-                        </td>
+                        </div>
+                      </td>
+
                         <td className="px-8 py-6">
                           <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${getStatusBadge(user.status)}`}>
                             {user.status}
@@ -752,23 +1262,57 @@ export default function UserList() {
                         </td>
                         <td className="px-8 py-6 text-right sticky right-0 bg-slate-900/85 backdrop-blur-sm">
                           <div className="flex justify-end gap-3">
+                            {/* <motion.button 
+                              onClick={() => { setSelectedUser(user); setShowDetailModal(true); }} 
+                              className="text-blue-400 hover:text-blue-300" 
+                              title="Detail User" 
+                              whileHover={{ scale: 1.1 }}
+                            >
+                              <User className="w-5 h-5" />
+                            </motion.button> */}
+                            <motion.button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedUser(user); setShowIDCardModal(true); }} 
+                              className="text-cyan-400 hover:text-cyan-300" 
+                              title="ID Card" 
+                              whileHover={{ scale: 1.1 }}
+                            >
+                              <CreditCard className="w-5 h-5" />
+                            </motion.button>
+                            <motion.button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedUser(user); setShowNameCardModal(true); }} 
+                              className="text-indigo-400 hover:text-indigo-300" 
+                              title="Kartu Nama" 
+                              whileHover={{ scale: 1.1 }}
+                            >
+                              <User className="w-5 h-5" />
+                            </motion.button>
                             {canViewHistoryUser && (
-                              <motion.button onClick={() => openHistoryModal(user)} className="text-purple-400 hover:text-purple-300" title="Lihat History" whileHover={{ scale: 1.1 }}>
+                              <motion.button onClick={(e) => { e.stopPropagation(); openHistoryModal(user); }} className="text-purple-400 hover:text-purple-300" title="Lihat History" whileHover={{ scale: 1.1 }}>
                                 <History className="w-5 h-5" />
                               </motion.button>
                             )}
+                            {canViewSalary && (
+                              <motion.button
+                                onClick={(e) => { e.stopPropagation(); setSalaryUser(user); openSalaryModal(user); }}
+                                className="text-emerald-400 hover:text-emerald-300"
+                                title={user.salary_data ? "Edit gaji" : "Set gaji"}
+                                whileHover={{ scale: 1.1 }}
+                              >
+                                <DollarSign className="w-5 h-5" />
+                              </motion.button>
+                            )}
                             {canUpdateDirect && (
-                              <motion.button onClick={() => openEditModal(user)} className="text-slate-300 hover:text-white" title="Edit langsung" whileHover={{ scale: 1.1 }}>
+                              <motion.button onClick={(e) => { e.stopPropagation(); openEditModal(user); }} className="text-slate-300 hover:text-white" title="Edit langsung" whileHover={{ scale: 1.1 }}>
                                 <Edit className="w-5 h-5" />
                               </motion.button>
                             )}
                             {!canUpdateDirect && canProposeChange && requesterCanTargetUser(user) && (
-                              <motion.button onClick={() => openRequestModal(user, "promotion")} className="text-blue-400 hover:text-blue-300" title="Ajukan perubahan (butuh persetujuan)" whileHover={{ scale: 1.1 }}>
+                              <motion.button onClick={(e) => { e.stopPropagation(); openRequestModal(user, "promotion"); }} className="text-blue-400 hover:text-blue-300" title={isDirector ? "Ajukan perubahan (langsung approved)" : "Ajukan perubahan (butuh persetujuan)"} whileHover={{ scale: 1.1 }}>
                                 <Edit className="w-5 h-5" />
                               </motion.button>
                             )}
                             {canDeleteDirect && (
-                              <motion.button onClick={() => openDeleteConfirm(user)} className="text-red-400 hover:text-red-300" title="Hapus langsung" whileHover={{ scale: 1.1 }}>
+                              <motion.button onClick={(e) => { e.stopPropagation(); openDeleteConfirm(user); }} className="text-red-400 hover:text-red-300" title="Hapus langsung" whileHover={{ scale: 1.1 }}>
                                 <Trash2 className="w-5 h-5" />
                               </motion.button>
                             )}
@@ -998,111 +1542,387 @@ export default function UserList() {
       {/* MODAL TAMBAH / EDIT */}
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-blue-900/50">
+          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-blue-900/50">
             <div className="p-6 border-b border-slate-800/60">
               <h2 className="text-2xl font-bold text-white mb-2">{showAddModal ? "Tambah User Baru" : "Edit User"}</h2>
               <p className="text-slate-400 text-sm">Lengkapi informasi user</p>
             </div>
             <div className="p-6">
-              <form onSubmit={handleSubmit}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Email *</label>
-                    <input required type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  {showAddModal && isSuperadmin && (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Account Info */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Lock className="w-5 h-5 text-blue-400" />
+                    Informasi Akun
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Password *</label>
-                      <input required type="password" value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500" />
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                        <Mail className="w-4 h-4 text-blue-400" />
+                        Email *
+                      </label>
+                      <input required type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500" />
                     </div>
-                  )}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Nama Lengkap *</label>
-                    <input required type="text" value={formData.full_name} onChange={(e) => setFormData({...formData, full_name: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">No. HP</label>
-                    <input type="text" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Role *</label>
-                    <select
-                      required
-                      value={formData.role_id || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, role_id: e.target.value || null })
-                      }
-                      className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
-                    >
-                      <option value="">Pilih role…</option>
-                      {roles.map((r) => (
-                        <option key={r._id} value={r._id}>
-                          {r.name} (Level {r.hierarchy_level})
-                        </option>
-                      ))}
-                    </select>
-                    {renderRoleChangeHint()}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Division</label>
-                    <select
-                      className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
-                      value={formData.division_id ?? ""} 
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setFormData({
-                          ...formData,
-                          division_id: val === "" ? null : val, 
-                        });
-                      }}
-                    >
-                      <option value="">Pilih division…</option>
-
-                      {divisions.map((option) => {
-                        const manager = users.find(u => u._id === option.manager_id);
-                        const managerName = manager ? manager.full_name : "";
-
-                        return (
-                          <option key={option._id} value={option._id}>
-                            {managerName
-                              ? `${option.name} — managed by ${managerName}`
-                              : option.name}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {renderDivisionChangeHint()}
-
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Gaji</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.salary}
-                      onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
-                      placeholder="Contoh: 5000000"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                    <select value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white">
-                      <option value="pending">Pending</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="terminated">Terminated</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Tanggal Masuk</label>
-                    <input type="date" value={formData.hire_date} onChange={(e) => setFormData({...formData, hire_date: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    {showAddModal && (
+                      <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                        <Lock className="w-4 h-4 text-blue-400" />
+                        Password *
+                      </label>
+                
+                      <div className="relative">
+                        <input
+                          required
+                          type={showPassword ? "text" : "password"}
+                          value={formData.password}
+                          onChange={(e) =>
+                            setFormData({ ...formData, password: e.target.value })
+                          }
+                          className="w-full px-4 py-3 pr-12 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500"
+                        />
+                
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                        >
+                          {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                        </button>
+                      </div>
+                    </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="mt-6 flex justify-end gap-3">
-                  <button type="button" onClick={() => { setShowAddModal(false); setShowEditModal(false); }} className="px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-slate-200 hover:bg-slate-700/60">
+                {/* Personal Info */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-400" />
+                    Informasi Pribadi
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Nama Lengkap *</label>
+                      <input required type="text" value={formData.full_name} onChange={(e) => setFormData({...formData, full_name: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                        <Phone className="w-4 h-4 text-blue-400" />
+                        No. HP
+                      </label>
+                      <input type="tel" value={formData.phone} onChange={(e) => handlePhoneChange(e, 'phone')} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Jenis Kelamin</label>
+                      <select value={formData.gender} onChange={(e) => setFormData({...formData, gender: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white">
+                        <option value="male">Laki-laki</option>
+                        <option value="female">Perempuan</option>
+                        <option value="other">Lainnya</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                        <Calendar className="w-4 h-4 text-blue-400" />
+                        Tanggal Lahir
+                      </label>
+                      <input type="date" value={formData.date_of_birth} onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">NIK</label>
+                      <input type="text" value={formData.national_id} onChange={(e) => setFormData({...formData, national_id: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">NPWP (Opsional)</label>
+                      <input type="text" value={formData.npwp} onChange={(e) => setFormData({...formData, npwp: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" placeholder="Contoh: 12.345.678.9-012.000" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">Tipe Karyawan</label>
+                      <select value={formData.employment_type} onChange={(e) => setFormData({...formData, employment_type: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white">
+                        <option value="unspecified">Tidak Diketahui</option>
+                        <option value="full-time">Full-time</option>
+                        <option value="contract">Kontrak</option>
+                        <option value="intern">Magang</option>
+                        <option value="freelance">Freelance</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">Role *</label>
+                      <select
+                        required
+                        value={formData.role_id || ""}
+                        onChange={(e) =>
+                          setFormData({ ...formData, role_id: e.target.value || null })
+                        }
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                      >
+                        <option value="">Pilih role…</option>
+                        {roles.map((r) => (
+                          <option key={r._id} value={r._id}>
+                            {r.name} (Level {r.hierarchy_level})
+                          </option>
+                        ))}
+                      </select>
+                      {renderRoleChangeHint()}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">Division</label>
+                      <select
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                        value={formData.division_id ?? ""} 
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData({
+                            ...formData,
+                            division_id: val === "" ? null : val, 
+                          });
+                        }}
+                      >
+                        <option value="">Pilih division…</option>
+                        {divisions.map((option) => {
+                          const manager = users.find(u => u._id === option.manager_id);
+                          const managerName = manager ? manager.full_name : "";
+                          return (
+                            <option key={option._id} value={option._id}>
+                              {managerName ? `${option.name} — managed by ${managerName}` : option.name}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {renderDivisionChangeHint()}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">Status</label>
+                      <select value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white">
+                        <option value="pending">Pending</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="terminated">Terminated</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                        Tanggal Masuk {formData.employment_type !== "full-time" && "*"}
+                      </label>
+                      <input 
+                        type="date" 
+                        required={formData.employment_type !== "full-time"}
+                        value={formData.hire_date} 
+                        onChange={(e) => setFormData({...formData, hire_date: e.target.value})} 
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" 
+                      />
+                    </div>
+                    {formData.employment_type !== "full-time" && (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">Tanggal Berakhir Kontrak *</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formData.expired_date || ""} 
+                          onChange={(e) => setFormData({...formData, expired_date: e.target.value})} 
+                          min={formData.hire_date}
+                          className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" 
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-indigo-400" />
+                    Alamat
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <h4 className="text-sm font-semibold text-slate-200 mb-3">Alamat sesuai KTP</h4>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Jalan / Alamat Lengkap</label>
+                      <input type="text" value={formData.address_street} onChange={(e) => setFormData({...formData, address_street: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" placeholder="Contoh: Jl. Sudirman No. 123 RT 02 RW 05" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Provinsi</label>
+                      <select
+                        value={formData.address_state}
+                        onChange={handleProvinceChange}
+                        disabled={loadingProvinces}
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        <option value="">Pilih Provinsi</option>
+                        {provinceOptions.map((prov) => (
+                          <option key={prov.kode_wilayah} value={prov.nama_wilayah}>
+                            {prov.nama_wilayah}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Kabupaten / Kota</label>
+                      <select
+                        value={formData.address_city}
+                        onChange={handleCityChange}
+                        disabled={loadingCities || cityOptions.length === 0}
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        <option value="">Pilih Kabupaten/Kota</option>
+                        {cityOptions.map((city) => (
+                          <option key={city.kode_wilayah} value={city.nama_wilayah}>
+                            {city.nama_wilayah}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Kecamatan</label>
+                      <select
+                        value={formData.address_subdistrict}
+                        onChange={(e) => setFormData({ ...formData, address_subdistrict: e.target.value })}
+                        disabled={loadingSubdistricts || subdistrictOptions.length === 0}
+                        className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        <option value="">Pilih Kecamatan</option>
+                        {subdistrictOptions.map((sub) => (
+                          <option key={sub.kode_wilayah} value={sub.nama_wilayah}>
+                            {sub.nama_wilayah}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Kode Pos</label>
+                      <input type="text" value={formData.address_postal_code} onChange={(e) => setFormData({...formData, address_postal_code: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" placeholder="12345" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <h4 className="text-sm font-semibold text-slate-200 mb-3">Domisili</h4>
+                    </div>
+                    <div className="md:col-span-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-slate-300">Alamat saat ini</label>
+                        <button
+                          type="button"
+                          onClick={copyKTPAddressToDomicile}
+                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 px-3 py-1 rounded-lg hover:bg-blue-900/30 transition-all"
+                        >
+                          <span>📋</span>
+                          Salin dari Alamat KTP
+                        </button>
+                      </div>
+                      <input type="text" value={formData.address_domicile} onChange={(e) => setFormData({...formData, address_domicile: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" placeholder="Alamat domisili saat ini" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Emergency Contact */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-400" />
+                    Kontak Darurat
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Nama</label>
+                      <input type="text" value={formData.emergency_contact_name} onChange={(e) => setFormData({...formData, emergency_contact_name: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Nomor Telepon</label>
+                      <input type="tel" value={formData.emergency_contact_phone} onChange={(e) => handlePhoneChange(e, 'emergency_contact_phone')} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Hubungan</label>
+                      <input type="text" value={formData.emergency_contact_relation} onChange={(e) => setFormData({...formData, emergency_contact_relation: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dokumen Pendukung */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-400" />
+                    Dokumen Pendukung
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-slate-300">KTP / ID Card</label>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleDocChange("id_card", e.target.files?.[0] || null)}
+                        className="w-full text-sm text-slate-200 file:mr-4 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-100 bg-slate-800/60 border border-slate-700 rounded-xl"
+                      />
+                      {documents.id_card && <p className="text-xs text-green-400">✓ {documents.id_card.name}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-slate-300">Resume / CV</label>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={(e) => handleDocChange("resume", e.target.files?.[0] || null)}
+                        className="w-full text-sm text-slate-200 file:mr-4 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-100 bg-slate-800/60 border border-slate-700 rounded-xl"
+                      />
+                      {documents.resume && <p className="text-xs text-green-400">✓ {documents.resume.name}</p>}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-slate-300">Sertifikat (bisa lebih dari 1)</label>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById("userlist-certificate-input")?.click()}
+                        className="text-xs px-3 py-1 bg-slate-800/70 border border-slate-700 rounded-lg text-slate-200 hover:bg-slate-700"
+                      >
+                        Tambah Sertifikat
+                      </button>
+                    </div>
+                    <input
+                      id="userlist-certificate-input"
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => handleDocChange("certificates", e.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                    {documents.certificates.length > 0 && (
+                      <div className="space-y-2">
+                        {documents.certificates.map((cert, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            <span className="truncate">{cert.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeCertificate(idx)}
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* NPWP File Upload */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-400" />
+                    Dokumen NPWP (Opsional)
+                  </h3>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">File NPWP</label>
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => setNpwpFile(e.target.files[0])}
+                      className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white file:text-slate-200 file:mr-4 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-slate-700 file:cursor-pointer"
+                    />
+                    {npwpFile && (
+                      <p className="text-sm text-green-400 mt-2">✓ {npwpFile.name}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-800/60">
+                  <button type="button" onClick={() => { setShowAddModal(false); setShowEditModal(false); }} className="px-6 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-slate-200 hover:bg-slate-700/60">
                     Batal
                   </button>
                   <button type="submit" disabled={processing} className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-lg disabled:opacity-70">
@@ -1263,6 +2083,386 @@ export default function UserList() {
                 Hapus
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ID CARD */}
+      {showIDCardModal && selectedUser && (
+        <IDCard user={selectedUser} onClose={() => setShowIDCardModal(false)} />
+      )}
+
+      {/* MODAL KARTU NAMA */}
+      {showNameCardModal && selectedUser && (
+        <NameCard user={selectedUser} onClose={() => setShowNameCardModal(false)} />
+      )}
+
+      {/* MODAL DETAIL USER */}
+      {showDetailModal && selectedUser && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-blue-900/50">
+            <div className="p-6 border-b border-slate-800/60 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Detail User</h2>
+                <p className="text-slate-400 mt-1">{selectedUser.full_name}</p>
+              </div>
+              <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Account Info */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-blue-400" />
+                  Informasi Akun
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Email</label>
+                    <p className="text-white">{selectedUser.email}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
+                    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${getStatusBadge(selectedUser.status)}`}>
+                      {selectedUser.status}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Role</label>
+                    <p className="text-white">{selectedUser.role_id?.name || "-"} (Level {selectedUser.role_id?.hierarchy_level || "-"})</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Divisi</label>
+                    <p className="text-white">{selectedUser.division_id?.name || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Tipe Karyawan</label>
+                    <p className="text-white">{selectedUser.employment_type || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Tanggal Masuk</label>
+                    <p className="text-white">{selectedUser.hire_date ? new Date(selectedUser.hire_date).toLocaleDateString("id-ID") : "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Gaji (Take Home Pay)</label>
+                    <p className="text-white">{formatCurrency(selectedUser.salary)}</p>
+                    {selectedUser.salary_data && (
+                      <div className="mt-2 text-xs text-slate-400">
+                        <p>Base Salary: {formatCurrency(selectedUser.salary_data.base_salary)}</p>
+                        <p>Total Allowance: {formatCurrency(selectedUser.salary_data.total_allowance)}</p>
+                        <p>Total Deduction: {formatCurrency(selectedUser.salary_data.total_deduction)}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Personal Info */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                  Informasi Pribadi
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Nama Lengkap</label>
+                    <p className="text-white">{selectedUser.full_name}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">No. HP</label>
+                    <p className="text-white">{selectedUser.phone || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Jenis Kelamin</label>
+                    <p className="text-white">{selectedUser.gender === "male" ? "Laki-laki" : selectedUser.gender === "female" ? "Perempuan" : "Lainnya"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Tanggal Lahir</label>
+                    <p className="text-white">{selectedUser.date_of_birth ? new Date(selectedUser.date_of_birth).toLocaleDateString("id-ID") : "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">NIK</label>
+                    <p className="text-white">{selectedUser.national_id || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">NPWP</label>
+                    <p className="text-white">{selectedUser.npwp || "-"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Address */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-indigo-400" />
+                  Alamat
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Domisili</label>
+                    <p className="text-white">{selectedUser.address?.domicile || "-"}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <h4 className="text-sm font-semibold text-slate-200 mb-3">Alamat sesuai KTP</h4>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Jalan</label>
+                    <p className="text-white">{selectedUser.address?.street || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Provinsi</label>
+                    <p className="text-white">{selectedUser.address?.state || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Kabupaten/Kota</label>
+                    <p className="text-white">{selectedUser.address?.city || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Kecamatan</label>
+                    <p className="text-white">{selectedUser.address?.subdistrict || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Kode Pos</label>
+                    <p className="text-white">{selectedUser.address?.postal_code || "-"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Emergency Contact */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                  Kontak Darurat
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Nama</label>
+                    <p className="text-white">{selectedUser.emergency_contact_name || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Nomor Telepon</label>
+                    <p className="text-white">{selectedUser.emergency_contact_phone || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Hubungan</label>
+                    <p className="text-white">{selectedUser.emergency_contact_relation || "-"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GAJI */}
+      {showSalaryModal && salaryUser && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-emerald-900/50">
+            <div className="p-6 border-b border-slate-800/60 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <DollarSign className="w-6 h-6 text-emerald-400" />
+                  {salaryUser.full_name} — {salaryUser.salary_data ? "Edit Gaji" : "Atur Gaji"}
+                </h2>
+                <p className="text-slate-400 text-sm">Nilai akan tersimpan sebagai snapshot Salary terbaru</p>
+              </div>
+              <button onClick={() => setShowSalaryModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalarySave} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Base Salary *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    disabled={!canUpdateSalary}
+                    required
+                    value={salaryForm.base_salary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, base_salary: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                    placeholder="5000000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Currency</label>
+                  <select
+                    disabled={!canUpdateSalary}
+                    value={salaryForm.currency}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, currency: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                  >
+                    <option value="IDR">IDR</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-200">Allowances</h4>
+                    <button type="button" disabled={!canUpdateSalary} onClick={addAllowanceRow} className="text-xs text-emerald-400 hover:text-emerald-300">Tambah</button>
+                  </div>
+                  {(salaryForm.allowances || []).map((a, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={a.name}
+                        disabled={!canUpdateSalary}
+                        onChange={(e) => updateAllowance(idx, "name", e.target.value)}
+                        placeholder="Nama"
+                        className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                      />
+                      <input
+                        type="number"
+                        value={a.amount}
+                        disabled={!canUpdateSalary}
+                        onChange={(e) => updateAllowance(idx, "amount", e.target.value)}
+                        placeholder="Jumlah"
+                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                      />
+                      <button type="button" disabled={!canUpdateSalary} onClick={() => removeAllowance(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+                    </div>
+                  ))}
+                  {(!salaryForm.allowances || salaryForm.allowances.length === 0) && (
+                    <p className="text-xs text-slate-500">Tidak ada allowance</p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-200">Deductions</h4>
+                    <button type="button" disabled={!canUpdateSalary} onClick={addDeductionRow} className="text-xs text-emerald-400 hover:text-emerald-300">Tambah</button>
+                  </div>
+                  {(salaryForm.deductions || []).map((d, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={d.name}
+                        disabled={!canUpdateSalary}
+                        onChange={(e) => updateDeduction(idx, "name", e.target.value)}
+                        placeholder="Nama"
+                        className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                      />
+                      <input
+                        type="number"
+                        value={d.amount}
+                        disabled={!canUpdateSalary}
+                        onChange={(e) => updateDeduction(idx, "amount", e.target.value)}
+                        placeholder="Jumlah"
+                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                      />
+                      <select
+                        value={d.category || "other"}
+                        disabled={!canUpdateSalary}
+                        onChange={(e) => updateDeduction(idx, "category", e.target.value)}
+                        className="px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                      >
+                        <option value="other">Other</option>
+                        <option value="bpjs">BPJS</option>
+                        <option value="insurance">Insurance</option>
+                      </select>
+                      <button type="button" disabled={!canUpdateSalary} onClick={() => removeDeduction(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+                    </div>
+                  ))}
+                  {(!salaryForm.deductions || salaryForm.deductions.length === 0) && (
+                    <p className="text-xs text-slate-500">Tidak ada deduction</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Bank Name</label>
+                  <input
+                    type="text"
+                    value={salaryForm.bank_account?.bank_name || ""}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, bank_account: { ...salaryForm.bank_account, bank_name: e.target.value } })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Account Number</label>
+                  <input
+                    type="text"
+                    value={salaryForm.bank_account?.account_number || ""}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, bank_account: { ...salaryForm.bank_account, account_number: e.target.value } })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Account Holder</label>
+                  <input
+                    type="text"
+                    value={salaryForm.bank_account?.account_holder_name || ""}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, bank_account: { ...salaryForm.bank_account, account_holder_name: e.target.value } })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Effective Date</label>
+                  <input
+                    type="date"
+                    value={salaryForm.effective_date}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, effective_date: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Reason</label>
+                  <input
+                    type="text"
+                    value={salaryForm.reason}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, reason: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                    placeholder="Misal: penyesuaian"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Catatan</label>
+                  <textarea
+                    rows={3}
+                    value={salaryForm.note}
+                    disabled={!canUpdateSalary}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, note: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
+                    placeholder="Catatan tambahan"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSalaryModal(false)}
+                  className="px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-slate-200 hover:bg-slate-700/60"
+                >
+                  Batal
+                </button>
+                {canUpdateSalary && (
+                  <button
+                  type="submit"
+                  disabled={salaryProcessing}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white rounded-xl shadow-lg disabled:opacity-70"
+                >
+                  {salaryProcessing ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
+                  Simpan Gaji
+                </button>
+                )}
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 import Division from "../models/division.js";
 import User from "../models/user.js";
+import { logAudit } from "../utils/auditLogger.js";
 
 
 class DivisionController {
@@ -112,6 +113,20 @@ class DivisionController {
             active_general_id: active_general_id || null,
             });
 
+            // Log audit
+            await logAudit(
+                c,
+                "division_create",
+                "division",
+                created._id,
+                null,
+                {
+                    name: created.name,
+                    manager_id: created.manager_id,
+                    active_general_id: created.active_general_id,
+                }
+            );
+
             return c.json(created, 201);
         } catch (err) {
             if (err.code === 11000) {
@@ -141,12 +156,28 @@ class DivisionController {
         }
 
         try {
+            // Get old data before update
+            const existingDivision = await Division.findById(id);
+            if (!existingDivision) return c.json({ message: "Not found" }, 404);
+
+            const oldData = existingDivision.toObject();
+
             const updated = await Division.findByIdAndUpdate(id, body, {
             new: true,
             runValidators: true,
             });
 
             if (!updated) return c.json({ message: "Not found" }, 404);
+
+            // Log audit
+            await logAudit(
+                c,
+                "division_update",
+                "division",
+                id,
+                oldData,
+                updated.toObject()
+            );
 
             return c.json(updated);
         } catch (err) {
@@ -165,9 +196,25 @@ class DivisionController {
     async deleteDivision (c) {
         const id = c.req.param("id");
 
+        // Get division data before deletion
+        const division = await Division.findById(id);
+        if (!division) return c.json({ message: "Not found" }, 404);
+
+        const divisionData = division.toObject();
+
         const deleted = await Division.findByIdAndDelete(id);
 
         if (!deleted) return c.json({ message: "Not found" }, 404);
+
+        // Log audit
+        await logAudit(
+            c,
+            "division_delete",
+            "division",
+            id,
+            divisionData,
+            { deleted: true }
+        );
 
         return c.json({ message: "Division deleted" });
     };
