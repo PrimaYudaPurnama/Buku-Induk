@@ -86,7 +86,6 @@ export default function DivisionList() {
       });
 
       setDivisions(res.data || []);
-      console.log("divisions : ", res.data)
       setTotalPages(res.total_pages || 1);
       setTotalItems(res.total || 0);
     } catch (err) {

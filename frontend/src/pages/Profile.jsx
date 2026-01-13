@@ -89,7 +89,6 @@ const UserProfile = () => {
       if (!response.ok) throw new Error('Failed to fetch user data');
       
       const result = await response.json();
-      console.log(result.data);
       setUserData(result.data);
       setError(null);
     } catch (err) {

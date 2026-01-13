@@ -145,9 +145,6 @@ class OrgChartController {
         return String(a.full_name || "").localeCompare(String(b.full_name || ""));
       });
 
-    console.log("FILTERED :", filtered);
-
-
       return c.json({
         success: true,
         data: {

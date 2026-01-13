@@ -349,11 +349,6 @@ class ApprovalController {
         requester = await User.findById(request.user_id);
       }
 
-      console.log("[DEBUG reject] request_type:", request.request_type);
-      console.log("[DEBUG reject] requester object:", requester);
-      console.log("[DEBUG reject] requester._id:", requester?._id);
-
-
       // Notify requester
       await handleApprovalStepRejected(approval, request, requester);
 

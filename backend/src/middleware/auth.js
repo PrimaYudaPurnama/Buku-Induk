@@ -18,8 +18,6 @@ export const authenticate = () => {
         return c.json({ message: "Unauthorized: User not found" }, 401);
       }
 
-      console.log("[DEBUG user] user:", user);
-
       c.set("user", user);
       await next();
     } catch (err) {
@@ -36,8 +34,6 @@ export const authorize = ({ permissions }) => {
     if (!user) return c.json({ message: "Unauthorized" }, 401);
 
     const userPerms = user.role_id?.permissions || [];
-    console.log("userPerms : ", userPerms)
-    console.log("permissions : ", permissions)
 
     // cari permission yang cocok (ambil first match)
     const matched = permissions.find((perm) => userPerms.includes(perm));

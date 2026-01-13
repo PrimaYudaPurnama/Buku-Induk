@@ -14,7 +14,6 @@ import { Resend } from "resend";
  * @returns {Promise<object>} Created notification
  */
 export const notifyUser = async (userId, type, title, message, metadata = {}) => {
-  console.log("[DEBUG notifyUser] userId:", userId);
 
   if (!userId) {
     throw new Error("notifyUser called with invalid userId");

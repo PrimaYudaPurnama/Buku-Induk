@@ -1410,7 +1410,6 @@ export default function UserList() {
                   <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-slate-800"></div>
                   
                   <div className="space-y-8">
-                    {console.log(userHistory)}
                     {userHistory.map((item) => (
                       <div key={item._id} className="relative flex gap-6">
                         <div className={`relative z-10 flex-shrink-0 w-12 h-12 rounded-full border-4 border-slate-900 flex items-center justify-center ${getEventColor(item.event_type)}`}>
