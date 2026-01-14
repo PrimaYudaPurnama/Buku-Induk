@@ -90,12 +90,12 @@ class AuthController {
     deleteCookie(c, "access_token", {
       path: "/",
       domain:
-        process.env.NODE_ENV === "production"
+        process.env.BUN_ENV === "production"
           ? ".up.railway.app"
           : "localhost",
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.BUN_ENV === "production",
+      sameSite: process.env.BUN_ENV === "production" ? "none" : "lax",
     });
   
     return c.json({ ok: true });
