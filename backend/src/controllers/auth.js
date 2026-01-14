@@ -86,15 +86,20 @@ class AuthController {
       });
     }
   
+    // HAPUS COOKIE DENGAN ATRIBUT IDENTIK
     deleteCookie(c, "access_token", {
+      path: "/",
+      domain:
+        process.env.NODE_ENV === "production"
+          ? ".up.railway.app"
+          : "localhost",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      path: "/",
     });
   
     return c.json({ ok: true });
-  }
+  }  
   
 
   // GET /api/v1/auth/me
