@@ -27,14 +27,50 @@ const ApprovalInbox = () => {
   const { user } = useAuthStore();
   const userRole = user?.role_id?.name || "";
   const [showModal, setShowModal] = useState(false);
-  const [action, setAction] = useState(null);
+  const [action, setAction] = useState(null); // "approve" | "reject"
   const [approvalId, setApprovalId] = useState(null);
-  const [currentApproval, setCurrentApproval] = useState(null);
+  const [currentApproval, setCurrentApproval] = useState(null); // objek approval aktif
   const [comments, setComments] = useState("");
   const [contractFile, setContractFile] = useState(null);
   const [contractDocuments, setContractDocuments] = useState([]);
   const [accountRequestDocuments, setAccountRequestDocuments] = useState([]);
+  const [terminationDocuments, setTerminationDocuments] = useState([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+
+  const resetModalState = () => {
+    setShowModal(false);
+    setComments("");
+    setContractFile(null);
+    setContractDocuments([]);
+    setAccountRequestDocuments([]);
+    setTerminationDocuments([]);
+    setCurrentApproval(null);
+  };
+
+  const getRequestTypeLabel = (request) => {
+    const type = request?.request_type;
+    if (type === "account_request") return "Permintaan Akun Baru";
+    if (type === "promotion") return "Perubahan Role (Promosi / Demosi)";
+    if (type === "transfer") return "Perpindahan Divisi";
+    if (type === "termination") return "Terminasi Karyawan";
+    return type || "-";
+  };
+
+  const getRoleChangeLabel = (request) => {
+    if (!request || request.request_type !== "promotion") return null;
+    const oldLevel = request.user_id?.role_id?.hierarchy_level;
+    const newLevel = request.requested_role?.hierarchy_level;
+    if (oldLevel == null || newLevel == null) return "Perubahan Role";
+    if (newLevel < oldLevel) return "Promosi";
+    if (newLevel > oldLevel) return "Demosi";
+    return "Perubahan Role";
+  };
+
+  const getRoleChangeClassName = (label) => {
+    if (label === "Promosi") return "text-emerald-400";
+    if (label === "Demosi") return "text-amber-300";
+    return "text-slate-200";
+  };
 
   const handleApprove = async (id, approval) => {
     setAction("approve");
@@ -60,6 +96,21 @@ const ApprovalInbox = () => {
       } finally {
         setLoadingDocuments(false);
       }
+    } else if (approval?.request_id?.request_type === "termination") {
+      // Tampilkan dokumen termination yang diupload saat pengajuan
+      setLoadingDocuments(true);
+      try {
+        const userId = approval.request_id?.user_id?._id;
+        if (userId) {
+          const termDocs = await fetchUserDocuments(userId, { type: "termination" });
+          setTerminationDocuments(termDocs.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to load termination documents:", err);
+        toast.error("Gagal memuat dokumen terminasi");
+      } finally {
+        setLoadingDocuments(false);
+      }
     }
     
     setShowModal(true);
@@ -81,6 +132,21 @@ const ApprovalInbox = () => {
       } catch (err) {
         console.error("Failed to load documents:", err);
         toast.error("Gagal memuat dokumen");
+      } finally {
+        setLoadingDocuments(false);
+      }
+    } else if (approval?.request_id?.request_type === "termination") {
+      // Tetap tampilkan dokumen termination saat reviewer ingin menolak
+      setLoadingDocuments(true);
+      try {
+        const userId = approval.request_id?.user_id?._id;
+        if (userId) {
+          const termDocs = await fetchUserDocuments(userId, { type: "termination" });
+          setTerminationDocuments(termDocs.data || []);
+        }
+      } catch (err) {
+        console.error("Failed to load termination documents:", err);
+        toast.error("Gagal memuat dokumen terminasi");
       } finally {
         setLoadingDocuments(false);
       }
@@ -118,12 +184,7 @@ const ApprovalInbox = () => {
         toast.success("Permintaan berhasil ditolak");
       }
 
-      setShowModal(false);
-      setComments("");
-      setContractFile(null);
-      setContractDocuments([]);
-      setAccountRequestDocuments([]);
-      setCurrentApproval(null);
+      resetModalState();
     } catch (err) {
       toast.error(err.message || "Gagal memproses persetujuan");
     }
@@ -133,7 +194,8 @@ const ApprovalInbox = () => {
     id_card: "KTP / ID Card",
     certificate: "Sertifikat / Ijazah",
     resume: "Resume / CV",
-    contract: "Contract Kerja"
+    contract: "Contract Kerja",
+    termination: "Dokumen Terminasi",
   };
 
   return (
@@ -243,12 +305,7 @@ const ApprovalInbox = () => {
                   </h3>
                   <motion.button
                     onClick={() => {
-                      setShowModal(false);
-                      setComments("");
-                      setContractFile(null);
-                      setContractDocuments([]);
-                      setAccountRequestDocuments([]);
-                      setCurrentApproval(null);
+                      resetModalState();
                     }}
                     className="text-slate-400 hover:text-white transition-colors"
                     whileHover={{ scale: 1.1 }}
@@ -257,6 +314,89 @@ const ApprovalInbox = () => {
                   </motion.button>
                 </div>
 
+                {/* Ringkasan Permintaan (siapa, kapan, catatan) */}
+                {currentApproval?.request_id && (
+                  <div className="mb-8">
+                    <h4 className="text-xl font-semibold text-white mb-4 flex items-center gap-3">
+                      <Clock className="w-7 h-7 text-blue-400" />
+                      Ringkasan Permintaan
+                    </h4>
+                    <div className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                            Jenis Permintaan
+                          </p>
+                          <p className="text-base font-semibold text-slate-100">
+                            {getRequestTypeLabel(currentApproval.request_id)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                            Diajukan Oleh
+                          </p>
+                          <p className="text-base font-semibold text-slate-100">
+                            {currentApproval.request_id.requester_name ||
+                              currentApproval.request_id.created_by?.full_name ||
+                              "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                            Untuk Karyawan
+                          </p>
+                          <p className="text-base font-semibold text-slate-100">
+                            {currentApproval.request_id.user_id?.full_name || "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                            Tanggal Pengajuan
+                          </p>
+                          <p className="text-base text-slate-100">
+                            {currentApproval.request_id.created_at
+                              ? new Date(
+                                  currentApproval.request_id.created_at
+                                ).toLocaleString("id-ID", {
+                                  day: "numeric",
+                                  month: "long",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "-"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Label promosi / demosi yang jelas */}
+                      {currentApproval.request_id.request_type === "promotion" && (
+                        <div className="pt-3 border-t border-slate-700/60">
+                          {(() => {
+                            const label = getRoleChangeLabel(
+                              currentApproval.request_id
+                            );
+                            return (
+                              <p className={`text-base font-semibold ${getRoleChangeClassName(label)}`}>
+                                Perubahan Role: {label}
+                              </p>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t border-slate-700/60">
+                        <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
+                          Catatan Pengajuan
+                        </p>
+                        <p className="text-sm text-slate-200 whitespace-pre-line">
+                          {currentApproval.request_id.notes || "Tidak ada catatan tambahan."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Role Information untuk Promotion/Termination */}
                 {(currentApproval?.request_id?.request_type === "promotion" || 
                   currentApproval?.request_id?.request_type === "termination") && 
@@ -264,7 +404,7 @@ const ApprovalInbox = () => {
                   <div className="mb-8">
                     <h4 className="text-xl font-semibold text-white mb-4 flex items-center gap-3">
                       <User className="w-7 h-7 text-orange-400" />
-                      Informasi Role
+                      Detail Perubahan Role / Status
                     </h4>
                     <div className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -284,8 +424,16 @@ const ApprovalInbox = () => {
                           )}
                         </div>
                         <div>
-                          <p className="text-sm text-slate-400 mb-2">Role Tujuan</p>
-                          {currentApproval.request_id?.requested_role ? (
+                          <p className="text-sm text-slate-400 mb-2">
+                            {currentApproval.request_id.request_type === "termination"
+                              ? "Status Tujuan"
+                              : "Role Tujuan"}
+                          </p>
+                          {currentApproval.request_id.request_type === "termination" ? (
+                            <p className="text-lg font-semibold text-red-400">
+                              Terminated
+                            </p>
+                          ) : currentApproval.request_id?.requested_role ? (
                             <p className="text-lg font-semibold text-white">
                               {currentApproval.request_id.requested_role.name}
                             </p>
@@ -347,6 +495,75 @@ const ApprovalInbox = () => {
                       <div className="p-6 bg-yellow-900/30 border border-yellow-700/50 rounded-2xl text-center">
                         <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
                         <p className="text-yellow-300">Tidak ada dokumen pendukung yang diupload</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Dokumen Terminasi (diupload saat pengajuan) */}
+                {currentApproval?.request_id?.request_type === "termination" && (
+                  <div className="mb-8">
+                    <h4 className="text-xl font-semibold text-white mb-4 flex items-center gap-3">
+                      <FileText className="w-7 h-7 text-red-400" />
+                      Dokumen Terminasi
+                    </h4>
+                    {loadingDocuments ? (
+                      <div className="text-center py-8 text-slate-400">
+                        Memuat dokumen terminasi...
+                      </div>
+                    ) : terminationDocuments.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {terminationDocuments.map((doc) => (
+                          <motion.div
+                            key={doc._id}
+                            className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-red-700/60 hover:border-red-500/80 transition-all"
+                            whileHover={{ scale: 1.03 }}
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                <FileText className="w-6 h-6 text-red-400" />
+                                <span className="font-medium text-white">
+                                  {docTypeLabels[doc.document_type] || "Dokumen Terminasi"}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-slate-400 mb-3">
+                              {doc.file_name}
+                            </p>
+                            <p className="text-xs text-slate-500 mb-4 flex items-center gap-1">
+                              <Clock className="w-4 h-4" />
+                              {doc.created_at
+                                ? new Date(doc.created_at).toLocaleString("id-ID", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : "-"}
+                            </p>
+                            <a
+                              href={
+                                doc.view_url?.startsWith("/")
+                                  ? `${API_BASE.replace("/api/v1", "")}${doc.view_url}`
+                                  : doc.view_url || doc.file_url
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-2xl font-medium transition-all"
+                            >
+                              <Eye className="w-5 h-5" />
+                              Lihat Dokumen Terminasi
+                            </a>
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-6 bg-slate-800/60 border border-slate-700/70 rounded-2xl text-center">
+                        <AlertCircle className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                        <p className="text-slate-300">
+                          Tidak ada dokumen terminasi yang terlampir.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -450,12 +667,7 @@ const ApprovalInbox = () => {
                 <div className="flex gap-6 mt-10">
                   <motion.button
                     onClick={() => {
-                      setShowModal(false);
-                      setComments("");
-                      setContractFile(null);
-                      setContractDocuments([]);
-                      setAccountRequestDocuments([]);
-                      setCurrentApproval(null);
+                      resetModalState();
                     }}
                     className="flex-1 px-8 py-5 bg-slate-800/70 border border-slate-700 rounded-2xl text-slate-300 hover:bg-slate-700/70 font-semibold transition-all"
                     whileHover={{ scale: 1.03 }}

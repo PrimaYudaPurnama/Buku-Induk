@@ -166,32 +166,22 @@ const PendingUsers = () => {
     }
   };
 
-  const formatCurrency = (value, currency = "IDR") => {
-    if (!value) return "";
-    let numValue;
-  
-    if (currency === "IDR") {
-      numValue = parseInt(value, 10) || 0;
-      return new Intl.NumberFormat("id-ID", {
-        style: "currency",
-        currency: "IDR",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      }).format(numValue);
-    } else {
-      numValue = parseFloat(value) || 0;
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(numValue);
-    }
+  const localeMap = {
+    IDR: "id-ID",
+    USD: "en-US",
   };
 
-  const handleSalaryInput = (e) => {
-    const value = e.target.value.replace(/[^\d]/g, "");
-    setApprovalData({ ...approvalData, base_salary: value });
+  const formatCurrency = (value, currency = "IDR") => {
+    if (value === null || value === undefined) return "-";
+  
+    return new Intl.NumberFormat(
+      localeMap[currency] || "en-US",
+      {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 0,
+      }
+    ).format(Number(value));
   };
 
   const addAllowanceRow = () => {
@@ -478,30 +468,31 @@ const PendingUsers = () => {
 
       {/* Approve Modal */}
       {showApproveModal && selectedUser && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[95vh] flex flex-col"
           >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                <UserCheck className="w-7 h-7 text-green-400" />
-                Approve User: {selectedUser.full_name}
+            {/* HEADER */}
+            <div className="shrink-0 p-6 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                <UserCheck className="w-6 h-6 text-green-400" />
+                Approve User — {selectedUser.full_name}
               </h2>
               <button
                 onClick={() => setShowApproveModal(false)}
-                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-2 rounded-lg hover:bg-slate-800"
               >
                 <XCircle className="w-6 h-6 text-slate-400" />
               </button>
             </div>
 
-            <div className="space-y-6">
+            {/* BODY (SCROLL AREA) */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-8">
               {/* Employment Type */}
-              <div>
-                <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                  <Briefcase className="w-5 h-5 text-blue-400" />
+              <section className="space-y-3">
+                <label className="text-sm font-semibold text-slate-300">
                   Tipe Karyawan *
                 </label>
                 <select
@@ -509,279 +500,224 @@ const PendingUsers = () => {
                   onChange={(e) =>
                     setApprovalData({ ...approvalData, employment_type: e.target.value })
                   }
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
                 >
                   <option value="full-time">Full-time</option>
                   <option value="contract">Contract</option>
                   <option value="intern">Intern</option>
                   <option value="freelance">Freelance</option>
                 </select>
-              </div>
+              </section>
 
               {/* Salary */}
-              {/* Ganti bagian Salary di Approve Modal dengan ini */}
-              <div>
-                <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                  <DollarSign className="w-5 h-5 text-green-400" />
+              <section className="space-y-3">
+                <label className="text-sm font-semibold text-slate-300">
                   Base Salary *
                 </label>
-                <div className="flex items-center gap-3">
+
+                <div className="grid grid-cols-[100px_1fr] gap-3">
                   <select
                     value={approvalData.currency}
                     onChange={(e) =>
                       setApprovalData({
                         ...approvalData,
                         currency: e.target.value,
-                        base_salary: "", // reset saat ganti currency
+                        base_salary: "",
                       })
                     }
-                    className="px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500"
+                    className="px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
                   >
                     <option value="IDR">IDR</option>
                     <option value="USD">USD</option>
                   </select>
 
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      ref={salaryInputRef}
-                      required
-                      value={approvalData.base_salary ? formatCurrency(approvalData.base_salary, approvalData.currency) : ""}
-                      onChange={(e) => {
-                        let value = e.target.value;
-
-                        if (approvalData.currency === "IDR") {
-                          value = value.replace(/[^\d]/g, "");
-                        } else {
-                          // USD: bersihkan kecuali digit dan titik
-                          value = value.replace(/[^0-9.]/g, "");
-
-                          // Hanya satu titik desimal
-                          const parts = value.split(".");
-                          if (parts.length > 2) {
-                            value = parts[0] + "." + parts.slice(1).join("");
-                          }
-
-                          // Maksimal 2 digit desimal
-                          if (parts[1] && parts[1].length > 2) {
-                            value = parts[0] + "." + parts[1].slice(0, 2);
-                          }
-                        }
-
-                        setApprovalData({ ...approvalData, base_salary: value });
-                      }}
-                      onFocus={(e) => {
-                        if (approvalData.currency === "USD" && approvalData.base_salary) {
-                          const formatted = formatCurrency(approvalData.base_salary, "USD");
-                          const dotIndex = formatted.indexOf(".");
-
-                          if (dotIndex !== -1) {
-                            // Tempatkan cursor tepat sebelum titik desimal
-                            setTimeout(() => {
-                              salaryInputRef.current.setSelectionRange(dotIndex, dotIndex);
-                            }, 0);
-                          }
-                        }
-                      }}
-                      placeholder={approvalData.currency === "IDR" ? "0" : "0.00"}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={
+                      approvalData.base_salary
+                        ? formatCurrency(
+                            approvalData.base_salary,
+                            approvalData.currency
+                          )
+                        : ""
+                    }
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      if (approvalData.currency === "IDR") {
+                        value = value.replace(/[^\d]/g, "");
+                      } else {
+                        value = value.replace(/[^0-9.]/g, "");
+                      }
+                      setApprovalData({ ...approvalData, base_salary: value });
+                    }}
+                    placeholder="0"
+                    className="px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  />
                 </div>
-              </div>
+              </section>
 
               {/* Allowances & Deductions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Allowances */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-slate-200">Allowances</h4>
-                    <button type="button" onClick={addAllowanceRow} className="text-xs text-green-400 hover:text-green-300">Tambah</button>
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-semibold text-slate-200">
+                      Allowances
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={addAllowanceRow}
+                      className="text-xs text-emerald-400"
+                    >
+                      Tambah
+                    </button>
                   </div>
+
                   {(approvalData.allowances || []).map((a, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div
+                      key={idx}
+                      className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_120px_40px] md:items-center"
+                    >
                       <input
                         type="text"
                         value={a.name}
                         onChange={(e) => updateAllowance(idx, "name", e.target.value)}
                         placeholder="Nama"
-                        className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                       />
+
                       <input
-                        type="number"
-                        value={a.amount}
-                        onChange={(e) => updateAllowance(idx, "amount", e.target.value)}
+                        type="text"
+                        value={a.amount ? formatCurrency(a.amount, approvalData.currency) : ""}
+                        onChange={(e) => {
+                          let value = e.target.value;
+                          if (approvalData.currency === "IDR") {
+                            value = value.replace(/[^\d]/g, "");
+                          } else {
+                            value = value.replace(/[^0-9.]/g, "");
+                          }
+                          updateAllowance(idx, "amount", value);
+                        }}
                         placeholder="Jumlah"
-                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full md:w-[120px] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                       />
-                      <button type="button" onClick={() => removeAllowance(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+
+                      <button
+                        type="button"
+                        onClick={() => removeAllowance(idx)}
+                        className="flex items-center justify-center text-red-400 hover:text-red-300"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
-                  {(!approvalData.allowances || approvalData.allowances.length === 0) && (
-                    <p className="text-xs text-slate-500">Tidak ada allowance</p>
-                  )}
+
                 </div>
 
+                {/* Deductions */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-slate-200">Deductions</h4>
-                    <button type="button" onClick={addDeductionRow} className="text-xs text-green-400 hover:text-green-300">Tambah</button>
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-semibold text-slate-200">
+                      Deductions
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={addDeductionRow}
+                      className="text-xs text-emerald-400"
+                    >
+                      Tambah
+                    </button>
                   </div>
+
                   {(approvalData.deductions || []).map((d, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div
+                      key={idx}
+                      className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_120px_160px_40px] md:items-center"
+                    >
                       <input
                         type="text"
                         value={d.name}
                         onChange={(e) => updateDeduction(idx, "name", e.target.value)}
                         placeholder="Nama"
-                        className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                       />
+
                       <input
-                        type="number"
-                        value={d.amount}
-                        onChange={(e) => updateDeduction(idx, "amount", e.target.value)}
+                        type="text"
+                        value={d.amount ? formatCurrency(d.amount, approvalData.currency) : ""}
+                        onChange={(e) => {
+                          let value = e.target.value;
+                          if (approvalData.currency === "IDR") {
+                            value = value.replace(/[^\d]/g, "");
+                          } else {
+                            value = value.replace(/[^0-9.]/g, "");
+                          }
+                          updateDeduction(idx, "amount", value);
+                        }}
                         placeholder="Jumlah"
-                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full md:w-[120px] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                       />
+
                       <select
                         value={d.category || "other"}
                         onChange={(e) => updateDeduction(idx, "category", e.target.value)}
-                        className="px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
                       >
                         <option value="other">Other</option>
                         <option value="bpjs">BPJS</option>
                         <option value="insurance">Insurance</option>
                       </select>
-                      <button type="button" onClick={() => removeDeduction(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+
+                      <button
+                        type="button"
+                        onClick={() => removeDeduction(idx)}
+                        className="flex items-center justify-center text-red-400 hover:text-red-300"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
-                  {(!approvalData.deductions || approvalData.deductions.length === 0) && (
-                    <p className="text-xs text-slate-500">Tidak ada deduction</p>
-                  )}
-                </div>
-              </div>
 
-              {/* Conditional hire_date and expired_date for non-full-time */}
-              {approvalData.employment_type !== "full-time" && (
-                <>
-                  <div>
-                    <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                      <Calendar className="w-5 h-5 text-blue-400" />
-                      Tanggal Mulai Kerja *
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={approvalData.hire_date}
-                      onChange={(e) =>
-                        setApprovalData({ ...approvalData, hire_date: e.target.value })
-                      }
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                      <Calendar className="w-5 h-5 text-orange-400" />
-                      Tanggal Berakhir Kontrak *
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={approvalData.expired_date}
-                      onChange={(e) =>
-                        setApprovalData({ ...approvalData, expired_date: e.target.value })
-                      }
-                      min={approvalData.hire_date}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* BPJS */}
-              {/* <div>
-                <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                  <FileText className="w-5 h-5 text-indigo-400" />
-                  BPJS
-                </label>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={approvalData.bpjs.kesehatan}
-                      onChange={(e) =>
-                        setApprovalData({
-                          ...approvalData,
-                          bpjs: { ...approvalData.bpjs, kesehatan: e.target.checked },
-                        })
-                      }
-                      className="w-5 h-5 text-blue-600 rounded"
-                    />
-                    <span className="text-slate-300">BPJS Kesehatan</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={approvalData.bpjs.ketenagakerjaan}
-                      onChange={(e) =>
-                        setApprovalData({
-                          ...approvalData,
-                          bpjs: { ...approvalData.bpjs, ketenagakerjaan: e.target.checked },
-                        })
-                      }
-                      className="w-5 h-5 text-blue-600 rounded"
-                    />
-                    <span className="text-slate-300">BPJS Ketenagakerjaan</span>
-                  </label>
                 </div>
-              </div> */}
+              </section>
 
               {/* Note */}
-              <div>
-                <label className="flex items-center gap-2 text-lg font-medium text-slate-300 mb-3">
-                  <FileText className="w-5 h-5 text-blue-400" />
+              <section className="space-y-3">
+                <label className="text-sm font-semibold text-slate-300">
                   Catatan
                 </label>
                 <textarea
+                  rows={4}
                   value={approvalData.note}
                   onChange={(e) =>
                     setApprovalData({ ...approvalData, note: e.target.value })
                   }
-                  rows={4}
-                  placeholder="Catatan tambahan (opsional)"
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white resize-none"
                 />
-              </div>
+              </section>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-4 mt-8">
+            {/* FOOTER */}
+            <div className="shrink-0 p-6 border-t border-slate-800 flex justify-end gap-3">
               <button
                 onClick={() => setShowApproveModal(false)}
-                className="px-6 py-3 bg-slate-700/50 hover:bg-slate-700 text-white font-semibold rounded-xl transition-colors"
+                className="px-6 py-3 bg-slate-800 rounded-xl text-white"
               >
                 Batal
               </button>
               <button
                 onClick={handleApprove}
                 disabled={approving || !approvalData.base_salary}
-                className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold rounded-xl transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl disabled:opacity-50"
               >
-                {approving ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Memproses...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Approve & Aktifkan
-                  </>
-                )}
+                Approve & Aktifkan
               </button>
             </div>
           </motion.div>
         </div>
       )}
+
 
       {/* Reject Modal */}
       {showRejectModal && selectedUser && (

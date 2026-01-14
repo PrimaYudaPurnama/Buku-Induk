@@ -92,19 +92,28 @@ class UserController {
       } else {
         return c.json({ error: "Access denied" }, 403);
       }
-  
+
+      let finalFilters = filters;
+
+      if (!isSuperAdmin) {
+        finalFilters = {
+          ...filters,
+          status: { $nin: ["terminated", "pending"] },
+        };
+      }      
+    
       // ===============================
       // Query DB
       // ===============================
       const [users, total] = await Promise.all([
-        User.find(filters)
+        User.find(finalFilters)
           .populate("role_id", "name hierarchy_level")
           .populate("division_id", "name")
           .select("-password")
           .skip(skip)
           .limit(limit)
           .lean(),
-        User.countDocuments(filters),
+        User.countDocuments(finalFilters),
       ]);
   
       // ===============================

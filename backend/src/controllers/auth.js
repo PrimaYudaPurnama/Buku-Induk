@@ -49,13 +49,15 @@ class AuthController {
         { expiresIn: "7d" }
       );
       
+      const isProd = process.env.BUN_ENV === "production";
+
       setCookie(c, "access_token", token, {
         httpOnly: true,
-        secure: process.env.BUN_ENV === "production",
-        sameSite: "none",
-        maxAge: 60 * 60 * 24 * 7, // detik
+        secure: isProd,
+        sameSite: isProd ? "none" : "lax",
+        maxAge: 60 * 60 * 24 * 7,
         path: "/",
-      });      
+      });
       
 
       // Return user data without password

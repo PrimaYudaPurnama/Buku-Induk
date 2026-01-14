@@ -338,7 +338,7 @@ export default function UserList() {
         sort: sortBy,
       });
 
-      setUsers(res.data || []);
+      setUsers(res.data || []); 
       const meta = res.meta?.pagination || {};
       setTotalPages(meta.total_pages || 1);
       setTotalItems(meta.total_items || 0);
@@ -876,7 +876,7 @@ export default function UserList() {
       u.division_id?.name || "-",
       u.phone || "-",
       u.hire_date ? new Date(u.hire_date).toLocaleDateString("id-ID") : "-",
-      u.salary ? formatCurrency(u.salary) : "-" // salary is now take_home_pay from salary_data
+      u.salary ? formatCurrency(u.salary, u.salary_data?.currency) : "-" // salary is now take_home_pay from salary_data
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -1011,14 +1011,25 @@ export default function UserList() {
     );
   };
 
-  const formatCurrency = (value) => {
-    if (!value) return "-";
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0
-    }).format(parseFloat(value));
+  const localeMap = {
+    IDR: "id-ID",
+    USD: "en-US",
   };
+  
+
+  const formatCurrency = (value, currency = "IDR") => {
+    if (value === null || value === undefined) return "-";
+  
+    return new Intl.NumberFormat(
+      localeMap[currency] || "en-US",
+      {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 0,
+      }
+    ).format(Number(value));
+  };
+  
 
   // Helper function to copy KTP address to domicile address
   const copyKTPAddressToDomicile = () => {
@@ -1258,7 +1269,7 @@ export default function UserList() {
                           {user.hire_date ? new Date(user.hire_date).toLocaleDateString("id-ID") : "-"}
                         </td>
                         <td className="px-8 py-6 text-sm text-white">
-                          {formatCurrency(user.salary)}
+                          {formatCurrency(user.salary, user.salary_data?.currency)}
                         </td>
                         <td className="px-8 py-6 text-right sticky right-0 bg-slate-900/85 backdrop-blur-sm">
                           <div className="flex justify-end gap-3">
@@ -1460,9 +1471,9 @@ export default function UserList() {
                               <div className="flex items-center gap-2 text-sm">
                                 <DollarSign className="w-4 h-4 text-slate-400" />
                                 <span className="text-slate-300">Gaji:</span>
-                                {item.old_salary && <span className="text-slate-400 line-through">{formatCurrency(item.old_salary)}</span>}
+                                {item.old_salary && <span className="text-slate-400 line-through">{formatCurrency(item.old_salary, item.old_salary_data?.currency)}</span>}
                                 {item.old_salary && item.new_salary && <ArrowRight className="w-4 h-4 text-slate-500" />}
-                                {item.new_salary && <span className="font-medium text-white">{formatCurrency(item.new_salary)}</span>}
+                                {item.new_salary && <span className="font-medium text-white">{formatCurrency(item.new_salary, item.new_salary_data?.currency)}</span>}
                               </div>
                             )}
 
@@ -2145,12 +2156,12 @@ export default function UserList() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Gaji (Take Home Pay)</label>
-                    <p className="text-white">{formatCurrency(selectedUser.salary)}</p>
+                    <p className="text-white">{formatCurrency(selectedUser.salary, selectedUser.salary_data?.currency)}</p>
                     {selectedUser.salary_data && (
                       <div className="mt-2 text-xs text-slate-400">
-                        <p>Base Salary: {formatCurrency(selectedUser.salary_data.base_salary)}</p>
-                        <p>Total Allowance: {formatCurrency(selectedUser.salary_data.total_allowance)}</p>
-                        <p>Total Deduction: {formatCurrency(selectedUser.salary_data.total_deduction)}</p>
+                        <p>Base Salary: {formatCurrency(selectedUser.salary_data.base_salary, selectedUser.salary_data?.currency)}</p>
+                        <p>Total Allowance: {formatCurrency(selectedUser.salary_data.total_allowance, selectedUser.salary_data?.currency)}</p>
+                        <p>Total Deduction: {formatCurrency(selectedUser.salary_data.total_deduction, selectedUser.salary_data?.currency)}</p>
                       </div>
                     )}
                   </div>
@@ -2257,8 +2268,8 @@ export default function UserList() {
       {/* MODAL GAJI */}
       {showSalaryModal && salaryUser && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-emerald-900/50">
-            <div className="p-6 border-b border-slate-800/60 flex items-center justify-between">
+          <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] flex flex-col border border-emerald-900/50">      
+            <div className="p-6 border-b border-slate-800/60 flex items-center justify-between shrink-0">
               <div>
                 <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                   <DollarSign className="w-6 h-6 text-emerald-400" />
@@ -2271,17 +2282,28 @@ export default function UserList() {
               </button>
             </div>
 
-            <form onSubmit={handleSalarySave} className="p-6 space-y-6">
+            <form
+              onSubmit={handleSalarySave}
+              className="flex-1 overflow-y-auto p-6 space-y-8"
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Base Salary *</label>
                   <input
-                    type="number"
+                    type="text"
                     min="0"
                     disabled={!canUpdateSalary}
                     required
-                    value={salaryForm.base_salary}
-                    onChange={(e) => setSalaryForm({ ...salaryForm, base_salary: e.target.value })}
+                    value={salaryForm.base_salary ? formatCurrency(salaryForm.base_salary, salaryForm.currency) : ""}
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      if (salaryForm.currency === "IDR") {
+                        value = value.replace(/[^\d]/g, "");
+                      } else {
+                        value = value.replace(/[^0-9.]/g, "");
+                      }
+                      setSalaryForm({ ...salaryForm, base_salary: value });
+                    }}
                     className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white"
                     placeholder="5000000"
                   />
@@ -2307,7 +2329,7 @@ export default function UserList() {
                     <button type="button" disabled={!canUpdateSalary} onClick={addAllowanceRow} className="text-xs text-emerald-400 hover:text-emerald-300">Tambah</button>
                   </div>
                   {(salaryForm.allowances || []).map((a, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_120px_auto] gap-2">
                       <input
                         type="text"
                         value={a.name}
@@ -2317,14 +2339,22 @@ export default function UserList() {
                         className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
                       />
                       <input
-                        type="number"
-                        value={a.amount}
+                        type="text"
+                        value={a.amount ? formatCurrency(a.amount, salaryForm.currency) : ""}
                         disabled={!canUpdateSalary}
-                        onChange={(e) => updateAllowance(idx, "amount", e.target.value)}
+                        onChange={(e) => {
+                          let value = e.target.value;
+                          if (salaryForm.currency === "IDR") {
+                            value = value.replace(/[^\d]/g, "");
+                          } else {
+                            value = value.replace(/[^0-9.]/g, "");
+                          }
+                          updateAllowance(idx, "amount", value);
+                        }}
                         placeholder="Jumlah"
                         className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
                       />
-                      <button type="button" disabled={!canUpdateSalary} onClick={() => removeAllowance(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+                      <button type="button" disabled={!canUpdateSalary} onClick={() => removeAllowance(idx)} className="text-red-400 hover:text-red-300 px-2">✕</button>
                     </div>
                   ))}
                   {(!salaryForm.allowances || salaryForm.allowances.length === 0) && (
@@ -2338,36 +2368,62 @@ export default function UserList() {
                     <button type="button" disabled={!canUpdateSalary} onClick={addDeductionRow} className="text-xs text-emerald-400 hover:text-emerald-300">Tambah</button>
                   </div>
                   {(salaryForm.deductions || []).map((d, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div
+                      key={idx}
+                      className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_120px_160px_40px] md:items-center"
+                    >
+                      {/* Nama */}
                       <input
                         type="text"
                         value={d.name}
                         disabled={!canUpdateSalary}
                         onChange={(e) => updateDeduction(idx, "name", e.target.value)}
                         placeholder="Nama"
-                        className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
                       />
+
+                      {/* Amount */}
                       <input
-                        type="number"
-                        value={d.amount}
+                        type="text"
+                        value={d.amount ? formatCurrency(d.amount, salaryForm.currency) : ""}
                         disabled={!canUpdateSalary}
-                        onChange={(e) => updateDeduction(idx, "amount", e.target.value)}
+                        onChange={(e) => {
+                          let value = e.target.value;
+                          if (salaryForm.currency === "IDR") {
+                            value = value.replace(/[^\d]/g, "");
+                          } else {
+                            value = value.replace(/[^0-9.]/g, "");
+                          }
+                          updateDeduction(idx, "amount", value);
+                        }}
                         placeholder="Jumlah"
-                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full md:w-[120px] px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
                       />
+
+                      {/* Category */}
                       <select
                         value={d.category || "other"}
                         disabled={!canUpdateSalary}
                         onChange={(e) => updateDeduction(idx, "category", e.target.value)}
-                        className="px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
+                        className="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm"
                       >
                         <option value="other">Other</option>
                         <option value="bpjs">BPJS</option>
                         <option value="insurance">Insurance</option>
                       </select>
-                      <button type="button" disabled={!canUpdateSalary} onClick={() => removeDeduction(idx)} className="text-red-400 hover:text-red-300 px-2">x</button>
+
+                      {/* Remove */}
+                      <button
+                        type="button"
+                        disabled={!canUpdateSalary}
+                        onClick={() => removeDeduction(idx)}
+                        className="flex items-center justify-center text-red-400 hover:text-red-300"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
+
                   {(!salaryForm.deductions || salaryForm.deductions.length === 0) && (
                     <p className="text-xs text-slate-500">Tidak ada deduction</p>
                   )}
@@ -2442,7 +2498,7 @@ export default function UserList() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-3 p-6 border-t border-slate-800/60 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowSalaryModal(false)}
