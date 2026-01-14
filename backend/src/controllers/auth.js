@@ -79,17 +79,23 @@ class AuthController {
   // POST /api/v1/auth/logout
   static async logout(c) {
     const user = c.get("user");
-    
+  
     if (user) {
-      await logAudit(c, "logout", "auth", user._id, null, { email: user.email });
+      await logAudit(c, "logout", "auth", user._id, null, {
+        email: user.email,
+      });
     }
-    
+  
     deleteCookie(c, "access_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/",
     });
   
     return c.json({ ok: true });
   }
+  
 
   // GET /api/v1/auth/me
   static async me(c) {
