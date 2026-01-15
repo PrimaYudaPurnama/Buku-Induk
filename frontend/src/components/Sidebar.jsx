@@ -34,17 +34,31 @@ const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage 
 
   const logout = async () => {
     try {
+      // CLEAR STATE DULU sebelum API call
+      useAuthStore.getState().logout();
+      
       const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
-      await fetch(`${API_BASE}/auth/logout`, {
+      
+      const response = await fetch(`${API_BASE}/auth/logout`, {
         method: "POST",
         credentials: "include",
       });
-    } catch (err) {
-      console.error("Logout error", err);
-    } finally {
-      useAuthStore.getState().logout();
+  
+      if (!response.ok) {
+        console.error("Logout API failed, but state already cleared");
+      }
+  
       toast.success("Berhasil keluar");
-      window.location.href = "/";
+      
+      // Redirect dengan replace untuk prevent back button
+      window.location.replace("/");
+      
+    } catch (err) {
+      console.error("Logout error:", err);
+      // Tetap clear state meskipun error
+      useAuthStore.getState().logout();
+      toast.error("Logout error, but you're logged out locally");
+      window.location.replace("/");
     }
   };
   

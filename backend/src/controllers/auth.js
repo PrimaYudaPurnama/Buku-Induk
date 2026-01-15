@@ -86,14 +86,25 @@ class AuthController {
   
     const isProd = process.env.BUN_ENV === "production";
   
-    // HAPUS COOKIE - atribut HARUS identik dengan saat setCookie
+    // PENTING: Hapus cookie dengan config yang IDENTIK dengan login
     deleteCookie(c, "access_token", {
       path: "/",
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? "none" : "lax",
-      // JANGAN set domain untuk development (beda port localhost)
-      // Hanya set domain untuk production
+      // Domain untuk production Railway
+      ...(isProd && { 
+        domain: ".up.railway.app" // Pastikan ini sesuai dengan domain Railway Anda
+      })
+    });
+  
+    // ALTERNATIF: Set cookie expired
+    setCookie(c, "access_token", "", {
+      path: "/",
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      maxAge: 0, // Expire immediately
       ...(isProd && { domain: ".up.railway.app" })
     });
   

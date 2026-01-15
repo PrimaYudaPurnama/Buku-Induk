@@ -7,11 +7,21 @@ export const useAuthStore = create(
       user: null,
       isAuthenticated: false,
       setUser: (user) => set({ user, isAuthenticated: true }),
-      logout: () => set({ user: null, isAuthenticated: false }),
+      logout: () => {
+        // Clear state
+        set({ user: null, isAuthenticated: false });
+        
+        // Clear localStorage
+        localStorage.removeItem('auth-user');
+      },
     }),
     {
       name: 'auth-user',
-      partialize: (state) => ({ user: state.user }), // TANPA token
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ 
+        user: state.user,
+        isAuthenticated: state.isAuthenticated 
+      }),
     }
   )
 )
