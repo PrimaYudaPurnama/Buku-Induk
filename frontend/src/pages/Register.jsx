@@ -353,8 +353,8 @@ const loadSubdistricts = async (cityCode) => {
                   </div>
 
                   <div>
-                      <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
-                        <Lock className="w-4 h-4 text-blue-400" />
+                      <label className="flex items-center gap-3 text-lg font-medium text-slate-300 mb-3">
+                        <Lock className="w-6 h-6 text-blue-400" />
                         Password *
                       </label>
                 
@@ -366,7 +366,7 @@ const loadSubdistricts = async (cityCode) => {
                           onChange={(e) =>
                             setFormData({ ...formData, password: e.target.value })
                           }
-                          className="w-full px-4 py-3 pr-12 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-6 py-4 pr-12 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm"
                         />
                 
                         <button
