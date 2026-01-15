@@ -76,6 +76,7 @@ const ApprovalInbox = () => {
     setAction("approve");
     setApprovalId(id);
     setCurrentApproval(approval);
+    console.log("approval : ", approval);
     
     if (approval?.request_id?.request_type === "account_request") {
       setLoadingDocuments(true);
@@ -336,8 +337,7 @@ const ApprovalInbox = () => {
                             Diajukan Oleh
                           </p>
                           <p className="text-base font-semibold text-slate-100">
-                            {currentApproval.request_id.requester_name ||
-                              currentApproval.request_id.created_by?.full_name ||
+                            {currentApproval.request_id.requested_by?.full_name ||
                               "-"}
                           </p>
                         </div>
@@ -399,52 +399,58 @@ const ApprovalInbox = () => {
 
                 {/* Role Information untuk Promotion/Termination */}
                 {(currentApproval?.request_id?.request_type === "promotion" || 
-                  currentApproval?.request_id?.request_type === "termination") && 
+                  currentApproval?.request_id?.request_type === "termination" || currentApproval?.request_id?.request_type === "transfer") && 
                   currentApproval?.request_id?.user_id && (
                   <div className="mb-8">
                     <h4 className="text-xl font-semibold text-white mb-4 flex items-center gap-3">
                       <User className="w-7 h-7 text-orange-400" />
-                      Detail Perubahan Role / Status
+                      Detail Perubahan 
                     </h4>
                     <div className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <p className="text-sm text-slate-400 mb-2">Role Saat Ini</p>
-                          {currentApproval.request_id.user_id?.role_id ? (
+                          {currentApproval?.request_id?.request_type === "promotion" ? (
+                            <>
+                              <p className="text-sm text-slate-400 mb-2">Role Saat Ini</p>
                             <p className="text-lg font-semibold text-slate-300 line-through">
                               {currentApproval.request_id.user_id.role_id.name}
                             </p>
-                          ) : (
-                            <p className="text-lg font-semibold text-slate-500">Tidak ada</p>
-                          )}
-                          {currentApproval.request_id.user_id?.division_id && (
-                            <p className="text-sm text-slate-500 mt-1">
-                              Divisi: {currentApproval.request_id.user_id.division_id.name}
-                            </p>
-                          )}
+                            </>
+                          ) : currentApproval?.request_id?.request_type === "termination" ? (
+                            <>
+                              <p className="text-sm text-slate-400 mb-2">Status Saat Ini</p>
+                              <p className="text-lg font-semibold text-slate-300 line-through">
+                                {currentApproval.request_id.user_id.status}
+                              </p>
+                            </>
+                          ) : currentApproval?.request_id?.request_type === "transfer" ? (
+                            <>
+                              <p className="text-sm text-slate-400 mb-2">Divisi Saat Ini</p>
+                              <p className="text-lg font-semibold text-slate-300 line-through">
+                                {currentApproval.request_id.user_id.division_id?.name}
+                              </p>
+                            </>
+                          ) : <p className="text-lg font-semibold text-slate-500">Tidak ada</p>}
                         </div>
                         <div>
                           <p className="text-sm text-slate-400 mb-2">
                             {currentApproval.request_id.request_type === "termination"
                               ? "Status Tujuan"
-                              : "Role Tujuan"}
+                              : currentApproval?.request_id?.request_type === "promotion" ? "Role Tujuan" : "Divisi Tujuan"}
                           </p>
                           {currentApproval.request_id.request_type === "termination" ? (
                             <p className="text-lg font-semibold text-red-400">
                               Terminated
                             </p>
-                          ) : currentApproval.request_id?.requested_role ? (
+                          ) : currentApproval.request_id?.request_type === "promotion" ? (
                             <p className="text-lg font-semibold text-white">
-                              {currentApproval.request_id.requested_role.name}
+                              {currentApproval.request_id.requested_role?.name}
                             </p>
-                          ) : (
-                            <p className="text-lg font-semibold text-slate-500">Tidak ada</p>
-                          )}
-                          {currentApproval.request_id?.division_id && (
-                            <p className="text-sm text-slate-500 mt-1">
-                              Divisi: {currentApproval.request_id.division_id.name}
+                          ) : currentApproval?.request_id?.request_type === "transfer" ? (
+                            <p className="text-lg font-semibold text-white">
+                              {currentApproval.request_id.division_id?.name}
                             </p>
-                          )}
+                          ) : <p className="text-lg font-semibold text-slate-500">Tidak ada</p>}
                         </div>
                       </div>
                     </div>

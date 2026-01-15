@@ -66,7 +66,7 @@ class ApprovalController {
                 },
                 {
                   path: "user_id",
-                  select: "full_name email role_id division_id",
+                  select: "full_name email role_id division_id status",
                   populate: [
                     { path: "role_id", select: "name hierarchy_level" },
                     { path: "division_id", select: "name" }
@@ -76,7 +76,7 @@ class ApprovalController {
             },
             {
               path: "user_id",
-              select: "full_name email role_id division_id",
+              select: "full_name email role_id division_id status",
               populate: [
                 { path: "role_id", select: "name hierarchy_level" },
                 { path: "division_id", select: "name" }
