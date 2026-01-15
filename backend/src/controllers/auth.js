@@ -16,15 +16,12 @@ class AuthController {
         return c.json({ message: "Email and password are required" }, 400);
       }
 
-      // Find user by email
       const user = await User.findOne({ email }).populate("role_id");
       if (!user) {
         await logAudit(c, "login_failed", "auth", null, null, { email, reason: "user_not_found" });
         return c.json({ message: "Invalid email or password" }, 401);
       }
 
-      // Allow pending users to login (they will have limited access)
-      // Only block inactive and terminated users
       if (user.status === "inactive" || user.status === "terminated") {
         await logAudit(c, "login_failed", "auth", user._id, null, { email, reason: "inactive" });
         return c.json({ message: "Account is not active" }, 403);
@@ -35,14 +32,12 @@ class AuthController {
         return c.json({ message: "Account is pending" }, 403);
       }
 
-      // Verify password
       const isPasswordValid = await argon2.verify(user.password, password);
       if (!isPasswordValid) {
         await logAudit(c, "login_failed", "auth", user._id, null, { email, reason: "wrong_password" });
         return c.json({ message: "Invalid email or password" }, 401);
       }
 
-      // Generate JWT token
       const token = jwt.sign(
         { id: user._id, role: user.role },
         process.env.JWT_SECRET,
@@ -51,16 +46,20 @@ class AuthController {
       
       const isProd = process.env.BUN_ENV === "production";
 
-      setCookie(c, "access_token", token, {
+      // GUNAKAN KONFIGURASI COOKIE YANG KONSISTEN
+      const cookieOptions = {
         httpOnly: true,
         secure: isProd,
         sameSite: isProd ? "none" : "lax",
         maxAge: 60 * 60 * 24 * 7,
         path: "/",
-      });
-      
+        // Jangan set domain untuk development (beda port)
+        // Untuk production, set domain yang sama
+        ...(isProd && { domain: ".up.railway.app" })
+      };
 
-      // Return user data without password
+      setCookie(c, "access_token", token, cookieOptions);
+
       const userData = user.toObject();
       delete userData.password;
 
@@ -76,30 +75,29 @@ class AuthController {
     }
   }
 
-  // POST /api/v1/auth/logout
   static async logout(c) {
     const user = c.get("user");
-  
+
     if (user) {
       await logAudit(c, "logout", "auth", user._id, null, {
         email: user.email,
       });
     }
-  
-    // HAPUS COOKIE DENGAN ATRIBUT IDENTIK
+
+    const isProd = process.env.BUN_ENV === "production";
+
+    // GUNAKAN KONFIGURASI YANG IDENTIK DENGAN LOGIN
     deleteCookie(c, "access_token", {
       path: "/",
-      domain:
-        process.env.BUN_ENV === "production"
-          ? ".up.railway.app"
-          : "localhost",
       httpOnly: true,
-      secure: process.env.BUN_ENV === "production",
-      sameSite: process.env.BUN_ENV === "production" ? "none" : "lax",
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      // Domain HARUS sama dengan saat setCookie
+      ...(isProd && { domain: ".up.railway.app" })
     });
-  
+
     return c.json({ ok: true });
-  }  
+  }
   
 
   // GET /api/v1/auth/me
