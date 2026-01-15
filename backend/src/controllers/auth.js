@@ -77,26 +77,27 @@ class AuthController {
 
   static async logout(c) {
     const user = c.get("user");
-
+  
     if (user) {
       await logAudit(c, "logout", "auth", user._id, null, {
         email: user.email,
       });
     }
-
+  
     const isProd = process.env.BUN_ENV === "production";
-
-    // GUNAKAN KONFIGURASI YANG IDENTIK DENGAN LOGIN
+  
+    // HAPUS COOKIE - atribut HARUS identik dengan saat setCookie
     deleteCookie(c, "access_token", {
       path: "/",
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? "none" : "lax",
-      // Domain HARUS sama dengan saat setCookie
+      // JANGAN set domain untuk development (beda port localhost)
+      // Hanya set domain untuk production
       ...(isProd && { domain: ".up.railway.app" })
     });
-
-    return c.json({ ok: true });
+  
+    return c.json({ ok: true, message: "Logged out successfully" });
   }
   
 
