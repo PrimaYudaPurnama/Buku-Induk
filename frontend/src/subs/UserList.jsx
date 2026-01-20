@@ -95,6 +95,7 @@ export default function UserList() {
   const [showIDCardModal, setShowIDCardModal] = useState(false);
   const [showNameCardModal, setShowNameCardModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [idCardSide, setIdCardSide] = useState("front");
   const [requestType, setRequestType] = useState("promotion");
   const [requestForm, setRequestForm] = useState({
     requested_role: "",
@@ -1282,7 +1283,7 @@ export default function UserList() {
                               <User className="w-5 h-5" />
                             </motion.button> */}
                             <motion.button 
-                              onClick={(e) => { e.stopPropagation(); setSelectedUser(user); setShowIDCardModal(true); }} 
+                              onClick={(e) => { e.stopPropagation(); setSelectedUser(user); setIdCardSide("front"); setShowIDCardModal(true); }} 
                               className="text-cyan-400 hover:text-cyan-300" 
                               title="ID Card" 
                               whileHover={{ scale: 1.1 }}
@@ -2099,7 +2100,12 @@ export default function UserList() {
 
       {/* MODAL ID CARD */}
       {showIDCardModal && selectedUser && (
-        <IDCard user={selectedUser} onClose={() => setShowIDCardModal(false)} />
+        <IDCard
+          user={selectedUser}
+          side={idCardSide}
+          onSideChange={setIdCardSide}
+          onClose={() => setShowIDCardModal(false)}
+        />
       )}
 
       {/* MODAL KARTU NAMA */}
