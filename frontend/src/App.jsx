@@ -10,6 +10,7 @@ import ApprovalDetail from './pages/ApprovalDetail';
 import DocumentViewer from './pages/DocumentViewer';
 import NotificationCenter from './pages/NotificationCenter';
 import PendingUsers from './pages/PendingUsers';
+import PublicIDCard from './pages/PublicIDCard';
 import { useAuthStore } from './stores/useAuthStore';
 import { useEffect, useState } from 'react';
 
@@ -105,6 +106,10 @@ function App() {
               <Register />
             </PublicRoute>
           } 
+        />
+        <Route 
+          path="/id/:code" 
+          element={<PublicIDCard />} 
         />
         
         {/* Protected Routes */}

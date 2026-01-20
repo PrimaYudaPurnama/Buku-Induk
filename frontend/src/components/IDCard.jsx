@@ -1,264 +1,306 @@
-import { Printer, X, RotateCcw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Printer, X, RotateCcw, Globe } from "lucide-react";
+import { useEffect, useState } from "react";
+import QRCode from "react-qr-code";
 
-const COMPANY_LOGO = "https://res.cloudinary.com/dtbqhmgjz/image/upload/v1764926597/employees/dev/documents/e8d94016-d909-48b7-add0-3e6a745eb67a-1764926594722-Logo%20Resolusi.png";
+const COMPANY_LOGO =
+  "https://res.cloudinary.com/dtbqhmgjz/image/upload/v1764926597/employees/dev/documents/e8d94016-d909-48b7-add0-3e6a745eb67a-1764926594722-Logo%20Resolusi.png";
 
-export default function IDCard({ user, onClose }) {
-  const printRef = useRef(null);
-  const [showBack, setShowBack] = useState(false);
+export default function IDCard({ user, onClose, side = "front", onSideChange }) {
+  const [showBack, setShowBack] = useState(side === "back");
+
+  useEffect(() => {
+    setShowBack(side === "back");
+  }, [side]);
+
+  const toggleSide = () => {
+    const nextSide = showBack ? "front" : "back";
+    setShowBack(!showBack);
+    onSideChange?.(nextSide);
+  };
+
+  const qrBase =
+    import.meta.env.VITE_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const qrValue = user?.employee_code
+    ? `${qrBase}/id/${encodeURIComponent(user.employee_code)}`
+    : `${qrBase || "https://resolusiindonesia.com"}/id/unknown`;
 
   useEffect(() => {
     const styleId = "id-card-print-style";
-    if (document.getElementById(styleId)) {
-      return;
-    }
+    if (document.getElementById(styleId)) return;
     const style = document.createElement("style");
     style.id = styleId;
     style.textContent = `
       @media print {
-        @page {
-          size: A4 portrait;
-          margin: 15mm;
+        @page { size: A4 portrait; margin: 10mm; }
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
-        body * {
-          visibility: hidden;
-        }
-        .print-container, .print-container * {
-          visibility: visible;
-        }
+        body * { visibility: hidden; }
+        .print-container, .print-container * { visibility: visible; }
         .print-container {
           position: absolute;
-          left: 50%;
-          top: 0;
-          transform: translateX(-50%);
+          inset: 0;
+          width: 100%;
+          display: flex !important;
+          flex-direction: column;
+          align-items: center;
+          gap: 12mm;
+          background: white !important;
         }
         .print-card {
           width: 54mm !important;
           height: 85.6mm !important;
-          transform: none !important;
-          margin-bottom: 20mm !important;
+          display: block !important;
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin: 0;
+          border: 0.1px solid #e5e7eb !important;
+        }
+        .print-card.print-front,
+        .print-card.print-back {
           display: block !important;
         }
-        .print-label {
-          display: block !important;
-          text-align: center;
-          margin-bottom: 8mm;
-          font-size: 11pt;
-          font-weight: bold;
-          color: #333;
-        }
-        .no-print {
-          display: none !important;
-        }
+        .no-print { display: none !important; }
       }
     `;
     document.head.appendChild(style);
-    return () => {
-      const existingStyle = document.getElementById(styleId);
-      if (existingStyle) {
-        document.head.removeChild(existingStyle);
-      }
-    };
+    return () => document.getElementById(styleId)?.remove();
   }, []);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric"
-    });
-  };
+  const handlePrint = () => window.print();
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900/90 rounded-3xl shadow-2xl max-w-2xl w-full border border-blue-900/50 overflow-hidden">
-        {/* Header */}
-        <div className="p-6 border-b border-slate-800/60 flex items-center justify-between no-print">
-          <h2 className="text-2xl font-bold text-white">ID Card</h2>
-          <div className="flex items-center gap-3">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden my-auto">
+        {/* Toolbar */}
+        <div className="p-4 bg-slate-100 border-b flex items-center justify-between no-print">
+          <h2 className="font-bold text-slate-800">Preview ID Card</h2>
+          <div className="flex gap-2">
             <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl transition-all"
+              onClick={toggleSide}
+              className="p-2 hover:bg-white rounded-full transition-colors text-slate-600"
+              title="Putar Kartu"
             >
-              <Printer className="w-5 h-5" />
-              Print
+              <RotateCcw className="w-5 h-5" />
             </button>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white transition-colors"
-            >
-              <X className="w-6 h-6" />
+            <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm">
+              <Printer className="w-4 h-4" /> Print
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-red-50 text-red-500 rounded-full transition-colors">
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Preview */}
-        <div className="p-6 flex flex-col items-center gap-6 bg-slate-800/30">
-          <div className="print-container">
-            {/* Label Depan */}
-            <div className="print-label hidden">SISI DEPAN - Potong sesuai garis</div>
+        {/* Card Container */}
+        <div className="p-10 flex justify-center bg-slate-200/50">
+          <div className="print-container flex flex-col items-center gap-8">
             
-            {/* Front Side */}
+            {/* FRONT SIDE */}
             <div
-            className={`print-card bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-xl shadow-xl border border-blue-500/30 overflow-hidden ${showBack ? 'hidden' : 'block'}`}
-            style={{
-                width: "216px",
-                height: "342.4px",
-            }}
+              className={`print-card print-front bg-white relative overflow-hidden shadow-2xl rounded-[18px] flex flex-col ${
+                showBack ? "hidden md:block" : "block"
+              }`}
+              style={{ width: "54mm", height: "85.6mm" }}
             >
-            <div className="relative h-full p-3 flex flex-col">
-
-                {/* Header */}
-                <div className="flex items-center gap-2 mb-2">
-                <img
-                    src={COMPANY_LOGO}
-                    alt="Company Logo"
-                    className="h-8 w-auto object-contain"
-                    onError={(e) => (e.currentTarget.style.display = "none")}
+              
+             {/* Top Blue Wave Background */}
+              <svg
+                className="absolute top-0 left-0 w-full h-56"
+                viewBox="0 0 240 224"
+                preserveAspectRatio="none"
+              >
+                <path
+                  d="
+                    M0 0
+                    H240
+                    V140
+                    C200 110, 170 90, 140 80
+                    C100 65, 60 70, 0 110
+                    Z
+                  "
+                  fill="#2d5ea8"
                 />
-                <div className="text-white leading-tight">
-                    <div className="text-xs font-semibold">RESOLUSI</div>
-                    <div className="text-[9px] text-slate-300">EMPLOYEE ID</div>
-                </div>
+              </svg>   
+              {/* Bottom Pattern Background */}
+              <div
+                className="absolute bottom-0 left-0 w-full h-[32%] z-0"
+                style={{
+                  backgroundImage: `url('https://res.cloudinary.com/dtbqhmgjz/image/upload/v1768812232/bg_idcard_bfhhgp.png')`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "bottom center",
+                  backgroundSize: "cover",
+                }}
+              />
+
+                
+              <div className="relative z-10 flex flex-col h-full items-center pt-4">
+                {/* Company Logo Box */}
+                <div className="absolute top-3 left-4 bg-white px-1 py-1 rounded-xl shadow-md flex items-center">
+                  <img src={COMPANY_LOGO} alt="Logo" className="w-4.5 h-auto" />
+                  <div className="text-left leading-tight">
+                    <p className="text-[11px] text-yellow-400 font-bold -mb-1">
+                      RESOLUSI
+                    </p>
+                    <p className="text-[5.4px] text-slate-500 font-semibold">
+                      Reka Solusi Teknologi
+                    </p>
+                  </div>
                 </div>
 
-                <div className="h-px bg-blue-500/30 mb-3" />
-
-                {/* Photo */}
-                <div className="flex justify-center mb-2">
-                <div className="w-20 h-20 rounded-full border-2 border-blue-400/50 overflow-hidden bg-slate-800 flex items-center justify-center">
-                    {user.profile_photo_url ? (
-                    <img src={user.profile_photo_url} alt={user.full_name} className="w-full h-full object-cover" />
-                    ) : (
-                    <span className="text-2xl font-bold text-white">
-                        {user.full_name?.[0]?.toUpperCase() || "?"}
-                    </span>
-                    )}
-                </div>
+                {/* Photo Frame */}
+                <div className="w-[96px] h-[128px] bg-gradient-to-br from-orange-400 via-orange-500 to-orange-400 rounded-2xl overflow-hidden border-[4px] border-white shadow-lg mb-0.5 mt-7">
+                  <img
+                    src={user.profile_photo_url || "https://via.placeholder.com/150"}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
                 </div>
 
-                {/* User Info */}
-                <div className="flex-1 grid gap-2 text-center">
-                <div>
-                    {/* <div className="text-[9px] text-slate-400 uppercase">Nama</div> */}
-                    <div className="text-sm font-semibold text-white leading-tight">
-                    {user.full_name}
-                    </div>
+
+                {/* Name Section */}
+                <div className="text-center px-3">
+                  <h1 className="text-[#1e3a8a] font-black text-base leading-tight uppercase tracking-wide" style={{fontFamily: 'Arial, sans-serif'}}>
+                    {user.full_name || "-"}
+                  </h1>
+                  <p className="text-slate-600 text-xs font-semibold">{user.role_id?.name || "-"}</p>
                 </div>
 
-                <div>
-                    <div className="text-[9px] text-slate-400 uppercase">Posisi</div>
-                    <div className="text-[10px] text-blue-300 leading-tight">
-                    {user.role_id?.name || "-"}
-                    </div>
+                {/* Info Details */}
+                <div className="flex flex-col gap-0 text-[10px] text-slate-800 mb-1.5 w-full px-8">
+                  <div className="flex items-center">
+                    <span className="w-11 text-left font-bold">ID</span>
+                    <span className="mr-1">:</span>
+                    <span className="flex-1 text-left font-semibold">{user.employee_code || "-"}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="w-11 text-left font-bold">Phone</span>
+                    <span className="mr-1">:</span>
+                    <span className="flex-1 text-left font-semibold">{user.phone || "-"}</span>
+                  </div>
                 </div>
 
-                <div>
-                    <div className="text-[9px] text-slate-400 uppercase">Divisi</div>
-                    <div className="text-[10px] text-slate-200 leading-tight">
-                    {user.division_id?.name || "-"}
-                    </div>
-                </div>
-                </div>
-
-                {/* Employee ID */}
-                <div className="mt-3 pt-2 border-t border-blue-500/20 text-center">
-                <div className="text-[9px] text-slate-400">Employee ID</div>
-                <div className="text-xs font-mono font-bold text-blue-400 tracking-wide">
-                    {user.employee_code || user._id.slice(-8).toUpperCase()}
-                </div>
+                {/* QR Code */}
+                <div className="bg-white p-1 rounded-lg shadow-md mb-1.5">
+                  <div className="bg-white p-1 rounded">
+                    <QRCode
+                      value={qrValue}
+                      size={70}
+                      bgColor="#ffffff"
+                      fgColor="#0f172a"
+                      style={{ height: "70px", width: "70px" }}
+                    />
+                  </div>
                 </div>
 
-                {/* Footer */}
-                <div className="mt-2 text-[9px] text-slate-400 flex justify-between">
-                <span>
-                    {user.termination_date ? formatDate(user.termination_date) : "Permanent"}
-                </span>
-                <span className={user.status === "active" ? "text-green-400" : "text-amber-400"}>
-                    ● {user.status?.toUpperCase()}
-                </span>
+                {/* Footer Website */}
+                <div className="mt-auto pb-0.5 flex items-center gap-1 text-[7px] text-slate-500 font-medium">
+                  <Globe className="w-2 h-2" />
+                  <span>www.resolusiindonesia.com</span>
                 </div>
+              </div>
             </div>
-            </div>
 
-
-            {/* Label Belakang */}
-            <div className="print-label hidden">SISI BELAKANG - Lipat atau tempel</div>
-
-            {/* Back Side */}
+            {/* BACK SIDE */}
             <div
-            className={`print-card bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-xl shadow-xl border border-blue-500/30 overflow-hidden ${showBack ? 'block' : 'hidden'}`}
-            style={{
-                width: "216px",
-                height: "342.4px",
-            }}
+              className={`print-card print-back bg-white relative overflow-hidden shadow-2xl rounded-[18px] flex flex-col ${
+                showBack ? "block" : "hidden md:block"
+              }`}
+              style={{ width: "54mm", height: "85.6mm" }}
             >
-            <div className="relative h-full p-3 flex flex-col text-center">
+              
+              {/* Top Blue Wave */}
+              <svg className="absolute top-0 left-0 w-full h-16" viewBox="0 0 240 64" preserveAspectRatio="none">
+                <path d="M 0 0 L 240 0 L 240 32 Q 180 48 120 40 Q 60 32 0 50 Z" fill="#3089C3" />
+              </svg>
+              <svg className="absolute top-0 left-0 w-full h-16" viewBox="0 0 240 64" preserveAspectRatio="none">
+                <path d="M 0 0 L 240 0 L 240 32 Q 180 48 120 40 Q 60 32 0 50 Z" fill="#2A5DA9" transform="scale(1, 0.8)"
+                  transform-origin="top"/>
+              </svg>
 
-                {/* Logo */}
-                <div className="mb-3">
-                <img
-                    src={COMPANY_LOGO}
-                    alt="Company Logo"
-                    className="h-10 w-auto object-contain mx-auto opacity-80"
-                    onError={(e) => (e.currentTarget.style.display = "none")}
+              {/* Bottom Pattern Background */}
+              <div
+                className="absolute bottom-0 left-0 w-full h-[32%] z-0"
+                style={{
+                  backgroundImage: `url('https://res.cloudinary.com/dtbqhmgjz/image/upload/v1768812232/bg_idcard_bfhhgp.png')`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "bottom center",
+                  backgroundSize: "cover",
+                }}
+              />
+
+              <div className="relative z-10 flex flex-col h-full items-center px-5 pt-3">
+                {/* Logo Back */}
+                <div className="w-10 mb-1 mt-8 flex items-center justify-center">
+                  <img src={COMPANY_LOGO} alt="Logo" className="w-full h-auto" />
+                  <div classname="text-center">
+                  <p className="text-[22px] text-yellow-300 font-bold mb-[-10px]">RESOLUSI</p>
+                  <p className="text-[10px] text-slate-500 font-semibold">Reka Solusi Teknologi</p>
+                  </div>
+                </div>
+
+                {/* Big QR Code */}
+                <div className="bg-white p-2 rounded-xl shadow-md">
+                  <QRCode
+                    value={qrValue}
+                    size={80}
+                    bgColor="#ffffff"
+                    fgColor="#0f172a"
+                    style={{ height: "80px", width: "80px" }}
+                  />
+                </div>
+
+                {/* Rules / Terms */}
+                <div className="text-[7px] text-slate-700 text-justify leading-snug space-y-1 px-2 pt-2" style={{lineHeight: '1'}}>
+                  <p><span className="font-bold">1.</span> ID Card dan QR Code merupakan milik perusahaan dan hanya digunakan oleh pemegang yang terdaftar.</p>
+                  <p><span className="font-bold">2.</span> ID Card dan/atau QR Code dilarang dipinjamkan, digandakan, atau disalahgunakan.</p>
+                  <p><span className="font-bold">3.</span> Segala aktivitas yang dilakukan menggunakan ID Card dan/atau QR Code menjadi tanggung jawab pemegang.</p>
+                  <p><span className="font-bold">4.</span> Kehilangan atau kerusakan ID Card wajib segera dilaporkan kepada perusahaan.</p>
+                  <p><span className="font-bold">5.</span> Perusahaan berhak menonaktifkan ID Card dan QR Code sesuai kebijakan yang berlaku.</p>
+                </div>
+              </div>
+
+              {/* Bottom Right Blue Wave */}
+              <svg
+                className="absolute bottom-0 left-0 w-full h-28"
+                viewBox="0 0 1440 200"
+                preserveAspectRatio="none"
+              >
+                <path
+                  d="
+                    M0 200
+                    H1440
+                    V100
+                    C1100 150, 800 200, 30 190
+                    C300 120, 0, 0 100
+                    Z
+                  "
+                  fill="#3089C3"
                 />
-                </div>
-
-                <div className="h-px bg-blue-500/30 mb-3" />
-
-                {/* Ownership Info */}
-                <div className="flex-1 flex flex-col justify-center gap-3 text-white">
-                <div>
-                    <div className="text-[9px] text-slate-400 mb-1">
-                    Kartu ini adalah milik:
-                    </div>
-                    <div className="text-sm font-semibold leading-tight">
-                    Resolusi Teknologi Indonesia
-                    </div>
-                </div>
-
-                <div className="pt-3 border-t border-blue-500/20">
-                    <div className="text-[9px] text-slate-400 mb-2">
-                    Jika ditemukan, harap dikembalikan ke:
-                    </div>
-                    <div className="text-[10px] text-blue-300 leading-relaxed">
-                    admin@resolusi.co.id<br />
-                    021-XXX-XXXX
-                    </div>
-                </div>
-                </div>
-
-                {/* Footer */}
-                <div className="mt-3 text-[8px] text-slate-500">
-                © Resolusi Teknologi Indonesia
-                </div>
-            </div>
+              </svg>
+              <svg
+                className="absolute bottom-0 left-0 w-full h-28"
+                viewBox="0 0 1440 200"
+                preserveAspectRatio="none"
+              >
+                <path
+                  d="
+                    M0 200
+                    H1440
+                    V80
+                    C1100 150, 800 200, 30 190
+                    C300 120, 0, 0 100
+                    Z
+                  "
+                  fill="#2A5DA9"
+                  transform="scale(1, 0.6)"
+                  transform-origin="bottom"
+                />
+              </svg>
             </div>
 
           </div>
-
-          {/* Flip Button */}
-          <button
-            onClick={() => setShowBack(!showBack)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-slate-200 hover:bg-slate-700/60 transition-all no-print"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span className="text-sm">Lihat {showBack ? 'Depan' : 'Belakang'}</span>
-          </button>
-        </div>
-
-        {/* Info */}
-        <div className="p-4 bg-slate-800/50 border-t border-slate-800/60 no-print">
-          <p className="text-xs text-slate-400 text-center">
-            Ukuran: 54mm × 85.6mm (Portrait ID Card) • Print akan menampilkan depan dan belakang dalam satu kertas A4
-          </p>
         </div>
       </div>
     </div>

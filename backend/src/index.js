@@ -15,6 +15,7 @@ import auditLogRouter from './routes/auditLog.js';
 import roleRouter from './routes/role.js';
 import analyticsRouter from './routes/analytics.js';
 import orgChartRouter from './routes/orgChart.js';
+import publicRouter from './routes/public.js';
 
 import Role from "./models/role.js";
 import divisionRouter from './routes/division.js';
@@ -46,6 +47,7 @@ app.route("/api/v1/audit-logs", auditLogRouter);
 app.route("/api/v1/roles", roleRouter);
 app.route("/api/v1/analytics", analyticsRouter);
 app.route("/api/v1/org-chart", orgChartRouter);
+app.route("/api/v1/public", publicRouter);
 
 
 // app.post("/tes/masukin", async (c) => {
