@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/lato": "^5.2.7",
+    "@fontsource/raleway": "^5.2.8",
     "framer-motion": "^12.23.26",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",

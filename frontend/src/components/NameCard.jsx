@@ -72,7 +72,7 @@ export default function NameCard({
                     backgroundImage: `url('https://res.cloudinary.com/dtbqhmgjz/image/upload/v1768884213/map_depan_voupzr.png')`,
                     backgroundRepeat: "no-repeat",
                     backgroundPosition: "bottom center",
-                    backgroundSize: "90% auto",
+                    backgroundSize: "98% auto",
 
                   }}
                 />
@@ -92,11 +92,11 @@ export default function NameCard({
 
                 {/* Name and Role */}
                 <div className="mt-16 left-0 right-0 px-4 absolute">
-                  <h1 className="text-l font-bold text-slate-800 tracking-tight uppercase">
-                    {user.full_name.split(' ')[0]} <span className="font-normal">{user.full_name.split(' ').slice(1).join(' ')}</span>
+                  <h1 className="text-l font-bold text-slate-800 tracking-tight uppercase" style={{fontFamily: 'Lato, sans-serif', fontWeight: 900}}>
+                    {user.full_name.split(' ')[0]} <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.full_name.split(' ').slice(1).join(' ')}</span>
                   </h1>
                   <div className="flex items-center gap-2">
-                    <p className="text-blue-600 text-[8px] font-semibold tracking-wide uppercase whitespace-nowrap">
+                    <p className="text-blue-600 text-[8px] font-semibold tracking-wide uppercase whitespace-nowrap" style={{fontFamily: 'Raleway, sans-serif', fontWeight: 500}}>
                       {user.role_id?.name}
                     </p>
                     <div className="flex-1 h-[2px] bg-black"></div>
@@ -107,20 +107,20 @@ export default function NameCard({
                 {/* Contact Info */}
                 <div className="absolute bottom-6 left-4 space-y-0.5">
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoCall className="w-3 h-2 fill-blue-600" /> <span class>087767802000</span>
+                    <IoCall className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>087767802000</span>
                   </div>
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoMdMail  className="w-3 h-2 fill-blue-600" /> <span>info@resolusiindonesia.com</span>
+                    <IoMdMail  className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>info@resolusiindonesia.com</span>
                   </div>
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoIosGlobe className="w-3 h-2 fill-blue-600" /> <span>www.resolusiindonesia.com</span>
+                    <IoIosGlobe className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
                   </div>
                 </div>
 
                 {/* QR and Address */}
                 <div className="absolute bottom-6 right-6 text-right flex flex-col items-end">
                   <img src={QR_CODE} alt="QR" className="w-10 h-10 mb-2" />
-                  <p className="text-[6px] leading-tight text-slate-500 max-w-[140px]">
+                  <p className="text-[6px] leading-tight text-slate-500 max-w-[140px]" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
                   Jl. Elang Jawa No.9, Karangsari, Wedomartani, Kec. Ngemplak, Kabupaten Sleman, Daerah Istimewa Yogyakarta 55584
                   </p>
                 </div>
@@ -147,7 +147,7 @@ export default function NameCard({
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "center",
                   backgroundSize: "cover",
-                  opacity: 0.15, // KUNCI
+                  opacity: 0.1, // KUNCI
                 }}
               />
             
@@ -161,7 +161,7 @@ export default function NameCard({
                   backgroundImage: `url('https://res.cloudinary.com/dtbqhmgjz/image/upload/v1768884219/map_belakang_lnuifx.png')`,
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "bottom center",
-                  backgroundSize: "90% auto",
+                  backgroundSize: "98% auto",
                   opacity: 0.75,
                 }}
               />
@@ -183,8 +183,8 @@ export default function NameCard({
                   </div>
             
                 {/* Bottom tagline */}
-                <div className="absolute bottom-3 w-full text-center z-10">
-                  <p className="text-white text-[6.8px] tracking-widest opacity-90">
+                <div className="absolute bottom-4 w-full text-center z-10">
+                  <p className="text-white text-[6.8px] tracking-widest opacity-90" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
                     One Stop Digital Solution for Your Business
                   </p>
                 </div>
@@ -202,7 +202,7 @@ export default function NameCard({
         </div>
         
         <div className="p-4 bg-white text-center no-print">
-          <p className="text-[10px] text-slate-400 italic">Gunakan kertas Art Paper 260gsm untuk hasil terbaik.</p>
+          <p className="text-[10px] text-slate-400 italic">Gunakan kertas yang sesuai untuk hasil terbaik.</p>
         </div>
       </div>
     </div>

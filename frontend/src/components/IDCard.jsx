@@ -175,29 +175,29 @@ export default function IDCard({
 
                   {/* Name Section */}
                   <div className="text-center px-3">
-                    <h1 className="text-[#1e3a8a] font-black text-base leading-tight uppercase tracking-wide" style={{fontFamily: 'Arial, sans-serif'}}>
-                      {user.full_name || "-"}
+                    <h1 className="text-[#2A5DA9] text-base bold leading-tight uppercase tracking-wide" style={{fontFamily: 'Lato, sans-serif', fontWeight: 900}}>
+                    {user.full_name.split(' ')[0]} <span className="text-black" style={{fontFamily: 'Lato, sans-serif', fontWeight: 300}}>{user.full_name.split(' ').slice(1).join(' ')}</span>
                     </h1>
-                    <p className="text-slate-600 text-xs font-semibold">{user.role_id?.name || "-"}</p>
+                    <p className="text-slate-600 text-[10px]" style={{fontFamily: 'raleway, sans-serif', fontWeight: 400}}>{user.role_id?.name || "-"}</p>
                   </div>
 
                   {/* Info Details */}
-                  <div className="flex flex-col gap-0 text-[10px] text-slate-800 mb-1.5 w-full px-8">
+                  <div className="flex flex-col gap-0 text-[9px] text-slate-800 mb-1 w-full px-8">
                     <div className="flex items-center">
-                      <span className="w-11 text-left font-bold">ID</span>
+                      <span className="w-11 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>ID</span>
                       <span className="mr-1">:</span>
-                      <span className="flex-1 text-left font-semibold">{user.employee_code || "-"}</span>
+                      <span className="flex-1 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.employee_code || "-"}</span>
                     </div>
                     <div className="flex items-center">
-                      <span className="w-11 text-left font-bold">Phone</span>
+                      <span className="w-11 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>Phone</span>
                       <span className="mr-1">:</span>
-                      <span className="flex-1 text-left font-semibold">{user.phone || "-"}</span>
+                      <span className="flex-1 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.phone || "-"}</span>
                     </div>
                   </div>
 
                   {/* QR Code */}
-                  <div className="bg-white p-1 rounded-lg shadow-md mb-1.5">
-                    <div className="bg-white p-1 rounded">
+                  <div className=" p-1 mb-1.5">
+                    <div className="p-1">
                       <img 
                         src={QR_CODE} 
                         alt="QR Code" 
@@ -207,9 +207,9 @@ export default function IDCard({
                   </div>
 
                   {/* Footer Website */}
-                  <div className="mt-auto pb-0.5 flex items-center gap-1 text-[7px] text-slate-500 font-medium">
-                    <Globe className="w-2 h-2" />
-                    <span>www.resolusiindonesia.com</span>
+                  <div className="mt-auto pb-0.5 flex items-center gap-1 text-[7px] text-slate-500">
+                    <Globe className="w-2 h-2 text-blue-700" />
+                    <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
                   </div>
                 </div>
               </div>
@@ -252,7 +252,7 @@ export default function IDCard({
                   </div>
 
                   {/* Big QR Code */}
-                  <div className="bg-white p-2 rounded-xl shadow-md">
+                  <div className="bg-white p-2 rounded-xl">
                     <img 
                       src={QR_CODE} 
                       alt="QR Code" 
@@ -261,7 +261,7 @@ export default function IDCard({
                   </div>
 
                   {/* Rules / Terms */}
-                  <div className="text-[7px] text-slate-700 text-justify leading-snug space-y-1 px-2 pt-2" style={{lineHeight: '1'}}>
+                  <div className="text-[7px] text-slate-700 text-justify leading-snug space-y-1 px-2 pt-2" style={{lineHeight: '1', fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
                     <p><span className="font-bold">1.</span> ID Card dan QR Code merupakan milik perusahaan dan hanya digunakan oleh pemegang yang terdaftar.</p>
                     <p><span className="font-bold">2.</span> ID Card dan/atau QR Code dilarang dipinjamkan, digandakan, atau disalahgunakan.</p>
                     <p><span className="font-bold">3.</span> Segala aktivitas yang dilakukan menggunakan ID Card dan/atau QR Code menjadi tanggung jawab pemegang.</p>
@@ -300,7 +300,7 @@ export default function IDCard({
         </div>
 
         <div className="p-4 bg-white text-center no-print">
-          <p className="text-[10px] text-slate-400 italic">Gunakan kertas PVC card 0.76mm untuk hasil terbaik.</p>
+          <p className="text-[10px] text-slate-400 italic">Gunakan kertas yang sesuai untuk hasil terbaik.</p>
         </div>
       </div>
     </div>
