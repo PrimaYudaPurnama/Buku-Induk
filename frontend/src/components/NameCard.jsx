@@ -2,10 +2,11 @@ import { Printer, X, RotateCcw, Phone, Mail, Globe } from "lucide-react";
 import { useEffect, useState } from "react";
 import { IoMdMail, IoIosGlobe } from "react-icons/io";
 import { IoCall } from "react-icons/io5";
+import QRCode from "react-qr-code";
 
 const COMPANY_LOGO = "https://res.cloudinary.com/dtbqhmgjz/image/upload/v1764926597/employees/dev/documents/e8d94016-d909-48b7-add0-3e6a745eb67a-1764926594722-Logo%20Resolusi.png";
-// Placeholder untuk QR Code (Ganti dengan dynamic QR jika perlu)
-const QR_CODE = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://www.resolusiindonesia.com";
+
+const linkQR = "https://www.resolusiindonesia.com";
 // Background World Map Dot Matrix (SVG Pattern)
 const WORLD_MAP = "url(\"data:image/svg+xml,%3Csvg width='400' height='200' viewBox='0 0 400 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M100 50h2v2h-2zm10 0h2v2h-2zm10 0h2v2h-2z' fill='%23ccc' fill-opacity='0.2'/%3E%3C/svg%3E\")";
 
@@ -44,7 +45,7 @@ export default function NameCard({
   const handlePrint = () => window.print();
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 font-sans">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden">
         {/* Toolbar */}
         <div className="p-4 bg-slate-100 border-b flex items-center justify-between no-print">
@@ -92,11 +93,11 @@ export default function NameCard({
 
                 {/* Name and Role */}
                 <div className="mt-16 left-0 right-0 px-4 absolute">
-                  <h1 className="text-l font-bold text-slate-800 tracking-tight uppercase" style={{fontFamily: 'Lato, sans-serif', fontWeight: 900}}>
-                    {user.full_name.split(' ')[0]} <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.full_name.split(' ').slice(1).join(' ')}</span>
+                  <h1 className="text-l font-bold text-slate-800 tracking-tight uppercase" style={{fontFamily: 'lato, sans-serif', fontWeight: 900}}>
+                    {user.full_name.split(' ')[0]} <span style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>{user.full_name.split(' ').slice(1).join(' ')}</span>
                   </h1>
                   <div className="flex items-center gap-2">
-                    <p className="text-blue-600 text-[8px] font-semibold tracking-wide uppercase whitespace-nowrap" style={{fontFamily: 'Raleway, sans-serif', fontWeight: 500}}>
+                    <p className="text-blue-600 text-[8px] font-semibold tracking-wide uppercase whitespace-nowrap" style={{fontFamily: 'raleway, sans-serif', fontWeight: 500}}>
                       {user.role_id?.name}
                     </p>
                     <div className="flex-1 h-[2px] bg-black"></div>
@@ -107,20 +108,20 @@ export default function NameCard({
                 {/* Contact Info */}
                 <div className="absolute bottom-6 left-4 space-y-0.5">
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoCall className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>087767802000</span>
+                    <IoCall className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>087767802000</span>
                   </div>
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoMdMail  className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>info@resolusiindonesia.com</span>
+                    <IoMdMail  className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>info@resolusiindonesia.com</span>
                   </div>
                   <div className="flex items-center gap-2 text-[7.5px] text-slate-700">
-                    <IoIosGlobe className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
+                    <IoIosGlobe className="w-3 h-2 fill-blue-600" /> <span style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
                   </div>
                 </div>
 
                 {/* QR and Address */}
                 <div className="absolute bottom-6 right-6 text-right flex flex-col items-end">
-                  <img src={QR_CODE} alt="QR" className="w-10 h-10 mb-2" />
-                  <p className="text-[6px] leading-tight text-slate-500 max-w-[140px]" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
+                  <QRCode value={linkQR} size={45} bgColor="#ffffff" fgColor="#0f172a" className="mb-1"/>
+                  <p className="text-[6px] leading-tight text-slate-500 max-w-[140px]" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>
                   Jl. Elang Jawa No.9, Karangsari, Wedomartani, Kec. Ngemplak, Kabupaten Sleman, Daerah Istimewa Yogyakarta 55584
                   </p>
                 </div>
@@ -184,7 +185,7 @@ export default function NameCard({
             
                 {/* Bottom tagline */}
                 <div className="absolute bottom-4 w-full text-center z-10">
-                  <p className="text-white text-[6.8px] tracking-widest opacity-90" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
+                  <p className="text-white text-[6.8px] tracking-widest opacity-90" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>
                     One Stop Digital Solution for Your Business
                   </p>
                 </div>

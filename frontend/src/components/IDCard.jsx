@@ -1,13 +1,11 @@
 import { Printer, X, RotateCcw, Globe } from "lucide-react";
 import { useEffect, useState } from "react";
+import QRCode from "react-qr-code";
+
 
 const COMPANY_LOGO =
   "https://res.cloudinary.com/dtbqhmgjz/image/upload/v1764926597/employees/dev/documents/e8d94016-d909-48b7-add0-3e6a745eb67a-1764926594722-Logo%20Resolusi.png";
 
-// Fungsi sederhana untuk generate QR Code URL
-const generateQRCodeURL = (data) => {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data)}`;
-};
 
 export default function IDCard({ 
   user = {
@@ -25,8 +23,47 @@ export default function IDCard({
   const qrValue = user?.employee_code
     ? `${qrBase}/id/${encodeURIComponent(user.employee_code)}`
     : `${qrBase}/id/unknown`;
+
+  // Format nama: jika lebih dari 3 kata, singkat kata terakhir
+  const formatName = (fullName) => {
+    if (!fullName) return "-";
+    const words = fullName.trim().split(/\s+/);
+    
+    if (words.length <= 2) {
+      return fullName.toUpperCase();
+    }
+    
+    // Jika lebih dari 2 kata, singkat kata-kata setelah kata kedua
+    const firstName = words[0];
+    const middleNames = words.slice(1, -1);
+    const lastName = words[words.length - 1];
+    
+    // Jika total panjang masih wajar (< 25 karakter), tampilkan semua
+    if (fullName.length <= 24) {
+      return fullName.toUpperCase();
+    }
+    
+    // Singkat kata-kata tengah dan akhir
+    const abbreviated = middleNames.map(w => w[0].toUpperCase() + '.').join(' ');
+    return `${firstName.toUpperCase()} ${abbreviated} ${lastName[0].toUpperCase()}.`;
+  };
+
+  // Format role: potong jika terlalu panjang
+  const formatRole = (role) => {
+    if (!role) return "-";
+    return role.length > 28 ? role.substring(0, 25) + "..." : role;
+  };
+
+  // Format phone: potong jika terlalu panjang
+  const formatPhone = (phone) => {
+    if (!phone) return "-";
+    return phone.length > 18 ? phone.substring(0, 15) + "..." : phone;
+  };
+
+  const formattedName = formatName(user.full_name);
+  const firstName = formattedName.split(' ')[0];
+  const restName = formattedName.split(' ').slice(1).join(' ');
   
-  const QR_CODE = generateQRCodeURL(qrValue);
 
   useEffect(() => {
     const styleId = "id-card-print-style";
@@ -50,7 +87,7 @@ export default function IDCard({
   const handlePrint = () => window.print();
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 font-sans">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden">
         {/* Toolbar */}
         <div className="p-4 bg-slate-100 border-b flex items-center justify-between no-print">
@@ -164,52 +201,53 @@ export default function IDCard({
                     </div>
                   </div>
 
-                  {/* Photo Frame */}
-                  <div className="w-[96px] h-[128px] bg-gradient-to-br from-orange-400 via-orange-500 to-orange-400 rounded-2xl overflow-hidden border-[3.5px] border-white shadow-lg mb-0.5 mt-7">
+                  {/* Photo Frame - Standar 3x4 cm (96px x 128px at 96 DPI) */}
+                  <div className="w-[96px] h-[108px] bg-gradient-to-br from-orange-400 via-orange-500 to-orange-400 rounded-2xl overflow-hidden border-[3.5px] border-white shadow-lg mb-0.5 mt-7 flex-shrink-0">
                     <img
                       src={user.profile_photo_url || "https://via.placeholder.com/150"}
                       alt="Profile"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-center"
                     />
                   </div>
 
-                  {/* Name Section */}
-                  <div className="text-center px-3">
-                    <h1 className="text-[#2A5DA9] text-base bold leading-tight uppercase tracking-wide" style={{fontFamily: 'Lato, sans-serif', fontWeight: 900}}>
-                    {user.full_name.split(' ')[0]} <span className="text-black" style={{fontFamily: 'Lato, sans-serif', fontWeight: 300}}>{user.full_name.split(' ').slice(1).join(' ')}</span>
+                  {/* Name Section - Fixed Height */}
+                  <div className="text-center px-3 h-[42px] flex flex-col justify-center flex-shrink-0">
+                    <h1 className="text-[#2A5DA9] text-base leading-tight uppercase tracking-wide truncate max-w-[180px]" style={{fontFamily: 'lato, sans-serif', fontWeight: 900}}>
+                      {firstName} <span className="text-black" style={{fontFamily: 'lato, sans-serif', fontWeight: 300}}>{restName}</span>
                     </h1>
-                    <p className="text-slate-600 text-[10px]" style={{fontFamily: 'raleway, sans-serif', fontWeight: 400}}>{user.role_id?.name || "-"}</p>
+                    <p className="text-slate-600 text-[10px] truncate max-w-[180px]" style={{fontFamily: 'raleway, sans-serif', fontWeight: 400}}>{formatRole(user.role_id?.name)}</p>
                   </div>
 
-                  {/* Info Details */}
-                  <div className="flex flex-col gap-0 text-[9px] text-slate-800 mb-1 w-full px-8">
+                  {/* Info Details - Fixed Height */}
+                  <div className="flex flex-col gap-0 text-[9px] text-slate-800 mb-1 w-full px-8 h-[20px] flex-shrink-0">
                     <div className="flex items-center">
-                      <span className="w-11 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>ID</span>
-                      <span className="mr-1">:</span>
-                      <span className="flex-1 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.employee_code || "-"}</span>
+                      <span className="w-11 text-left flex-shrink-0" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>ID</span>
+                      <span className="mr-1 flex-shrink-0">:</span>
+                      <span className="flex-1 text-left truncate" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>{user.employee_code || "-"}</span>
                     </div>
                     <div className="flex items-center">
-                      <span className="w-11 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>Phone</span>
-                      <span className="mr-1">:</span>
-                      <span className="flex-1 text-left" style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>{user.phone || "-"}</span>
+                      <span className="w-11 text-left flex-shrink-0" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>Phone</span>
+                      <span className="mr-1 flex-shrink-0">:</span>
+                      <span className="flex-1 text-left truncate" style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>{formatPhone(user.phone)}</span>
                     </div>
                   </div>
 
-                  {/* QR Code */}
-                  <div className=" p-1 mb-1.5">
+                  {/* QR Code - Fixed Size */}
+                  <div className="p-1 mb-1.5 flex-shrink-0">
                     <div className="p-1">
-                      <img 
-                        src={QR_CODE} 
-                        alt="QR Code" 
-                        className="w-[70px] h-[70px]"
+                      <QRCode
+                        value={qrValue}
+                        size={64}
+                        bgColor="#ffffff"
+                        fgColor="#000000"
                       />
                     </div>
                   </div>
 
                   {/* Footer Website */}
-                  <div className="mt-auto pb-0.5 flex items-center gap-1 text-[7px] text-slate-500">
-                    <Globe className="w-2 h-2 text-blue-700" />
-                    <span style={{fontFamily: 'Lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
+                  <div className="mt-auto pb-0.5 flex items-center gap-1 text-[7px] text-slate-800">
+                    <Globe className="w-2 h-2 text-blue-800" />
+                    <span style={{fontFamily: 'lato, sans-serif', fontWeight: 400}}>www.resolusiindonesia.com</span>
                   </div>
                 </div>
               </div>
@@ -227,7 +265,7 @@ export default function IDCard({
                   <path d="M 0 0 L 240 0 L 240 32 Q 180 48 120 40 Q 60 32 0 50 Z" fill="#3089C3" />
                 </svg>
                 <svg className="absolute top-0 left-0 w-full h-16" viewBox="0 0 240 64" preserveAspectRatio="none">
-                  <path d="M 0 0 L 240 0 L 240 32 Q 180 48 120 40 Q 60 32 0 50 Z" fill="#2A5DA9" transform="scale(1, 0.8)" transform-origin="top"/>
+                  <path d="M 0 0 L 240 0 L 240 32 Q 180 48 120 40 Q 60 32 0 50 Z" fill="#2A5DA9" transform="scale(1, 0.8)" transformOrigin="top"/>
                 </svg>
 
                 {/* Bottom Pattern Background */}
@@ -253,15 +291,17 @@ export default function IDCard({
 
                   {/* Big QR Code */}
                   <div className="bg-white p-2 rounded-xl">
-                    <img 
-                      src={QR_CODE} 
-                      alt="QR Code" 
-                      className="w-[80px] h-[80px]"
-                    />
+                  <QRCode
+                    value={qrValue}
+                    size={64}
+                    bgColor="#ffffff"
+                    fgColor="#000000"
+                  />
+
                   </div>
 
                   {/* Rules / Terms */}
-                  <div className="text-[7px] text-slate-700 text-justify leading-snug space-y-1 px-2 pt-2" style={{lineHeight: '1', fontFamily: 'Lato, sans-serif', fontWeight: 400}}>
+                  <div className="text-[7px] text-slate-700 text-justify leading-snug space-y-1 px-2 pt-2" style={{lineHeight: '1', fontFamily: 'lato, sans-serif', fontWeight: 400}}>
                     <p><span className="font-bold">1.</span> ID Card dan QR Code merupakan milik perusahaan dan hanya digunakan oleh pemegang yang terdaftar.</p>
                     <p><span className="font-bold">2.</span> ID Card dan/atau QR Code dilarang dipinjamkan, digandakan, atau disalahgunakan.</p>
                     <p><span className="font-bold">3.</span> Segala aktivitas yang dilakukan menggunakan ID Card dan/atau QR Code menjadi tanggung jawab pemegang.</p>
@@ -290,7 +330,7 @@ export default function IDCard({
                     d="M0 200 H1440 V80 C1100 150, 800 200, 30 190 C300 120, 0, 0 100 Z"
                     fill="#2A5DA9"
                     transform="scale(1, 0.6)"
-                    transform-origin="bottom"
+                    transformOrigin="bottom"
                   />
                 </svg>
               </div>
