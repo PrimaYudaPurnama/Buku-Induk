@@ -3,7 +3,8 @@
   "scripts": {
     "dev": "bun run --hot src/index.js",
     "start": "bun src/index.js",
-    "seed:roles": "bun run src/seeders/roleSeeder.js"
+    "seed:roles": "bun run src/seeders/roleSeeder.js",
+    "seed:user": "bun run src/seeders/userSeeder.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",

@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 
 const roles = [
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb3"),
     name: "Superadmin",
     description: "God Mode - Full access to everything",
     permissions: [
@@ -22,10 +23,13 @@ const roles = [
       "system:manage_divisions",
       "system:manage_roles",
       "system:view_audit_logs",
+      "system:manage_analytics",
+      "user:update_salary:any",
     ],
     hierarchy_level: 1,
   },
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb4"),
     name: "Admin",
     description: "Full access kecuali delete user & manage roles",
     permissions: [
@@ -42,10 +46,14 @@ const roles = [
       "user:export",
       "system:manage_divisions",
       "system:view_audit_logs",
+      "system:manage_analytics",
+      "user:update_salary:any",
     ],
     hierarchy_level: 2,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb5"),
     name: "Director",
     description: "Top management - full view & HR actions",
     permissions: [
@@ -53,23 +61,32 @@ const roles = [
       "user:view_history:any",
       "user:view_salary:any",
       "account:create",
+      "account:approve:any",
       "employee:promote:any",
       "employee:terminate:any",
       "employee:transfer:any",
       "system:view_audit_logs",
+      "system:manage_analytics",
+      "system:manage_divisions",
+      "user:update_salary:any",
     ],
     hierarchy_level: 3,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbc"),
     name: "Investor",
     description: "Read-only investor access",
     permissions: [
       "dashboard:read",
       "report:financial:read",
+      "system:manage_analytics",
     ],
     hierarchy_level: 3,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb6"),
     name: "Manager HR",
     description: "HR Manager",
     permissions: [
@@ -81,10 +98,14 @@ const roles = [
       "employee:promote:any",
       "employee:terminate:any",
       "employee:transfer:any",
+      "user:create",
+      "user:update_salary:any",
     ],
     hierarchy_level: 4,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb7"),
     name: "General Manager",
     description: "General Manager",
     permissions: [
@@ -99,7 +120,9 @@ const roles = [
     ],
     hierarchy_level: 4,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb8"),
     name: "Finance",
     description: "Finance Manager",
     permissions: [
@@ -108,14 +131,18 @@ const roles = [
       "user:view_history:any",
       "user:view_salary:any",
       "user:export",
+      "user:update_salary:any",
     ],
     hierarchy_level: 4,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb9"),
     name: "Manager",
     description: "Division Manager - hanya divisi sendiri",
     permissions: [
       "user:read:own_division",
+      "user:read:self",
       "account:create",
       "account:approve:own_division",
       "user:view_history:own_division",
@@ -125,7 +152,9 @@ const roles = [
     ],
     hierarchy_level: 5,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbba"),
     name: "Team Lead",
     description: "Team Leader - hanya data diri sendiri",
     permissions: [
@@ -136,7 +165,9 @@ const roles = [
     ],
     hierarchy_level: 6,
   },
+
   {
+    _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbb"),
     name: "Staff",
     description: "Regular employee",
     permissions: [
@@ -152,57 +183,25 @@ const roles = [
 async function seedRoles() {
   try {
     console.log("🌱 Starting role seeder...");
-    
-    // Connect to database
     await connectDB();
 
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
+    for (const role of roles) {
+      await Role.findOneAndUpdate(
+        { _id: role._id },
+        { $set: role },
+        { upsert: true, new: true }
+      );
 
-    for (const roleData of roles) {
-      try {
-        const existingRole = await Role.findOne({ name: roleData.name });
-
-        if (existingRole) {
-          // Update existing role
-          existingRole.description = roleData.description;
-          existingRole.permissions = roleData.permissions;
-          existingRole.hierarchy_level = roleData.hierarchy_level;
-          await existingRole.save();
-          updated++;
-          console.log(`✅ Updated role: ${roleData.name}`);
-        } else {
-          // Create new role
-          await Role.create(roleData);
-          created++;
-          console.log(`✅ Created role: ${roleData.name}`);
-        }
-      } catch (error) {
-        console.error(`❌ Error processing role ${roleData.name}:`, error.message);
-        skipped++;
-      }
+      console.log(`✅ Seeded role: ${role.name}`);
     }
 
-    console.log("\n📊 Seeder Summary:");
-    console.log(`   Created: ${created}`);
-    console.log(`   Updated: ${updated}`);
-    console.log(`   Skipped: ${skipped}`);
-    console.log(`   Total: ${roles.length}`);
-    console.log("\n✅ Role seeder completed!");
-
-    // Close connection
     await mongoose.connection.close();
-    console.log("🔌 Database connection closed");
+    console.log("🔌 DB connection closed");
     process.exit(0);
-  } catch (error) {
-    console.error("❌ Seeder error:", error);
+  } catch (err) {
+    console.error("❌ Seeder error:", err);
     process.exit(1);
   }
 }
 
-// Run seeder
 seedRoles();
-
-export default seedRoles;
-
