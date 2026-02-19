@@ -44,5 +44,45 @@ analyticsRouter.get(
   (c) => AnalyticsController.getWorkflowStatistics(c)
 );
 
+// GET /api/v1/analytics/attendance-overview
+analyticsRouter.get(
+  "/attendance-overview",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_analytics", "dashboard:read"],
+  }),
+  (c) => AnalyticsController.getAttendanceOverview(c)
+);
+
+// GET /api/v1/analytics/attendance-details
+analyticsRouter.get(
+  "/attendance-details",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_analytics", "dashboard:read"],
+  }),
+  (c) => AnalyticsController.getAttendanceDetails(c)
+);
+
+// GET /api/v1/analytics/project-overview
+analyticsRouter.get(
+  "/project-overview",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_analytics", "dashboard:read"],
+  }),
+  (c) => AnalyticsController.getProjectOverview(c)
+);
+
+// GET /api/v1/analytics/project-details/:id
+analyticsRouter.get(
+  "/project-details/:id",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_analytics", "dashboard:read"],
+  }),
+  (c) => AnalyticsController.getProjectDetails(c)
+);
+
 export default analyticsRouter;
 

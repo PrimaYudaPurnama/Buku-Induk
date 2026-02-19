@@ -25,6 +25,8 @@ const roles = [
       "system:view_audit_logs",
       "system:manage_analytics",
       "user:update_salary:any",
+      "system:manage_activities",
+      "system:manage_projects",
     ],
     hierarchy_level: 1,
   },
@@ -48,10 +50,11 @@ const roles = [
       "system:view_audit_logs",
       "system:manage_analytics",
       "user:update_salary:any",
+      "system:manage_activities",
+      "system:manage_projects",
     ],
     hierarchy_level: 2,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb5"),
     name: "Director",
@@ -68,11 +71,12 @@ const roles = [
       "system:view_audit_logs",
       "system:manage_analytics",
       "system:manage_divisions",
+      "system:manage_projects",
+      "system:manage_activities",
       "user:update_salary:any",
     ],
     hierarchy_level: 3,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbc"),
     name: "Investor",
@@ -84,7 +88,6 @@ const roles = [
     ],
     hierarchy_level: 3,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb6"),
     name: "Manager HR",
@@ -103,7 +106,6 @@ const roles = [
     ],
     hierarchy_level: 4,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb7"),
     name: "General Manager",
@@ -120,7 +122,6 @@ const roles = [
     ],
     hierarchy_level: 4,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb8"),
     name: "Finance",
@@ -135,7 +136,6 @@ const roles = [
     ],
     hierarchy_level: 4,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbb9"),
     name: "Manager",
@@ -152,7 +152,6 @@ const roles = [
     ],
     hierarchy_level: 5,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbba"),
     name: "Team Lead",
@@ -165,7 +164,6 @@ const roles = [
     ],
     hierarchy_level: 6,
   },
-
   {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbb"),
     name: "Staff",
@@ -189,9 +187,8 @@ async function seedRoles() {
       await Role.findOneAndUpdate(
         { _id: role._id },
         { $set: role },
-        { upsert: true, new: true }
+        { upsert: true }
       );
-
       console.log(`✅ Seeded role: ${role.name}`);
     }
 

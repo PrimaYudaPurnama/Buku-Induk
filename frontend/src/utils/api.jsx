@@ -356,6 +356,134 @@ export const deleteDivision = async (divisionId) => {
   return data;
 };
 
+// ==================== ACTIVITIES (CRUD) ====================
+export const fetchActivitiesList = async ({
+  page = 1,
+  limit = 20,
+  search = "",
+  sort = "-created_at",
+} = {}) => {
+  const params = new URLSearchParams();
+  params.append("page", page);
+  params.append("limit", limit);
+  if (search) params.append("search", search);
+  if (sort) params.append("sort", sort);
+
+  const response = await fetch(`${API_BASE}/activities?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat aktivitas");
+  return data;
+};
+
+export const createActivity = async (activityData) => {
+  const response = await fetch(`${API_BASE}/activities`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(activityData),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal membuat aktivitas");
+  return data;
+};
+
+export const updateActivity = async (activityId, activityData) => {
+  const response = await fetch(`${API_BASE}/activities/${activityId}`, {
+    method: "PATCH",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(activityData),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memperbarui aktivitas");
+  return data;
+};
+
+export const deleteActivity = async (activityId) => {
+  const response = await fetch(`${API_BASE}/activities/${activityId}`, {
+    method: "DELETE",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menghapus aktivitas");
+  return data;
+};
+
+// ==================== PROJECTS (CRUD) ====================
+export const fetchProjectsList = async ({
+  page = 1,
+  limit = 20,
+  search = "",
+  sort = "-created_at",
+  work_type = "",
+  status = "",
+} = {}) => {
+  const params = new URLSearchParams();
+  params.append("page", page);
+  params.append("limit", limit);
+  if (search) params.append("search", search);
+  if (sort) params.append("sort", sort);
+  if (work_type) params.append("work_type", work_type);
+  if (status) params.append("status", status);
+
+  const response = await fetch(`${API_BASE}/projects?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat proyek");
+  return data;
+};
+
+export const createProject = async (projectData) => {
+  const response = await fetch(`${API_BASE}/projects`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(projectData),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal membuat proyek");
+  return data;
+};
+
+export const updateProject = async (projectId, projectData) => {
+  const response = await fetch(`${API_BASE}/projects/${projectId}`, {
+    method: "PATCH",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(projectData),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memperbarui proyek");
+  return data;
+};
+
+export const deleteProject = async (projectId) => {
+  const response = await fetch(`${API_BASE}/projects/${projectId}`, {
+    method: "DELETE",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menghapus proyek");
+  return data;
+};
+
 // Optional: Get single division
 export const fetchDivisionById = async (divisionId, include = "manager,active_general") => {
   const params = new URLSearchParams();
@@ -826,6 +954,75 @@ export const fetchWorkflowStatistics = async ({ start_date, end_date, request_ty
   return data;
 };
 
+// ==================== ATTENDANCE ANALYTICS ====================
+export const fetchAttendanceOverview = async ({ start_date, end_date, user_id, division_id } = {}) => {
+  const params = new URLSearchParams();
+  if (start_date) params.append("start_date", start_date);
+  if (end_date) params.append("end_date", end_date);
+  if (user_id) params.append("user_id", user_id);
+  if (division_id) params.append("division_id", division_id);
+
+  const response = await fetch(`${API_BASE}/analytics/attendance-overview?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat overview presensi");
+  return data;
+};
+
+export const fetchAttendanceDetails = async ({ page = 1, limit = 20, start_date, end_date, user_id, division_id, status } = {}) => {
+  const params = new URLSearchParams();
+  params.append("page", page);
+  params.append("limit", limit);
+  if (start_date) params.append("start_date", start_date);
+  if (end_date) params.append("end_date", end_date);
+  if (user_id) params.append("user_id", user_id);
+  if (division_id) params.append("division_id", division_id);
+  if (status) params.append("status", status);
+
+  const response = await fetch(`${API_BASE}/analytics/attendance-details?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat detail presensi");
+  return data;
+};
+
+// ==================== PROJECT ANALYTICS ====================
+export const fetchProjectOverview = async ({ work_type, status } = {}) => {
+  const params = new URLSearchParams();
+  if (work_type) params.append("work_type", work_type);
+  if (status) params.append("status", status);
+
+  const response = await fetch(`${API_BASE}/analytics/project-overview?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat overview proyek");
+  return data;
+};
+
+export const fetchProjectDetails = async (projectId) => {
+  const response = await fetch(`${API_BASE}/analytics/project-details/${projectId}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat detail proyek");
+  return data;
+};
+
 // ==================== ORG CHART (SILSILAH PERUSAHAAN) ====================
 export const fetchOrgChart = async () => {
   const response = await fetch(`${API_BASE}/org-chart`, {
@@ -836,5 +1033,214 @@ export const fetchOrgChart = async () => {
 
   const data = await handleResponse(response);
   if (!data) throw new Error("Gagal memuat silsilah perusahaan");
+  return data;
+};
+
+// ==================== ATTENDANCE ====================
+export const checkIn = async (dailyTarget = []) => {
+  const response = await fetch(`${API_BASE}/attendance/check-in`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({
+      user_consent: { checkIn: true },
+      daily_target: Array.isArray(dailyTarget) ? dailyTarget : [],
+    }),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal melakukan check-in");
+  return data;
+};
+
+export const updateDailyWork = async (payload) => {
+  const response = await fetch(`${API_BASE}/attendance/work`, {
+    method: "PATCH",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal mengupdate pekerjaan harian");
+  return data;
+};
+
+export const checkOut = async () => {
+  const response = await fetch(`${API_BASE}/attendance/check-out`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ user_consent: { checkOut: true } }),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal melakukan check-out");
+  return data;
+};
+
+export const getTodayAttendance = async () => {
+  const response = await fetch(`${API_BASE}/attendance/today`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  return data;
+};
+
+export const getAttendanceHistory = async ({ from, to } = {}) => {
+  const params = new URLSearchParams();
+  if (from) params.append("from", from);
+  if (to) params.append("to", to);
+
+  const response = await fetch(`${API_BASE}/attendance/history?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat riwayat presensi");
+  return data;
+};
+
+export const requestLateAttendance = async ({ date, reason }) => {
+  const response = await fetch(`${API_BASE}/attendance/late-request`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ date, late_reason: reason }),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal mengajukan presensi terlambat");
+  return data;
+};
+
+export const listMyLateAttendanceRequests = async () => {
+  const response = await fetch(`${API_BASE}/attendance/late-requests/mine`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat pengajuan presensi terlambat");
+  return data;
+};
+
+export const listPendingLateAttendanceRequests = async () => {
+  const response = await fetch(`${API_BASE}/attendance/late-requests/pending`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat pengajuan pending");
+  return data;
+};
+
+export const approveLateAttendance = async (requestId) => {
+  const response = await fetch(`${API_BASE}/attendance/late-approve/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menyetujui pengajuan presensi terlambat");
+  return data;
+};
+
+export const rejectLateAttendance = async (requestId, rejected_reason) => {
+  const response = await fetch(`${API_BASE}/attendance/late-reject/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ rejected_reason }),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menolak pengajuan presensi terlambat");
+  return data;
+};
+
+export const createLateAttendance = async (requestId, payload = {}) => {
+  const response = await fetch(`${API_BASE}/attendance/late-create/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal membuat presensi terlambat");
+  return data;
+};
+
+export const submitLateAttendance = async (attendanceId) => {
+  const response = await fetch(`${API_BASE}/attendance/late-submit/${attendanceId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal submit presensi terlambat");
+  return data;
+};
+
+export const getAttendanceByDate = async (date) => {
+  const params = new URLSearchParams();
+  params.append("date", date);
+  const response = await fetch(`${API_BASE}/attendance/by-date?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat presensi berdasarkan tanggal");
+  return data;
+};
+
+export const updateDailyWorkById = async (attendanceId, payload) => {
+  const response = await fetch(`${API_BASE}/attendance/work/${attendanceId}`, {
+    method: "PATCH",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal mengupdate pekerjaan harian");
+  return data;
+};
+
+// Legacy endpoints for attendance dropdowns (keep for backward compatibility)
+export const fetchActivities = async () => {
+  const response = await fetch(`${API_BASE}/attendance/activities`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat aktivitas");
+  return data;
+};
+
+export const fetchProjects = async () => {
+  const response = await fetch(`${API_BASE}/attendance/projects`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat proyek");
   return data;
 };

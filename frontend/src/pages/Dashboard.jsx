@@ -4,6 +4,8 @@ import Sidebar from '../components/Sidebar.jsx'
 import Home from '../subs/Home.jsx'
 import UserList from '../subs/UserList.jsx'
 import DivisionList from '../subs/DivisionList.jsx'
+import ActivityList from '../subs/ActivityList.jsx'
+import ProjectList from '../subs/ProjectList.jsx'
 import DocumentList from '../subs/DocumentList.jsx'
 import AccountRequestForm from './AccountRequestForm.jsx'
 import ApprovalInbox from './ApprovalInbox.jsx'
@@ -14,6 +16,10 @@ import RoleManagement from './RoleManagement.jsx'
 import WorkflowAnalytics from './WorkflowAnalytics.jsx'
 import OrgChart from './OrgChart.jsx'
 import PendingUsers from './PendingUsers.jsx'
+import Attendance from './Attendance.jsx'
+import LateAttendanceApprovals from './LateAttendanceApprovals.jsx'
+import AttendanceAnalytics from './AttendanceAnalytics.jsx'
+import ProjectAnalytics from './ProjectAnalytics.jsx'
 import { useAuthStore } from '../stores/useAuthStore' 
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser } from '../utils/api.jsx';
@@ -65,12 +71,20 @@ export default function Dashboard() {
     switch (activePage) {
       case 'Home':
         return <Home />
+      case 'Attendance':
+        return <Attendance />
+      case 'LateAttendanceApprovals':
+        return <LateAttendanceApprovals />
       case 'UserList':
         return <UserList />
       case 'PendingUsers':
         return <PendingUsers />
       case 'DivisionList':
         return <DivisionList />
+      case 'ActivityList':
+        return <ActivityList />
+      case 'ProjectList':
+        return <ProjectList />
       case 'AccountRequest':
         return <AccountRequestForm />
       case 'ApprovalInbox':
@@ -87,6 +101,10 @@ export default function Dashboard() {
         return <AuditLogs />
       case 'WorkflowAnalytics':
         return <WorkflowAnalytics />
+      case 'AttendanceAnalytics':
+        return <AttendanceAnalytics />
+      case 'ProjectAnalytics':
+        return <ProjectAnalytics />
       case 'OrgChart':
         return <OrgChart />
       default:

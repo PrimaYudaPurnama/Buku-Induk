@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch, UserCheck } from 'lucide-react';
+import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch, UserCheck, Clock, TrendingUp, Target, Activity, FolderKanban } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
@@ -8,15 +8,22 @@ import { useAuthStore } from '../stores/useAuthStore';
 const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage }) => {
   const rawMenu = [
     { id: 'Home', label: 'Home', icon: Home, permission: null },
+    // { id: 'Attendance', label: 'Presensi', icon: Clock, permission: ["dashboard:read", "user:read:self"] },
+    { id: 'Attendance', label: 'Presensi', icon: Clock, permission: null },
+    { id: 'AttendanceAnalytics', label: 'Analytics Presensi', icon: TrendingUp, permission: ["system:manage_analytics", "dashboard:read"] },
+    { id: 'ProjectAnalytics', label: 'Analytics Proyek', icon: Target, permission: ["system:manage_analytics", "dashboard:read"] },
     // { id: 'WorkflowAnalytics', label: 'Workflow Analytics', icon: BarChart3, permission: ["system:manage_analytics", "dashboard:read"]},
     { id: 'OrgChart', label: 'Company Org Chart', icon: GitBranch, permission: ["dashboard:read", "user:read:any", "user:read:own_division"] },
     { id: 'UserList', label: 'User Management', icon: Users, permission: ["user:read:any", "user:read:own_division", "dashboard:read"] },
     { id: 'PendingUsers', label: 'Pending Users', icon: UserCheck, permission: ["user:read:any", "user:create", "user:update"] },
     // { id: 'AccountRequest', label: 'Account Request', icon: ClipboardList, permission: ["account:create"] },
     { id: 'ApprovalInbox', label: 'Approval Inbox', icon: CheckCircle, permission: ["account:approve:any", "account:approve:own_division"] },
+    { id: 'LateAttendanceApprovals', label: 'Late Approvals', icon: CheckCircle, permission: ["user:read:any", "dashboard:read"] },
     { id: 'Documents', label: 'Documents', icon: FolderOpen, permission: ["user:read:any", "user:read:own_division", "user:read:self"] },
     { id: 'Notifications', label: 'Notifications', icon: Bell, permission: null },
     { id: 'DivisionList', label: 'Division Settings', icon: Settings, permission: ["system:manage_divisions", "dashboard:read"] },
+    { id: 'ActivityList', label: 'Activity Management', icon: Activity, permission: ["system:manage_activities", "dashboard:read"] },
+    { id: 'ProjectList', label: 'Project Management', icon: FolderKanban, permission: ["system:manage_projects", "dashboard:read"] },
     { id: 'RoleSettings', label: 'Role Settings', icon: Shield, permission: ["system:manage_roles"] },
     { id: 'AuditLogs', label: 'Audit Logs', icon: FileText, permission: ["system:view_audit_logs", "dashboard:read"] },
   ];

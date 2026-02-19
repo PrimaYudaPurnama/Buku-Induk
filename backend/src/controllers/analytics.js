@@ -3,6 +3,9 @@ import Approval from "../models/approval.js";
 import User from "../models/user.js";
 import Role from "../models/role.js";
 import Division from "../models/division.js";
+import Attendance from "../models/attendance.js";
+import Project from "../models/project.js";
+import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
 import { generateApprovalSteps } from "../lib/approvalWorkflows.js";
 
 class AnalyticsController {
@@ -601,6 +604,516 @@ class AnalyticsController {
       });
     } catch (error) {
       console.error("Get workflow statistics error:", error);
+      return c.json({ message: error.message || "Internal server error" }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/analytics/attendance-overview
+   * Get attendance overview statistics
+   */
+  static async getAttendanceOverview(c) {
+    try {
+      const currentUser = c.get("user");
+      if (!currentUser) {
+        return c.json({ message: "Unauthorized" }, 401);
+      }
+
+      const query = c.req.query();
+      const { start_date, end_date, user_id, division_id } = query;
+
+      const userPerms = currentUser?.role_id?.permissions || [];
+      
+      // Build filter
+      const filter = {};
+      
+      // Date range filter
+      if (start_date || end_date) {
+        filter.date = {};
+        if (start_date) {
+          const start = new Date(start_date);
+          start.setHours(0, 0, 0, 0);
+          filter.date.$gte = start;
+        }
+        if (end_date) {
+          const end = new Date(end_date);
+          end.setHours(23, 59, 59, 999);
+          filter.date.$lte = end;
+        }
+      }
+
+      // Apply permission filters
+      if (userPerms.includes("user:read:own_division") && !userPerms.includes("user:read:any")) {
+        if (currentUser?.division_id) {
+          const usersInDivision = await User.find({ division_id: currentUser.division_id }).select("_id").lean();
+          filter.user_id = { $in: usersInDivision.map(u => u._id) };
+        } else {
+          return c.json({
+            data: {
+              total_attendances: 0,
+              by_status: {},
+              by_date: [],
+              late_requests: { total: 0, pending: 0, approved: 0, rejected: 0 },
+              attendance_rate: 0,
+            },
+          });
+        }
+      } else if (userPerms.includes("user:read:self") && !userPerms.includes("user:read:any") && !userPerms.includes("user:read:own_division")) {
+        filter.user_id = currentUser._id;
+      }
+
+      // User filter
+      if (user_id) {
+        filter.user_id = user_id;
+      }
+
+      // Division filter
+      if (division_id) {
+        const usersInDivision = await User.find({ division_id }).select("_id").lean();
+        filter.user_id = { $in: usersInDivision.map(u => u._id) };
+      }
+
+      const attendances = await Attendance.find(filter)
+        .populate({
+          path: "user_id",
+          select: "full_name email employee_code division_id",
+          populate: {
+            path: "division_id",
+            select: "name",
+          },
+        })
+        .sort({ date: -1 })
+        .lean();
+
+      // Calculate statistics
+      const totalAttendances = attendances.length;
+      
+      // Group by status
+      const byStatus = {
+        normal: attendances.filter((a) => a.status === "normal").length,
+        late: attendances.filter((a) => a.status === "late").length,
+        late_checkin: attendances.filter((a) => a.status === "late_checkin").length,
+        early_checkout: attendances.filter((a) => a.status === "early_checkout").length,
+        manual: attendances.filter((a) => a.status === "manual").length,
+        forget: attendances.filter((a) => a.status === "forget").length,
+      };
+
+      // Group by date
+      const byDateMap = new Map();
+      attendances.forEach((att) => {
+        const dateStr = new Date(att.date).toISOString().split("T")[0];
+        if (!byDateMap.has(dateStr)) {
+          byDateMap.set(dateStr, { date: dateStr, count: 0, statuses: {} });
+        }
+        const entry = byDateMap.get(dateStr);
+        entry.count++;
+        entry.statuses[att.status] = (entry.statuses[att.status] || 0) + 1;
+      });
+      const byDate = Array.from(byDateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+      // Late requests statistics
+      const lateRequestFilter = {};
+      if (filter.user_id) {
+        lateRequestFilter.user_id = filter.user_id;
+      }
+      if (start_date || end_date) {
+        lateRequestFilter.date = filter.date;
+      }
+
+      const lateRequests = await LateAttendanceRequest.find(lateRequestFilter).lean();
+      const lateRequestStats = {
+        total: lateRequests.length,
+        pending: lateRequests.filter((r) => r.status === "pending").length,
+        approved: lateRequests.filter((r) => r.status === "approved").length,
+        rejected: lateRequests.filter((r) => r.status === "rejected").length,
+        filled: lateRequests.filter((r) => r.status === "filled").length,
+      };
+
+      // Calculate attendance rate (if date range provided)
+      let attendanceRate = 0;
+      if (start_date && end_date) {
+        const start = new Date(start_date);
+        const end = new Date(end_date);
+        const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+        const uniqueUsers = new Set(attendances.map((a) => a.user_id?._id?.toString() || a.user_id?.toString()));
+        const expectedAttendances = uniqueUsers.size * daysDiff;
+        attendanceRate = expectedAttendances > 0 ? (totalAttendances / expectedAttendances) * 100 : 0;
+      }
+
+      return c.json({
+        data: {
+          total_attendances: totalAttendances,
+          by_status: byStatus,
+          by_date: byDate.slice(0, 30), // Last 30 days
+          late_requests: lateRequestStats,
+          attendance_rate: Math.round(attendanceRate * 100) / 100,
+        },
+      });
+    } catch (error) {
+      console.error("Get attendance overview error:", error);
+      return c.json({ message: error.message || "Internal server error" }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/analytics/attendance-details
+   * Get detailed attendance analytics
+   */
+  static async getAttendanceDetails(c) {
+    try {
+      const currentUser = c.get("user");
+      if (!currentUser) {
+        return c.json({ message: "Unauthorized" }, 401);
+      }
+
+      const query = c.req.query();
+      const { start_date, end_date, user_id, division_id, status, page = 1, limit = 20 } = query;
+
+      const userPerms = currentUser?.role_id?.permissions || [];
+      
+      // Build filter
+      const filter = {};
+      
+      if (start_date || end_date) {
+        filter.date = {};
+        if (start_date) {
+          const start = new Date(start_date);
+          start.setHours(0, 0, 0, 0);
+          filter.date.$gte = start;
+        }
+        if (end_date) {
+          const end = new Date(end_date);
+          end.setHours(23, 59, 59, 999);
+          filter.date.$lte = end;
+        }
+      }
+
+      if (status) filter.status = status;
+
+      // Apply permission filters
+      if (userPerms.includes("user:read:own_division") && !userPerms.includes("user:read:any")) {
+        if (currentUser?.division_id) {
+          const usersInDivision = await User.find({ division_id: currentUser.division_id }).select("_id").lean();
+          filter.user_id = { $in: usersInDivision.map(u => u._id) };
+        } else {
+          return c.json({
+            data: [],
+            pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 },
+          });
+        }
+      } else if (userPerms.includes("user:read:self") && !userPerms.includes("user:read:any") && !userPerms.includes("user:read:own_division")) {
+        filter.user_id = currentUser._id;
+      }
+
+      if (user_id) filter.user_id = user_id;
+      if (division_id) {
+        const usersInDivision = await User.find({ division_id }).select("_id").lean();
+        filter.user_id = { $in: usersInDivision.map(u => u._id) };
+      }
+
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      const attendances = await Attendance.find(filter)
+        .populate({
+          path: "user_id",
+          select: "full_name email employee_code division_id",
+          populate: {
+            path: "division_id",
+            select: "name",
+          },
+        })
+        .populate({
+          path: "approved_by",
+          select: "full_name email",
+        })
+        .populate("late_request_id")
+        .sort({ date: -1 })
+        .limit(parseInt(limit))
+        .skip(skip)
+        .lean();
+
+      const total = await Attendance.countDocuments(filter);
+
+      return c.json({
+        data: attendances,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit)),
+        },
+      });
+    } catch (error) {
+      console.error("Get attendance details error:", error);
+      return c.json({ message: error.message || "Internal server error" }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/analytics/project-overview
+   * Get project overview statistics
+   */
+  static async getProjectOverview(c) {
+    try {
+      const currentUser = c.get("user");
+      if (!currentUser) {
+        return c.json({ message: "Unauthorized" }, 401);
+      }
+
+      const query = c.req.query();
+      const { work_type, status } = query;
+
+      // Build filter
+      const filter = {};
+      if (work_type) filter.work_type = work_type;
+      if (status) filter.status = status;
+
+      // Get all projects
+      const projects = await Project.find(filter).sort({ created_at: -1 }).lean();
+
+      // Get all attendances with project contributions
+      const attendances = await Attendance.find({
+        "projects.project_id": { $exists: true, $ne: null },
+      })
+        .populate({
+          path: "user_id",
+          select: "full_name email employee_code division_id",
+          populate: {
+            path: "division_id",
+            select: "name",
+          },
+        })
+        .populate({
+          path: "projects.project_id",
+          select: "name code work_type percentage status",
+        })
+        .lean();
+      
+
+      // Calculate project statistics
+      const projectStats = projects.map((project) => {
+        // Find all attendances that contributed to this project
+        const contributions = attendances
+          .filter((att) =>
+            att.projects?.some(
+              (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === project._id.toString()
+            )
+          )
+          .map((att) => {
+            const projContrib = att.projects.find(
+              (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === project._id.toString()
+            );
+            return {
+              user_id: att.user_id,
+              contribution_percentage: projContrib?.contribution_percentage || 0,
+              date: att.date,
+            };
+          });
+
+        // Calculate total contribution percentage
+        const totalContribution = contributions.reduce(
+          (sum, c) => sum + (c.contribution_percentage || 0),
+          0
+        );
+
+        // Get unique contributors
+        const uniqueContributors = new Set(
+          contributions.map((c) => c.user_id?._id?.toString() || c.user_id?.toString())
+        );
+
+        // Calculate average contribution per user
+        const avgContributionPerUser =
+          uniqueContributors.size > 0 ? totalContribution / uniqueContributors.size : 0;
+
+        // Get contributor details
+        const contributorDetails = Array.from(uniqueContributors).map((userId) => {
+          const userContributions = contributions.filter(
+            (c) => (c.user_id?._id?.toString() || c.user_id?.toString()) === userId
+          );
+          const userTotal = userContributions.reduce(
+            (sum, c) => sum + (c.contribution_percentage || 0),
+            0
+          );
+          const user = attendances.find(
+            (att) => (att.user_id?._id?.toString() || att.user_id?.toString()) === userId
+          )?.user_id;
+
+          return {
+            user_id: userId,
+            user_name: user?.full_name || "Unknown",
+            user_email: user?.email || "",
+            total_contribution: Math.round(userTotal * 100) / 100,
+            contribution_count: userContributions.length,
+          };
+        });
+
+        return {
+          project: {
+            _id: project._id,
+            code: project.code,
+            name: project.name,
+            work_type: project.work_type,
+            percentage: project.percentage,
+            status: project.status,
+            start_date: project.start_date,
+            end_date: project.end_date,
+          },
+          statistics: {
+            total_contribution_percentage: Math.round(totalContribution * 100) / 100,
+            unique_contributors: uniqueContributors.size,
+            average_contribution_per_user: Math.round(avgContributionPerUser * 100) / 100,
+            contribution_count: contributions.length,
+          },
+          contributors: contributorDetails.sort((a, b) => b.total_contribution - a.total_contribution),
+        };
+      });
+
+      // Overall statistics
+      const overallStats = {
+        total_projects: projects.length,
+        by_status: {
+          planned: projects.filter((p) => p.status === "planned").length,
+          ongoing: projects.filter((p) => p.status === "ongoing").length,
+          completed: projects.filter((p) => p.status === "completed").length,
+          cancelled: projects.filter((p) => p.status === "cancelled").length,
+        },
+        by_work_type: {
+          management: projects.filter((p) => p.work_type === "management").length,
+          technic: projects.filter((p) => p.work_type === "technic").length,
+        },
+        average_progress: projects.length > 0
+          ? Math.round((projects.reduce((sum, p) => sum + (p.percentage || 0), 0) / projects.length) * 100) / 100
+          : 0,
+      };
+
+      return c.json({
+        data: {
+          overall: overallStats,
+          projects: projectStats,
+        },
+      });
+    } catch (error) {
+      console.error("Get project overview error:", error);
+      return c.json({ message: error.message || "Internal server error" }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/analytics/project-details/:id
+   * Get detailed analytics for a specific project
+   */
+  static async getProjectDetails(c) {
+    try {
+      const currentUser = c.get("user");
+      if (!currentUser) {
+        return c.json({ message: "Unauthorized" }, 401);
+      }
+
+      const projectId = c.req.param("id");
+
+      // Get project
+      const project = await Project.findById(projectId);
+      if (!project) {
+        return c.json({ message: "Project not found" }, 404);
+      }
+
+      // Get all attendances that contributed to this project
+      const attendances = await Attendance.find({
+        "projects.project_id": projectId,
+      })
+        .populate({
+          path: "user_id",
+          select: "full_name email employee_code division_id",
+          populate: {
+            path: "division_id",
+            select: "name",
+          },
+        })
+        .sort({ date: -1 })
+        .lean();
+      
+
+      // Process contributions
+      const contributions = attendances.map((att) => {
+        const projContrib = att.projects.find(
+          (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === projectId
+        );
+        return {
+          attendance_id: att._id,
+          user: att.user_id,
+          date: att.date,
+          contribution_percentage: projContrib?.contribution_percentage || 0,
+        };
+      });
+
+      // Group by user
+      const userContributions = new Map();
+      contributions.forEach((contrib) => {
+        const userId = contrib.user?._id?.toString() || contrib.user?.toString();
+        if (!userContributions.has(userId)) {
+          userContributions.set(userId, {
+            user: contrib.user,
+            total_contribution: 0,
+            contribution_count: 0,
+            contributions: [],
+          });
+        }
+        const entry = userContributions.get(userId);
+        entry.total_contribution += contrib.contribution_percentage;
+        entry.contribution_count++;
+        entry.contributions.push(contrib);
+      });
+
+      const contributorStats = Array.from(userContributions.values()).map((entry) => ({
+        user: entry.user,
+        total_contribution: Math.round(entry.total_contribution * 100) / 100,
+        contribution_count: entry.contribution_count,
+        average_contribution: Math.round((entry.total_contribution / entry.contribution_count) * 100) / 100,
+        contributions: entry.contributions.sort((a, b) => new Date(b.date) - new Date(a.date)),
+      }));
+
+      // Calculate timeline (by date)
+      const timelineMap = new Map();
+      contributions.forEach((contrib) => {
+        const dateStr = new Date(contrib.date).toISOString().split("T")[0];
+        if (!timelineMap.has(dateStr)) {
+          timelineMap.set(dateStr, { date: dateStr, total_contribution: 0, count: 0 });
+        }
+        const entry = timelineMap.get(dateStr);
+        entry.total_contribution += contrib.contribution_percentage;
+        entry.count++;
+      });
+
+      const timeline = Array.from(timelineMap.values())
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((entry) => ({
+          date: entry.date,
+          total_contribution: Math.round(entry.total_contribution * 100) / 100,
+          contribution_count: entry.count,
+        }));
+
+      return c.json({
+        data: {
+          project: {
+            _id: project._id,
+            code: project.code,
+            name: project.name,
+            work_type: project.work_type,
+            percentage: project.percentage,
+            status: project.status,
+            start_date: project.start_date,
+            end_date: project.end_date,
+          },
+          contributors: contributorStats.sort((a, b) => b.total_contribution - a.total_contribution),
+          timeline: timeline,
+          total_contribution: Math.round(
+            contributions.reduce((sum, c) => sum + c.contribution_percentage, 0) * 100
+          ) / 100,
+          total_contributions: contributions.length,
+        },
+      });
+    } catch (error) {
+      console.error("Get project details error:", error);
       return c.json({ message: error.message || "Internal server error" }, 500);
     }
   }

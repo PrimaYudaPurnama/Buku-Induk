@@ -16,9 +16,12 @@ import roleRouter from './routes/role.js';
 import analyticsRouter from './routes/analytics.js';
 import orgChartRouter from './routes/orgChart.js';
 import publicRouter from './routes/public.js';
+import attendanceRouter from "./routes/attendance.js";
 
 import Role from "./models/role.js";
 import divisionRouter from './routes/division.js';
+import activityRouter from './routes/activity.js';
+import projectRouter from './routes/project.js';
 
 const app = new Hono();
 
@@ -38,6 +41,8 @@ app.use(
 app.route("/api/v1/files", cloudinaryRouter);
 app.route("/api/v1/users", userRouter);
 app.route("/api/v1/divisions", divisionRouter);
+app.route("/api/v1/activities", activityRouter);
+app.route("/api/v1/projects", projectRouter);
 app.route("/api/v1/auth", authRouter);
 app.route("/api/v1/account-requests", accountRequestRouter);
 app.route("/api/v1/approvals", approvalRouter);
@@ -48,6 +53,7 @@ app.route("/api/v1/roles", roleRouter);
 app.route("/api/v1/analytics", analyticsRouter);
 app.route("/api/v1/org-chart", orgChartRouter);
 app.route("/api/v1/public", publicRouter);
+app.route("/api/v1/attendance", attendanceRouter);
 
 
 // app.post("/tes/masukin", async (c) => {
