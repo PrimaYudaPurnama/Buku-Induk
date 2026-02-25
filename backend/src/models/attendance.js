@@ -9,7 +9,6 @@ const AttendanceSchema = new mongoose.Schema(
       required: true,
     },
 
-    // ===== TANGGAL (DINORMALISASI 00:00) =====
     date: {
       type: Date,
       required: true,
@@ -29,7 +28,7 @@ const AttendanceSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: ["normal", "late", "manual", "forget", "late_checkin", "early_checkout"],
-      default: "normal"
+      default: "normal",
     },
 
     /**
@@ -70,18 +69,13 @@ const AttendanceSchema = new mongoose.Schema(
       },
     },
 
-    // ===== TARGET HARIAN (OPSIONAL / EXCEL FRIENDLY) =====
-    daily_target: {
-      type: [String],
-      default: []
-    },
-
-    // ===== HASIL KERJA =====
-    daily_done: {
-      type: [String],
-      required: true,
-      default: [],
-    },
+    // Task yang disentuh hari ini (optional tapi powerful)
+    tasks_today: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Task",
+      },
+    ],
 
     // ===== RELASI / KONTRIBUSI PROYEK HARIAN =====
     // Embedded objects so each attendance carries its own contribution facts.

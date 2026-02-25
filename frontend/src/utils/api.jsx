@@ -1037,14 +1037,61 @@ export const fetchOrgChart = async () => {
 };
 
 // ==================== ATTENDANCE ====================
-export const checkIn = async (dailyTarget = []) => {
+/**
+ * Get daily tasks (ongoing / carry-over) for current user. Shown before check-in.
+ */
+export const getDailyTasks = async () => {
+  const response = await fetch(`${API_BASE}/attendance/tasks/daily`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat daily tasks");
+  return data;
+};
+
+/**
+ * Create a new daily task (title, optional description).
+ */
+export const createTask = async (payload) => {
+  const response = await fetch(`${API_BASE}/attendance/tasks`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal membuat task");
+  return data;
+};
+
+/**
+ * Update task (progress 0-100, or title/description).
+ */
+export const updateTask = async (taskId, payload) => {
+  const response = await fetch(`${API_BASE}/attendance/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal mengupdate task");
+  return data;
+};
+
+export const checkIn = async (taskIds = []) => {
   const response = await fetch(`${API_BASE}/attendance/check-in`, {
     method: "POST",
     headers: defaultHeaders(),
     credentials: "include",
     body: JSON.stringify({
       user_consent: { checkIn: true },
-      daily_target: Array.isArray(dailyTarget) ? dailyTarget : [],
+      task_ids: Array.isArray(taskIds) ? taskIds : [],
     }),
   });
 

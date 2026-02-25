@@ -3,6 +3,9 @@ import {
   checkIn,
   checkOut,
   getTodayAttendance,
+  getDailyTasks,
+  createTask,
+  updateTask,
   updateDailyWork,
   requestLateAttendance,
   listMyLateAttendanceRequests,
@@ -137,15 +140,19 @@ const Attendance = () => {
   const [submittingLateAttendance, setSubmittingLateAttendance] = useState(false);
 
   // Work log form state (for today's attendance only)
-  const [dailyDoneItems, setDailyDoneItems] = useState([false]);
   const [selectedActivities, setSelectedActivities] = useState([]);
   const [selectedProjects, setSelectedProjects] = useState([]);
   const [note, setNote] = useState("");
   const [projectContributions, setProjectContributions] = useState({});
 
-  // Dynamic daily target list (editable before check-in)
-  const [dailyTargets, setDailyTargets] = useState([]);
-  const [newTargetInput, setNewTargetInput] = useState("");
+  // Daily tasks: carry-over (ongoing) + new. Shown before check-in. After check-in come from attendance.tasks_today.
+  const [dailyTasks, setDailyTasks] = useState([]);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [loadingDailyTasks, setLoadingDailyTasks] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+
+  // Optimistic progress untuk task — update lokal dulu, API di background, tanpa full refresh
+  const [taskProgressLocal, setTaskProgressLocal] = useState({});
 
   // Late attendance form state
   const [showLateForm, setShowLateForm] = useState(false);
@@ -167,20 +174,23 @@ const Attendance = () => {
   const [projects, setProjects] = useState([]);
   const [loadingMasterData, setLoadingMasterData] = useState(true);
 
-  // Load today's attendance and master data
+  // Load today's attendance, daily tasks (when no attendance yet), and master data
   useEffect(() => {
     loadTodayAttendance();
     loadMasterData();
     loadMyLateRequests();
   }, []);
 
+  // When no attendance yet, load carry-over daily tasks for check-in form
+  useEffect(() => {
+    if (!attendance && !loading) {
+      loadDailyTasks();
+    }
+  }, [attendance, loading]);
+
   // Sync form state with attendance data (TODAY ONLY)
   useEffect(() => {
     if (attendance) {
-      const targets = attendance.daily_target || [];
-      const done = attendance.daily_done || [];
-      setDailyDoneItems(targets.map((target) => done.includes(target)));
-      
       setSelectedActivities(attendance.activities?.map((a) => a._id || a) || []);
       setSelectedProjects(
         attendance.projects?.map((p) => p.project_id?._id || p.project_id || p) || []
@@ -194,16 +204,13 @@ const Attendance = () => {
         }, {}) || {}
       );
       setNote(attendance.note || "");
-      
-      if (attendance.daily_target && attendance.daily_target.length > 0) {
-        setDailyTargets(attendance.daily_target);
-      }
+      setTaskProgressLocal({});
     } else {
-      setDailyDoneItems([false]);
       setSelectedActivities([]);
       setSelectedProjects([]);
       setNote("");
       setProjectContributions({});
+      setTaskProgressLocal({});
     }
   }, [attendance]);
 
@@ -217,6 +224,19 @@ const Attendance = () => {
       setAttendance(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDailyTasks = async () => {
+    try {
+      setLoadingDailyTasks(true);
+      const result = await getDailyTasks();
+      setDailyTasks(result.data || []);
+    } catch (error) {
+      console.error("Failed to load daily tasks:", error);
+      setDailyTasks([]);
+    } finally {
+      setLoadingDailyTasks(false);
     }
   };
 
@@ -252,10 +272,11 @@ const Attendance = () => {
   const handleCheckIn = async () => {
     try {
       setCheckingIn(true);
-      await checkIn(dailyTargets);
+      const taskIds = dailyTasks.map((t) => t._id).filter(Boolean);
+      await checkIn(taskIds);
       toast.success("Check-in berhasil!");
       await loadTodayAttendance();
-      setViewMode('checked-in');
+      setViewMode("checked-in");
     } catch (error) {
       console.error("Check-in error:", error);
       toast.error("Gagal check-in");
@@ -282,26 +303,14 @@ const Attendance = () => {
     try {
       setUpdating(true);
 
-      const payload = {};
-      const currentTargets = attendance?.daily_target || [];
-      
-      const newDailyDone = currentTargets.filter((_, index) => dailyDoneItems[index]);
-      if (newDailyDone.length > 0) {
-        payload.daily_done = newDailyDone;
-      }
-
-      if (selectedProjects.length > 0) {
-        payload.projects = selectedProjects.map((id) => ({
+      const payload = {
+        projects: selectedProjects.map((id) => ({
           project_id: id,
           contribution_percentage: Number(projectContributions[id] ?? 0),
-        }));
-      }
-
-      if (selectedActivities.length > 0) {
-        payload.activities = selectedActivities;
-      }
-
-      payload.note = note;
+        })),
+        activities: selectedActivities,
+        note: note,
+      };
 
       await updateDailyWork(payload);
       toast.success("Pekerjaan harian berhasil diupdate!");
@@ -311,6 +320,60 @@ const Attendance = () => {
       toast.error("Gagal update pekerjaan harian");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleProgressChange = (taskId, progress) => {
+    const p = Math.max(0, Math.min(100, Number(progress)));
+    setTaskProgressLocal((prev) => ({ ...prev, [taskId]: p }));
+    updateTask(taskId, { progress: p }).catch((e) => {
+      console.error("Update progress error:", e);
+      toast.error("Gagal update progress task");
+      setTaskProgressLocal((prev) => {
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+    });
+  };
+
+  const addDailyTask = async () => {
+    if (!newTaskTitle.trim()) {
+      toast.error("Judul task tidak boleh kosong");
+      return;
+    }
+    try {
+      setCreatingTask(true);
+      const res = await createTask({ title: newTaskTitle.trim() });
+      setDailyTasks((prev) => [...prev, res.data]);
+      setNewTaskTitle("");
+      toast.success("Task berhasil ditambahkan");
+    } catch (e) {
+      console.error("Create task error:", e);
+      toast.error("Gagal menambah task");
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
+  const addTaskToTodayAfterCheckIn = async () => {
+    if (!newTaskTitle.trim()) {
+      toast.error("Judul task tidak boleh kosong");
+      return;
+    }
+    try {
+      setCreatingTask(true);
+      const res = await createTask({ title: newTaskTitle.trim() });
+      const newTask = res.data;
+      await updateDailyWork({ tasks_today: [newTask._id] });
+      await loadTodayAttendance();
+      setNewTaskTitle("");
+      toast.success("Task berhasil ditambahkan ke hari ini");
+    } catch (e) {
+      console.error("Add task to today error:", e);
+      toast.error("Gagal menambah task");
+    } finally {
+      setCreatingTask(false);
     }
   };
 
@@ -356,42 +419,43 @@ const Attendance = () => {
 
   const handleSubmitLateAttendanceFromModal = async () => {
     if (!editingLateRequest) return;
-    
-    // Validasi: minimal 1 pekerjaan yang terisi
-    const validDailyDone = lateDailyDone.filter(item => item.trim().length > 0);
+
+    const validDailyDone = lateDailyDone.filter((item) => item.trim().length > 0);
     if (validDailyDone.length === 0) {
       toast.error("Minimal 1 pekerjaan yang diselesaikan harus diisi");
       return;
     }
-  
+
     try {
       setSubmittingLateAttendance(true);
-      
-      // Normalize date dari request (handle timezone issues)
+
       const requestDateRaw = editingLateRequest.date;
       let requestDate;
-      
-      if (typeof requestDateRaw === 'string') {
-        const dateParts = requestDateRaw.split('T')[0].split('-');
-        requestDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+      if (typeof requestDateRaw === "string") {
+        const dateParts = requestDateRaw.split("T")[0].split("-");
+        requestDate = new Date(
+          parseInt(dateParts[0]),
+          parseInt(dateParts[1]) - 1,
+          parseInt(dateParts[2])
+        );
       } else {
         requestDate = new Date(requestDateRaw);
       }
-      
+
       if (isNaN(requestDate.getTime())) {
         toast.error("Tanggal tidak valid");
         setSubmittingLateAttendance(false);
         return;
       }
-      
+
       const year = requestDate.getFullYear();
-      const month = String(requestDate.getMonth() + 1).padStart(2, '0');
-      const day = String(requestDate.getDate()).padStart(2, '0');
+      const month = String(requestDate.getMonth() + 1).padStart(2, "0");
+      const day = String(requestDate.getDate()).padStart(2, "0");
       const dateStr = `${year}-${month}-${day}`;
-      
+
       const checkInDateTime = new Date(`${dateStr}T${lateCheckInTime}:00`);
       const checkOutDateTime = new Date(`${dateStr}T${lateCheckOutTime}:00`);
-      
+
       const today = new Date();
       today.setHours(23, 59, 59, 999);
       if (checkInDateTime > today) {
@@ -399,46 +463,52 @@ const Attendance = () => {
         setSubmittingLateAttendance(false);
         return;
       }
-  
+
       if (checkOutDateTime <= checkInDateTime) {
         toast.error("Waktu check-out harus setelah check-in");
         setSubmittingLateAttendance(false);
         return;
       }
-  
+
+      // Create tasks for each "pekerjaan" and get IDs
+      const taskIds = [];
+      for (const title of validDailyDone) {
+        const res = await createTask({ title: title.trim() });
+        if (res?.data?._id) taskIds.push(res.data._id);
+      }
+      if (taskIds.length === 0) {
+        toast.error("Gagal membuat task");
+        setSubmittingLateAttendance(false);
+        return;
+      }
+      // Set first task to 100% so checkout is valid
+      await updateTask(taskIds[0], { progress: 100 });
+
       const payload = {
         checkIn_at: checkInDateTime.toISOString(),
         checkOut_at: checkOutDateTime.toISOString(),
-        daily_target: validDailyDone,
-        daily_done: validDailyDone,
+        tasks_today: taskIds,
       };
-  
-      if (lateNote.trim()) {
-        payload.note = lateNote.trim();
-      }
-  
-      if (lateSelectedActivities.length > 0) {
-        payload.activities = lateSelectedActivities;
-      }
-  
+
+      if (lateNote.trim()) payload.note = lateNote.trim();
+      if (lateSelectedActivities.length > 0) payload.activities = lateSelectedActivities;
       if (lateSelectedProjects.length > 0) {
         payload.projects = lateSelectedProjects.map((id) => ({
           project_id: id,
           contribution_percentage: Number(lateProjectContributions[id] ?? 0),
         }));
       }
-  
+
       const createRes = await createLateAttendance(editingLateRequest._id, payload);
-      
+
       if (!createRes.data || !createRes.data._id) {
         throw new Error("Failed to create late attendance");
       }
-      
+
       toast.success("Presensi terlambat berhasil dibuat dan disubmit!");
       setShowLateModal(false);
       setEditingLateRequest(null);
-      
-      // Reset form
+
       setLateCheckInTime("08:00");
       setLateCheckOutTime("17:00");
       setLateDailyDone([""]);
@@ -446,7 +516,7 @@ const Attendance = () => {
       setLateSelectedProjects([]);
       setLateProjectContributions({});
       setLateNote("");
-      
+
       await loadMyLateRequests();
     } catch (e) {
       console.error("Submit late attendance error:", e);
@@ -454,34 +524,6 @@ const Attendance = () => {
     } finally {
       setSubmittingLateAttendance(false);
     }
-  };
-
-  const addDailyTarget = () => {
-    if (newTargetInput.trim().length === 0) {
-      toast.error("Target tidak boleh kosong");
-      return;
-    }
-    if (dailyTargets.includes(newTargetInput.trim())) {
-      toast.error("Target sudah ada");
-      return;
-    }
-    setDailyTargets([...dailyTargets, newTargetInput.trim()]);
-    setNewTargetInput("");
-    toast.success("Target berhasil ditambahkan");
-  };
-
-  const removeDailyTarget = (index) => {
-    if (dailyTargets.length > 1) {
-      setDailyTargets(dailyTargets.filter((_, i) => i !== index));
-    } else {
-      toast.error("Minimal harus ada 1 target");
-    }
-  };
-
-  const toggleDailyDoneItem = (index) => {
-    const updated = [...dailyDoneItems];
-    updated[index] = !updated[index];
-    setDailyDoneItems(updated);
   };
 
   const addLateDailyDone = () => {
@@ -559,9 +601,9 @@ const Attendance = () => {
     const eightAM = 8 * 60;
     
     if (totalMinutes <= eightAM) {
-      return { status: 'ontime', color: 'text-green-600', bgColor: 'bg-green-50', borderColor: 'border-green-200', label: 'Tepat Waktu' };
+      return { status: 'ontime', color: 'text-green-600', bgColor: 'bg-slate-900', borderColor: 'border-green-200', label: 'Tepat Waktu' };
     } else {
-      return { status: 'late', color: 'text-red-600', bgColor: 'bg-red-50', borderColor: 'border-red-200', label: 'Terlambat' };
+      return { status: 'late', color: 'text-red-600', bgColor: 'bg-slate-900', borderColor: 'border-red-200', label: 'Terlambat' };
     }
   };
 
@@ -588,7 +630,17 @@ const Attendance = () => {
   };
 
   const isLocked = attendance?.checkOut_at;
-  const canCheckOut = attendance && !attendance.checkOut_at && dailyDoneItems.some((checked) => checked) && canCheckOutNow();
+  const tasksToday = attendance?.tasks_today || [];
+  const atLeastOneTaskDone = tasksToday.some((t) => {
+    const p = taskProgressLocal[t._id] ?? t?.progress ?? 0;
+    return t?.status === "done" || p >= 100;
+  });
+  const canCheckOut =
+    attendance &&
+    !attendance.checkOut_at &&
+    tasksToday.length > 0 &&
+    // atLeastOneTaskDone &&
+    canCheckOutNow();
   const hasAttendance = attendance !== null;
 
   // Calculate max date for late attendance (yesterday in WIB)
@@ -806,74 +858,85 @@ const Attendance = () => {
               </div>
             )}
 
-            {/* Daily Target Management */}
+            {/* Daily Task (Rencana Hari Ini) — tampil dulu sebelum check-in. Task ongoing kemarin otomatis masuk. */}
             <div className="mb-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6">
               <h3 className="font-semibold text-white mb-2 text-lg">
-                Daily Target (Rencana Hari Ini)
+                Daily Task (Rencana Hari Ini)
               </h3>
               <p className="text-xs text-slate-400 mb-4">
-                Atur target harian Anda. Nanti bisa dicentang sebagai Daily Done setelah check-in.
+                Task yang belum selesai (progress &lt; 100%) akan selalu terbawa ke hari berikutnya. Tambah task baru lalu check-in.
               </p>
-              
-              {/* Target List */}
-              <div className="space-y-2 mb-4">
-                {dailyTargets.map((target, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between gap-2 p-3 bg-slate-800/50 rounded-xl border border-slate-700"
-                  >
-                    <span className="text-sm text-slate-200 flex-1">{target}</span>
-                    <button
-                      onClick={() => removeDailyTarget(index)}
-                      className="p-1 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded transition-all"
-                      disabled={dailyTargets.length <= 1}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
 
-              {/* Add New Target */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newTargetInput}
-                  onChange={(e) => setNewTargetInput(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === "Enter") {
-                      addDailyTarget();
-                    }
-                  }}
-                  placeholder="Tambah target baru..."
-                  className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm backdrop-blur-sm"
-                />
-                <motion.button
-                  onClick={addDailyTarget}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
-                >
-                  <Plus className="w-4 h-4" />
-                  Tambah
-                </motion.button>
-              </div>
+              {loadingDailyTasks ? (
+                <div className="text-sm text-slate-400 py-4">Memuat task...</div>
+              ) : (
+                <>
+                  <div className="space-y-3 mb-4">
+                    {dailyTasks.map((task) => (
+                      <div
+                        key={task._id}
+                        className="p-3 bg-slate-800/50 rounded-xl border border-slate-700"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-sm text-slate-200 font-medium">
+                            {task.title}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {task.progress ?? 0}%
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, task.progress ?? 0)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") addDailyTask();
+                      }}
+                      placeholder="Tambah task baru..."
+                      className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm backdrop-blur-sm"
+                    />
+                    <motion.button
+                      onClick={addDailyTask}
+                      disabled={creatingTask || !newTaskTitle.trim()}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {creatingTask ? "..." : "Tambah"}
+                    </motion.button>
+                  </div>
+                </>
+              )}
             </div>
 
             <motion.button
               onClick={handleCheckIn}
-              disabled={checkingIn || dailyTargets.length === 0 || isSunday(new Date()) || isPastCheckInDeadline()}
-              whileHover={{ scale: checkingIn || dailyTargets.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 1.02 }}
-              whileTap={{ scale: checkingIn || dailyTargets.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 0.98 }}
+              disabled={checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline()}
+              whileHover={{ scale: checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 1.02 }}
+              whileTap={{ scale: checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 0.98 }}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
             >
               <Clock className="w-5 h-5" />
-              {isSunday(new Date()) 
-                ? "Hari Minggu (Libur)" 
+              {isSunday(new Date())
+                ? "Hari Minggu (Libur)"
                 : isPastCheckInDeadline()
                 ? "Check-in Tidak Tersedia (Lewat Jam 16:00)"
-                : checkingIn 
-                ? "Memproses..." 
+                : checkingIn
+                ? "Memproses..."
+                : dailyTasks.length === 0
+                ? "Tambahkan minimal 1 task untuk check-in"
                 : "Check-in"}
             </motion.button>
 
@@ -1237,26 +1300,62 @@ const Attendance = () => {
               Catatan Pekerjaan Harian
             </h2>
 
-            {/* Daily Done Items */}
+            {/* Tasks Today — progress bar (scroll bar style) */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-300 mb-3">
-                Pekerjaan yang Diselesaikan *
+                Task Hari Ini (geser untuk ubah progress)
               </label>
-              <div className="space-y-2">
-                {(attendance?.daily_target || []).map((target, index) => (
-                  <label
-                    key={index}
-                    className="flex items-center gap-3 p-3 border border-slate-700 rounded-xl hover:bg-slate-800/50 cursor-pointer transition-colors"
+              <div className="space-y-4">
+                {(attendance?.tasks_today || []).map((task) => {
+                  const displayProgress = taskProgressLocal[task._id] ?? task.progress ?? 0;
+                  return (
+                  <div
+                    key={task._id}
+                    className="p-4 bg-slate-800/50 rounded-xl border border-slate-700"
                   >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-sm font-medium text-slate-200">
+                        {task.title}
+                      </span>
+                      <span className="text-xs text-slate-400 tabular-nums">
+                        {displayProgress}%
+                      </span>
+                    </div>
                     <input
-                      type="checkbox"
-                      checked={dailyDoneItems[index] || false}
-                      onChange={() => toggleDailyDoneItem(index)}
-                      className="w-5 h-5 rounded border-slate-600 bg-slate-800/50 text-blue-600 focus:ring-blue-500"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={displayProgress}
+                      onChange={(e) =>
+                        handleProgressChange(task._id, e.target.value)
+                      }
+                      className="w-full h-3 bg-slate-700 rounded-full appearance-none cursor-pointer accent-blue-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer"
                     />
-                    <span className="text-sm text-slate-200">{target}</span>
-                  </label>
-                ))}
+                  </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 mt-3">
+                <input
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addTaskToTodayAfterCheckIn();
+                  }}
+                  placeholder="Tambah task ke hari ini..."
+                  className="flex-1 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <motion.button
+                  onClick={addTaskToTodayAfterCheckIn}
+                  disabled={creatingTask || !newTaskTitle.trim()}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-sm flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  {creatingTask ? "..." : "Tambah"}
+                </motion.button>
               </div>
             </div>
 
@@ -1434,16 +1533,26 @@ const Attendance = () => {
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-3">
-                  Pekerjaan yang Diselesaikan
+                  Task Hari Ini
                 </label>
-                {attendance.daily_done?.length > 0 ? (
-                  <ul className="list-disc list-inside space-y-2">
-                    {attendance.daily_done.map((item, index) => (
-                      <li key={index} className="text-slate-200">{item}</li>
+                {attendance.tasks_today?.length > 0 ? (
+                  <ul className="space-y-2">
+                    {attendance.tasks_today.map((task) => (
+                      <li
+                        key={task._id || task}
+                        className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700"
+                      >
+                        <span className="text-slate-200">
+                          {typeof task === "object" ? task.title : task}
+                        </span>
+                        <span className="text-slate-400 text-sm tabular-nums">
+                          {typeof task === "object" ? (task.progress ?? 0) : 0}%
+                        </span>
+                      </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-slate-400">Tidak ada pekerjaan yang dicatat</p>
+                  <p className="text-sm text-slate-400">Tidak ada task</p>
                 )}
               </div>
               {attendance.activities?.length > 0 && (
@@ -1525,7 +1634,7 @@ const Attendance = () => {
                 ? "Check-out Tidak Tersedia (Lewat Jam 21:00)"
                 : canCheckOut
                 ? "Check-out"
-                : "Check-out (centang minimal 1 pekerjaan yang diselesaikan)"}
+                : "Check-out (selesaikan minimal 1 task 100% untuk bisa check-out)"}
             </motion.button>
           </motion.div>
         )}

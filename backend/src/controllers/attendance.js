@@ -27,7 +27,7 @@ class AttendanceController {
         user,
         consentCheckIn:
           body.user_consent?.checkIn ?? body.consentCheckIn ?? true,
-        dailyTarget: body.daily_target,
+        taskIds: body.task_ids ?? body.taskIds ?? [],
       });
 
       return c.json(

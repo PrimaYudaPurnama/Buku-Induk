@@ -1,9 +1,49 @@
 import { Hono } from "hono";
 import AttendanceController from "../controllers/attendance.js";
+import TaskController from "../controllers/task.js";
 import LateAttendanceRequestController from "../controllers/lateAttendanceRequest.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const attendanceRouter = new Hono();
+
+// =========================
+// Daily tasks (before check-in / carry-over)
+// =========================
+attendanceRouter.get(
+  "/tasks/daily",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => TaskController.getDailyTasks(c)
+);
+
+attendanceRouter.post(
+  "/tasks",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => TaskController.createTask(c)
+);
+
+attendanceRouter.patch(
+  "/tasks/:id",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => TaskController.updateTask(c)
+);
+
+attendanceRouter.get(
+  "/tasks/:id",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => TaskController.getTaskById(c)
+);
 
 // Attendance routes
 attendanceRouter.post(

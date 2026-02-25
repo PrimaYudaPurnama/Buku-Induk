@@ -1,4 +1,5 @@
 import Attendance from "../models/attendance.js";
+import Task from "../models/task.js";
 import Activity from "../models/activity.js";
 import Project from "../models/project.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
@@ -267,7 +268,7 @@ class AttendanceService {
    * - Fails if attendance for today already exists.
    * - Client is NOT allowed to send date or timestamps.
    */
-  async checkIn({ user, consentCheckIn, dailyTarget }) {
+  async checkIn({ user, consentCheckIn, taskIds }) {
     if (!user?._id) {
       const err = new Error("User context is required");
       err.code = "MISSING_USER";
@@ -331,14 +332,21 @@ class AttendanceService {
       status = "late_checkin";
     }
 
-    // Strict but minimal: daily_target is optional at DB level, but
-    // spec requires it to be filled before check-in on the frontend.
-    // Here we only validate shape if provided.
-    let normalizedDailyTarget = [];
-    if (Array.isArray(dailyTarget)) {
-      normalizedDailyTarget = dailyTarget
-        .map((v) => (typeof v === "string" ? v.trim() : ""))
-        .filter((v) => v.length > 0);
+    // task_ids: array of Task ObjectIds belonging to user (daily tasks for today)
+    let normalizedTaskIds = [];
+    if (Array.isArray(taskIds) && taskIds.length > 0) {
+      normalizedTaskIds = taskIds.filter((id) => id && id.toString?.()).map((id) => id.toString());
+    }
+
+    // Validate that all task IDs exist and belong to user
+    if (normalizedTaskIds.length > 0) {
+      const tasks = await Task.find({ _id: { $in: normalizedTaskIds }, user_id: user._id });
+      if (tasks.length !== normalizedTaskIds.length) {
+        const err = new Error("One or more task IDs are invalid or do not belong to you");
+        err.code = "INVALID_TASK_IDS";
+        err.status = 400;
+        throw err;
+      }
     }
 
     const attendance = await Attendance.create({
@@ -354,8 +362,7 @@ class AttendanceService {
         checkIn: true,
         checkOut: false,
       },
-      daily_target: normalizedDailyTarget,
-      daily_done: [],
+      tasks_today: normalizedTaskIds,
       projects: [],
       activities: [],
       note: "",
@@ -367,11 +374,9 @@ class AttendanceService {
   /**
    * Update daily work fields during editable phase.
    * Allowed:
-   * - $push daily_done
+   * - tasks_today (add task IDs via $addToSet)
    * - $addToSet projects, activities
    * - overwrite note (string)
-   *
-   * Any other field in payload is explicitly rejected.
    */
   async updateDailyWork({ user, payload }) {
     if (!user?._id) {
@@ -381,7 +386,7 @@ class AttendanceService {
       throw err;
     }
 
-    const allowedFields = ["daily_done", "projects", "activities", "note"];
+    const allowedFields = ["tasks_today", "projects", "activities", "note"];
     const forbidden = Object.keys(payload || {}).filter(
       (k) => !allowedFields.includes(k)
     );
@@ -413,23 +418,25 @@ class AttendanceService {
 
     const updateOps = {};
 
-    // daily_done - enforce $push of strings
-    if (Array.isArray(payload.daily_done) && payload.daily_done.length > 0) {
-      const items = payload.daily_done.filter(
-        (x) => typeof x === "string" && x.trim().length > 0
-      );
-      if (items.length === 0) {
-        const err = new Error("daily_done must contain non-empty strings");
-        err.code = "INVALID_DAILY_DONE";
-        err.status = 400;
-        throw err;
+    // tasks_today - $addToSet valid task IDs belonging to user
+    if (Array.isArray(payload.tasks_today) && payload.tasks_today.length > 0) {
+      const taskIds = payload.tasks_today
+        .filter((id) => id && id.toString?.())
+        .map((id) => id.toString());
+      if (taskIds.length > 0) {
+        const tasks = await Task.find({ _id: { $in: taskIds }, user_id: user._id });
+        if (tasks.length !== taskIds.length) {
+          const err = new Error("One or more task IDs are invalid or do not belong to you");
+          err.code = "INVALID_TASK_IDS";
+          err.status = 400;
+          throw err;
+        }
+        updateOps.$addToSet = updateOps.$addToSet || {};
+        updateOps.$addToSet.tasks_today = { $each: taskIds };
       }
-      updateOps.$push = {
-        daily_done: { $each: items },
-      };
     }
 
-    // projects / activities - enforce $addToSet and valid references
+    // projects / activities - $set (replace entire array) to avoid duplicates from $addToSet
     const projectItems = Array.isArray(payload.projects)
       ? payload.projects
       : [];
@@ -439,13 +446,23 @@ class AttendanceService {
 
     await validateReferences({ projectItems, activityIds });
 
-    if (projectItems.length > 0 || activityIds.length > 0) {
-      updateOps.$addToSet = {};
-      if (projectItems.length > 0) {
-        updateOps.$addToSet.projects = { $each: projectItems };
+    if (payload.projects !== undefined || payload.activities !== undefined) {
+      updateOps.$set = updateOps.$set || {};
+      if (payload.projects !== undefined) {
+        const seen = new Set();
+        const deduped = [];
+        for (let i = projectItems.length - 1; i >= 0; i--) {
+          const id = projectItems[i].project_id?.toString?.() || projectItems[i].project_id;
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            deduped.unshift(projectItems[i]);
+          }
+        }
+        updateOps.$set.projects = deduped;
       }
-      if (activityIds.length > 0) {
-        updateOps.$addToSet.activities = { $each: activityIds };
+      if (payload.activities !== undefined) {
+        const uniqueIds = [...new Set(activityIds.map((id) => id?.toString?.() || id).filter(Boolean))];
+        updateOps.$set.activities = uniqueIds;
       }
     }
 
@@ -458,7 +475,6 @@ class AttendanceService {
     }
 
     if (
-      !updateOps.$push &&
       !updateOps.$addToSet &&
       !(updateOps.$set && Object.keys(updateOps.$set).length > 0)
     ) {
@@ -481,7 +497,7 @@ class AttendanceService {
    * Check-out with strict rules:
    * - attendance exists
    * - checkOut_at === null
-   * - daily_done.length > 0
+   * - tasks_today.length > 0 and at least one task is done (progress 100)
    * - lock record from further edits
    */
   async checkOut({ user, consentCheckOut }) {
@@ -523,14 +539,26 @@ class AttendanceService {
       throw err;
     }
 
-    if (!attendance.daily_done || attendance.daily_done.length === 0) {
+    const taskIds = attendance.tasks_today || [];
+    if (taskIds.length === 0) {
       const err = new Error(
-        "Cannot check out without at least one daily_done entry"
+        "Cannot check out without at least one daily task"
       );
-      err.code = "EMPTY_DAILY_DONE";
+      err.code = "EMPTY_TASKS_TODAY";
       err.status = 400;
       throw err;
     }
+
+    const tasks = await Task.find({ _id: { $in: taskIds } }).lean();
+    // const atLeastOneDone = tasks.some((t) => t.status === "done" || (t.progress >= 100));
+    // if (!atLeastOneDone) {
+    //   const err = new Error(
+    //     "Cannot check out without at least one task completed (progress 100% or status done)"
+    //   );
+    //   err.code = "NO_TASK_DONE";
+    //   err.status = 400;
+    //   throw err;
+    // }
 
     // Validate check-out time based on working hours
     const checkOutValidation = validateCheckOutTime(now);
@@ -604,6 +632,7 @@ class AttendanceService {
       user_id: user._id,
       date: today,
     })
+      .populate("tasks_today")
       .populate("projects.project_id")
       .populate("activities");
 
@@ -640,6 +669,7 @@ class AttendanceService {
 
     const history = await Attendance.find(filters)
       .sort({ date: -1 })
+      .populate("tasks_today")
       .populate("projects.project_id")
       .populate("activities");
 
@@ -657,7 +687,7 @@ class AttendanceService {
    *
    * Payload can include:
    * - checkIn_at, checkOut_at (timestamps for the requested date)
-   * - daily_target, daily_done
+   * - tasks_today (array of Task ObjectIds)
    * - projects, activities, note
    *
    * Server sets:
@@ -726,7 +756,7 @@ class AttendanceService {
     // Validate and parse timestamps from payload
     let checkIn_at = new Date();
     let checkOut_at = null;
-    
+
     if (payload.checkIn_at) {
       checkIn_at = new Date(payload.checkIn_at);
       if (isNaN(checkIn_at.getTime())) {
@@ -753,16 +783,26 @@ class AttendanceService {
       }
     }
 
-    // Validate daily_done is provided if checkOut_at is set
-    const dailyDone = Array.isArray(payload.daily_done)
-      ? payload.daily_done.filter((v) => typeof v === "string" && v.trim().length > 0)
+    // tasks_today: array of Task ObjectIds (required when checkOut_at is set)
+    const tasksToday = Array.isArray(payload.tasks_today)
+      ? payload.tasks_today.filter((id) => id && id.toString?.()).map((id) => id.toString())
       : [];
-    
-    if (checkOut_at && dailyDone.length === 0) {
-      const err = new Error("daily_done is required when checkOut_at is provided");
-      err.code = "MISSING_DAILY_DONE";
+
+    if (checkOut_at && tasksToday.length === 0) {
+      const err = new Error("tasks_today is required when checkOut_at is provided");
+      err.code = "MISSING_TASKS_TODAY";
       err.status = 400;
       throw err;
+    }
+
+    if (tasksToday.length > 0) {
+      const tasks = await Task.find({ _id: { $in: tasksToday }, user_id: user._id });
+      if (tasks.length !== tasksToday.length) {
+        const err = new Error("One or more task IDs are invalid or do not belong to you");
+        err.code = "INVALID_TASK_IDS";
+        err.status = 400;
+        throw err;
+      }
     }
 
     // Validate projects structure
@@ -783,10 +823,6 @@ class AttendanceService {
       await validateReferences({ projectItems: [], activityIds: activities });
     }
 
-    const dailyTarget = Array.isArray(payload.daily_target)
-      ? payload.daily_target.filter((v) => typeof v === "string" && v.trim().length > 0)
-      : [];
-
     const attendance = await Attendance.create({
       user_id: user._id,
       date: targetDate,
@@ -801,8 +837,7 @@ class AttendanceService {
         checkIn: true,
         checkOut: !!checkOut_at,
       },
-      daily_target: dailyTarget,
-      daily_done: dailyDone,
+      tasks_today: tasksToday,
       projects: projects,
       activities: activities,
       note: typeof payload.note === "string" ? payload.note.trim() : "",
@@ -822,7 +857,7 @@ class AttendanceService {
 
   /**
    * Submit late attendance (locks record).
-   * User MUST have at least one daily_done entry before submission.
+   * User MUST have at least one task in tasks_today with status done before submission.
    * Server auto-sets checkOut_at at submission time.
    * Updates LateAttendanceRequest status to "filled".
    */
@@ -858,11 +893,23 @@ class AttendanceService {
       throw err;
     }
 
-    if (!attendance.daily_done || attendance.daily_done.length === 0) {
+    const taskIds = attendance.tasks_today || [];
+    if (taskIds.length === 0) {
       const err = new Error(
-        "daily_done must have at least one item before submission"
+        "tasks_today must have at least one task before submission"
       );
-      err.code = "EMPTY_DAILY_DONE";
+      err.code = "EMPTY_TASKS_TODAY";
+      err.status = 400;
+      throw err;
+    }
+
+    const tasks = await Task.find({ _id: { $in: taskIds } }).lean();
+    const atLeastOneDone = tasks.some((t) => t.status === "done" || (t.progress >= 100));
+    if (!atLeastOneDone) {
+      const err = new Error(
+        "At least one task must be completed (progress 100% or status done) before submission"
+      );
+      err.code = "NO_TASK_DONE";
       err.status = 400;
       throw err;
     }
@@ -906,6 +953,7 @@ class AttendanceService {
       user_id: user._id,
       date: targetDate,
     })
+      .populate("tasks_today")
       .populate("projects.project_id")
       .populate("activities");
 
@@ -938,7 +986,7 @@ class AttendanceService {
 
   // Internal helper to avoid duplicating update rules.
   async _updateDailyWorkForAttendance({ attendance, payload }) {
-    const allowedFields = ["daily_done", "projects", "activities", "note"];
+    const allowedFields = ["tasks_today", "projects", "activities", "note"];
     const forbidden = Object.keys(payload || {}).filter(
       (k) => !allowedFields.includes(k)
     );
@@ -953,34 +1001,22 @@ class AttendanceService {
 
     const updateOps = {};
 
-    if (Array.isArray(payload.daily_done) && payload.daily_done.length > 0) {
-      const items = payload.daily_done.filter(
-        (x) => typeof x === "string" && x.trim().length > 0
-      );
-      if (items.length === 0) {
-        const err = new Error("daily_done must contain non-empty strings");
-        err.code = "INVALID_DAILY_DONE";
-        err.status = 400;
-        throw err;
+    // tasks_today - $addToSet valid task IDs belonging to user
+    if (Array.isArray(payload.tasks_today) && payload.tasks_today.length > 0) {
+      const taskIds = payload.tasks_today
+        .filter((id) => id && id.toString?.())
+        .map((id) => id.toString());
+      if (taskIds.length > 0) {
+        const tasks = await Task.find({ _id: { $in: taskIds }, user_id: attendance.user_id });
+        if (tasks.length !== taskIds.length) {
+          const err = new Error("One or more task IDs are invalid or do not belong to you");
+          err.code = "INVALID_TASK_IDS";
+          err.status = 400;
+          throw err;
+        }
+        updateOps.$addToSet = updateOps.$addToSet || {};
+        updateOps.$addToSet.tasks_today = { $each: taskIds };
       }
-
-      // Strict: daily_done must reference what was planned in daily_target
-      const planned = new Set(
-        (attendance.daily_target || []).map((t) => t.toString())
-      );
-      const invalid = items.filter((i) => !planned.has(i.toString()));
-      if (invalid.length > 0) {
-        const err = new Error(
-          "daily_done entries must reference planned daily_target values"
-        );
-        err.code = "DAILY_DONE_NOT_IN_TARGET";
-        err.status = 400;
-        throw err;
-      }
-
-      updateOps.$push = {
-        daily_done: { $each: items },
-      };
     }
 
     const projectItems = Array.isArray(payload.projects)
@@ -992,13 +1028,23 @@ class AttendanceService {
 
     await validateReferences({ projectItems, activityIds });
 
-    if (projectItems.length > 0 || activityIds.length > 0) {
-      updateOps.$addToSet = {};
-      if (projectItems.length > 0) {
-        updateOps.$addToSet.projects = { $each: projectItems };
+    if (payload.projects !== undefined || payload.activities !== undefined) {
+      updateOps.$set = updateOps.$set || {};
+      if (payload.projects !== undefined) {
+        const seen = new Set();
+        const deduped = [];
+        for (let i = projectItems.length - 1; i >= 0; i--) {
+          const id = projectItems[i].project_id?.toString?.() || projectItems[i].project_id;
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            deduped.unshift(projectItems[i]);
+          }
+        }
+        updateOps.$set.projects = deduped;
       }
-      if (activityIds.length > 0) {
-        updateOps.$addToSet.activities = { $each: activityIds };
+      if (payload.activities !== undefined) {
+        const uniqueIds = [...new Set(activityIds.map((id) => id?.toString?.() || id).filter(Boolean))];
+        updateOps.$set.activities = uniqueIds;
       }
     }
 
@@ -1010,7 +1056,6 @@ class AttendanceService {
     }
 
     if (
-      !updateOps.$push &&
       !updateOps.$addToSet &&
       !(updateOps.$set && Object.keys(updateOps.$set).length > 0)
     ) {
