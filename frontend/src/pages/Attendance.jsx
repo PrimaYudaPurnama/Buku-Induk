@@ -1729,7 +1729,7 @@ const Attendance = () => {
 
                 {/* Daily Done Items */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
                     Pekerjaan yang Diselesaikan * (akan otomatis tercentang)
                   </label>
                   <div className="space-y-2 mb-3">
@@ -1746,7 +1746,7 @@ const Attendance = () => {
                           value={item}
                           onChange={(e) => updateLateDailyDone(index, e.target.value)}
                           placeholder={`Pekerjaan ${index + 1}...`}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="flex-1 px-3 py-2 border border-gray-300 text-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                         {lateDailyDone.length > 1 && (
                           <button
@@ -1770,17 +1770,17 @@ const Attendance = () => {
 
                 {/* Activities Multi-select */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
                     Aktivitas (Opsional)
                   </label>
                   {loadingMasterData ? (
-                    <div className="text-sm text-gray-500">Memuat aktivitas...</div>
+                    <div className="text-sm text-slate-300">Memuat aktivitas...</div>
                   ) : (
                     <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2">
                       {activities.map((activity) => (
                         <label
                           key={activity._id}
-                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                          className="flex items-center gap-2 p-2 hover:bg-gray-700 rounded cursor-pointer"
                         >
                           <input
                             type="checkbox"
@@ -1796,7 +1796,7 @@ const Attendance = () => {
                             }}
                             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           />
-                          <span className="text-sm text-gray-700">{activity.name_activity}</span>
+                          <span className="text-sm text-slate-300">{activity.name_activity}</span>
                         </label>
                       ))}
                     </div>
@@ -1805,7 +1805,7 @@ const Attendance = () => {
 
                 {/* Projects with contribution - select + chips UI (late modal) */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
                     Proyek & Kontribusi (%) (Opsional)
                   </label>
                   {loadingMasterData ? (
@@ -1901,7 +1901,7 @@ const Attendance = () => {
 
                 {/* Note */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
                     Catatan (Opsional)
                   </label>
                   <textarea
@@ -1909,7 +1909,7 @@ const Attendance = () => {
                     onChange={(e) => setLateNote(e.target.value)}
                     rows={3}
                     placeholder="Catatan tambahan..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border text-slate-300 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
 
@@ -1922,7 +1922,7 @@ const Attendance = () => {
               </div>
 
               {/* Modal Footer */}
-              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex gap-3 z-10">
+              <div className="sticky bottom-0 bg-slate-900/95 border-t border-gray-200 px-6 py-4 flex gap-3 z-10">
                 <button
                   onClick={() => {
                     if (!submittingLateAttendance) {
@@ -1931,7 +1931,7 @@ const Attendance = () => {
                     }
                   }}
                   disabled={submittingLateAttendance}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-all disabled:opacity-50"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-slate-300 hover:bg-slate-800 transition-all disabled:opacity-50"
                 >
                   Batal
                 </button>

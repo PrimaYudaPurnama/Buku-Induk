@@ -20,8 +20,8 @@ const getWIBDate = (date = new Date()) => {
  */
 const normalizeToDateOnly = (date = new Date()) => {
   const wib = getWIBDate(date);
-  wib.setHours(0, 0, 0, 0);
-  return wib;
+  // Gunakan UTC methods karena wib sudah di-offset manual ke WIB
+  return new Date(Date.UTC(wib.getFullYear(), wib.getMonth(), wib.getDate()));
 };
 
 /**
@@ -283,18 +283,19 @@ class AttendanceService {
       throw err;
     }
 
-    const now = getWIBDate(new Date());
+    const now = new Date(); // simpan timestamp asli untuk checkIn_at/checkOut_at
+    const nowWIB = getWIBDate(now); // hanya untuk validasi jam/hari
     const today = normalizeToDateOnly(now);
 
     // Validate working day (Monday-Saturday, Sunday is off)
-    if (isSunday(now)) {
+    if (isSunday(nowWIB)) {
       const err = new Error("Attendance tidak dapat dilakukan pada hari Minggu (libur)");
       err.code = "SUNDAY_NOT_ALLOWED";
       err.status = 400;
       throw err;
     }
 
-    if (!isWorkingDay(now)) {
+    if (!isWorkingDay(nowWIB)) {
       const err = new Error("Hari ini bukan hari kerja");
       err.code = "NOT_WORKING_DAY";
       err.status = 400;
@@ -314,11 +315,11 @@ class AttendanceService {
     }
 
     // Validate check-in time based on working hours
-    const checkInValidation = validateCheckInTime(now);
+    const checkInValidation = validateCheckInTime(nowWIB);
     if (!checkInValidation.isValid) {
-      const { startHour, startMinute } = getWorkingHours(now);
+      const { startHour, startMinute } = getWorkingHours(nowWIB);
       const err = new Error(
-        `Check-in belum dibuka. Jam kerja ${isSaturday(now) ? 'Sabtu' : 'hari kerja'}: ${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
+        `Check-in belum dibuka. Jam kerja ${isSaturday(nowWIB) ? 'Sabtu' : 'hari kerja'}: ${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
       );
       err.code = "CHECKIN_TOO_EARLY";
       err.status = 400;
@@ -515,7 +516,8 @@ class AttendanceService {
       throw err;
     }
 
-    const now = getWIBDate(new Date());
+    const now = new Date();         // UTC asli — untuk disimpan ke DB
+    const nowWIB = getWIBDate(now); // WIB — untuk validasi jam/hari
     const today = normalizeToDateOnly(now);
 
     const attendance = await Attendance.findOne({
@@ -561,8 +563,8 @@ class AttendanceService {
     // }
 
     // Validate check-out time based on working hours
-    const checkOutValidation = validateCheckOutTime(now);
-    const { endHour, endMinute } = getWorkingHours(now);
+    const checkOutValidation = validateCheckOutTime(nowWIB);
+    const { endHour, endMinute } = getWorkingHours(nowWIB);
     const endTotalMinutes = endHour * 60 + endMinute;
     
     // Allow check-out until 21:00 (grace period for late checkout)
