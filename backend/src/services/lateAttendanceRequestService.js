@@ -13,12 +13,19 @@ const getWIBDate = (date = new Date()) => {
 
 /**
  * Normalize a JS Date to midnight (00:00:00.000) in WIB time.
- * SAFEST OPTION: use WIB timezone, do not trust client.
+ * IMPORTANT: Must use the SAME strategy as AttendanceService.normalizeToDateOnly
+ * so that `Attendance.date` and late-request `date` comparisons are consistent.
+ *
+ * AttendanceService:
+ *   - shifts to WIB
+ *   - then builds a UTC date from the WIB year/month/day
+ *
+ * Here we mirror that behaviour to avoid subtle off‑by‑one‑day bugs where
+ * an existing attendance is not detected for the same calendar date.
  */
 const normalizeToDateOnly = (date = new Date()) => {
   const wib = getWIBDate(date);
-  wib.setHours(0, 0, 0, 0);
-  return wib;
+  return new Date(Date.UTC(wib.getFullYear(), wib.getMonth(), wib.getDate()));
 };
 
 /**

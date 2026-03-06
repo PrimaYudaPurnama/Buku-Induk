@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   checkIn,
   checkOut,
@@ -13,6 +13,7 @@ import {
   submitLateAttendance,
   fetchActivities,
   fetchProjects,
+  getAttendanceHistory,
 } from "../utils/api.jsx";
 import toast from "react-hot-toast";
 import { 
@@ -28,6 +29,99 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+function AttendanceScroller({ monthlyDays, getCalendarDayStyle, formatWIBDate }) {
+  const scrollRef = useRef(null);
+  const sliderRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    if (sliderRef.current) {
+      sliderRef.current.value = 100;
+      sliderRef.current.style.setProperty("--val", "100%");
+    }
+  }, [monthlyDays]);
+
+  return (
+    <>
+      <style>{`
+        .att-scroll::-webkit-scrollbar { display: none; }
+        .att-slider { appearance: none; width: 100%; height: 3px; border-radius: 9999px; outline: none; cursor: pointer; }
+        .att-slider::-webkit-slider-thumb { appearance: none; width: 56px; height: 13px; border-radius: 9999px; background: #3b82f6; border: 2px solid #1d4ed8; box-shadow: 0 0 8px #3b82f660; cursor: pointer; }
+        .att-slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 9999px; background: #3b82f6; border: 2px solid #1d4ed8; cursor: pointer; }
+      `}</style>
+
+      <div
+        ref={scrollRef}
+        className="att-scroll overflow-x-auto"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const max = el.scrollWidth - el.clientWidth;
+          if (sliderRef.current && max > 0) {
+            const val = (el.scrollLeft / max) * 100;
+            sliderRef.current.value = val;
+            sliderRef.current.style.setProperty("--val", `${val}%`);
+          }
+        }}
+      >
+        <div className="flex gap-1.5 " style={{ width: "max-content", paddingBottom: 4 }}>
+          <div className="ml-2 mr-2 flex gap-1.5">
+
+          {monthlyDays.map((day) => {
+            const style = getCalendarDayStyle(day);
+            const d = new Date(day.jsDate);
+            const dayName = d.toLocaleDateString("id-ID", { weekday: "short" });
+            const isToday =
+              formatWIBDate(new Date()).split(",")[1]?.trim() ===
+              d.toLocaleDateString("id-ID", { year: "numeric", month: "long", day: "numeric" });
+
+            return (
+              <div
+                key={day.date}
+                className={`relative flex flex-col items-center justify-center gap-0.5 rounded-xl border ${style.bg} ${style.border} ${isToday ? "ring-1 ring-blue-500/70" : ""}`}
+                style={{ width: 40, height: 50, flexShrink: 0 }}
+                title={`${d.toLocaleDateString("id-ID")} • ${style.label}`}
+              >
+                <span className="text-[9px] text-slate-500 uppercase leading-none">{dayName}</span>
+                <span className={`text-sm font-bold leading-none ${style.text}`}>
+                  {d.getDate().toString().padStart(2, "0")}
+                </span>
+                {isToday && (
+                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400" />
+                )}
+              </div>
+            );
+          })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 px-0.5">
+        <input
+          ref={sliderRef}
+          type="range"
+          min="0"
+          max="100"
+          defaultValue="100"
+          className="att-slider"
+          style={{ "--val": "100%" }}
+          onInput={(e) => {
+            if (scrollRef.current) {
+              const max = scrollRef.current.scrollWidth - scrollRef.current.clientWidth;
+              scrollRef.current.scrollLeft = (e.target.value / 100) * max;
+              e.target.style.setProperty("--val", `${e.target.value}%`);
+            }
+          }}
+        />
+        <div className="flex justify-between text-[10px] text-slate-600 mt-0.5">
+          <span>30 hari lalu</span>
+          <span>Hari ini</span>
+        </div>
+      </div>
+    </>
+  );
+}
 
 /**
  * Get current time in WIB (Waktu Indonesia Barat, UTC+7)
@@ -164,6 +258,7 @@ const Attendance = () => {
   const [lateCheckInTime, setLateCheckInTime] = useState("08:00");
   const [lateCheckOutTime, setLateCheckOutTime] = useState("17:00");
   const [lateDailyDone, setLateDailyDone] = useState([""]);
+  const [lateTaskProgress, setLateTaskProgress] = useState([100]);
   const [lateSelectedActivities, setLateSelectedActivities] = useState([]);
   const [lateSelectedProjects, setLateSelectedProjects] = useState([]);
   const [lateProjectContributions, setLateProjectContributions] = useState({});
@@ -174,11 +269,16 @@ const Attendance = () => {
   const [projects, setProjects] = useState([]);
   const [loadingMasterData, setLoadingMasterData] = useState(true);
 
+  // Monthly attendance overview (last 30 days)
+  const [monthlyDays, setMonthlyDays] = useState([]);
+  const [loadingMonthlyDays, setLoadingMonthlyDays] = useState(false);
+
   // Load today's attendance, daily tasks (when no attendance yet), and master data
   useEffect(() => {
     loadTodayAttendance();
     loadMasterData();
     loadMyLateRequests();
+    loadMonthlyOverview();
   }, []);
 
   // When no attendance yet, load carry-over daily tasks for check-in form
@@ -266,6 +366,67 @@ const Attendance = () => {
       console.error("Failed to load late requests:", e);
     } finally {
       setLoadingLateRequests(false);
+    }
+  };
+
+  const loadMonthlyOverview = async () => {
+    try {
+      setLoadingMonthlyDays(true);
+
+      const todayWIB = getWIBDate(new Date());
+      const end = new Date(todayWIB);
+      const start = new Date(todayWIB);
+      start.setDate(start.getDate() - 29); // 30 hari ke belakang termasuk hari ini
+
+      const toStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(
+        end.getDate()
+      ).padStart(2, "0")}`;
+      const fromStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(start.getDate()).padStart(2, "0")}`;
+
+      const res = await getAttendanceHistory({ from: fromStr, to: toStr });
+      const history = res.data || res || [];
+
+      // Map attendance by date (WIB) -> record
+      const mapByDate = new Map();
+      (history || []).forEach((att) => {
+        if (!att?.date) return;
+        const d = getWIBDate(new Date(att.date));
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        const key = `${year}-${month}-${day}`;
+        // Unique index harusnya menjamin satu per hari, tapi kita jaga saja
+        if (!mapByDate.has(key)) {
+          mapByDate.set(key, att);
+        }
+      });
+
+      // Build 30-day list
+      const days = [];
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const y = cursor.getFullYear();
+        const m = String(cursor.getMonth() + 1).padStart(2, "0");
+        const d = String(cursor.getDate()).padStart(2, "0");
+        const key = `${y}-${m}-${d}`;
+        const isSundayDay = isSunday(cursor);
+        days.push({
+          date: key,
+          jsDate: new Date(cursor),
+          attendance: mapByDate.get(key) || null,
+          isSunday: isSundayDay,
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      setMonthlyDays(days);
+    } catch (error) {
+      console.error("Failed to load monthly overview:", error);
+    } finally {
+      setLoadingMonthlyDays(false);
     }
   };
 
@@ -396,7 +557,12 @@ const Attendance = () => {
       await loadMyLateRequests();
     } catch (error) {
       console.error("Late attendance request error:", error);
-      toast.error("Gagal mengajukan presensi terlambat");
+      // Pesan detail sudah dilempar dari handleResponse, tapi kita pastikan tetap ada fallback
+      if (error?.message) {
+        toast.error(error.message);
+      } else {
+        toast.error("Gagal mengajukan presensi terlambat");
+      }
     } finally {
       setSubmittingLate(false);
     }
@@ -420,9 +586,21 @@ const Attendance = () => {
   const handleSubmitLateAttendanceFromModal = async () => {
     if (!editingLateRequest) return;
 
-    const validDailyDone = lateDailyDone.filter((item) => item.trim().length > 0);
-    if (validDailyDone.length === 0) {
+    const taskDefinitions = lateDailyDone
+      .map((title, index) => ({
+        title,
+        progress: lateTaskProgress[index] ?? 0,
+      }))
+      .filter((item) => item.title.trim().length > 0);
+
+    if (taskDefinitions.length === 0) {
       toast.error("Minimal 1 pekerjaan yang diselesaikan harus diisi");
+      return;
+    }
+
+    const hasCompleted = taskDefinitions.some((t) => t.progress >= 100);
+    if (!hasCompleted) {
+      toast.error("Minimal 1 pekerjaan harus 100% agar presensi terlambat valid");
       return;
     }
 
@@ -470,11 +648,20 @@ const Attendance = () => {
         return;
       }
 
-      // Create tasks for each "pekerjaan" and get IDs
+      // Create tasks for each "pekerjaan" and get IDs + set progress sesuai slider
       const taskIds = [];
-      for (const title of validDailyDone) {
-        const res = await createTask({ title: title.trim() });
-        if (res?.data?._id) taskIds.push(res.data._id);
+      for (const def of taskDefinitions) {
+        const res = await createTask({ title: def.title.trim() });
+        if (res?.data?._id) {
+          const taskId = res.data._id;
+          taskIds.push(taskId);
+          const p = Number(def.progress ?? 0);
+          try {
+            await updateTask(taskId, { progress: Math.max(0, Math.min(100, p)) });
+          } catch (err) {
+            console.error("Failed to set task progress for late attendance:", err);
+          }
+        }
       }
       if (taskIds.length === 0) {
         toast.error("Gagal membuat task");
@@ -528,11 +715,13 @@ const Attendance = () => {
 
   const addLateDailyDone = () => {
     setLateDailyDone([...lateDailyDone, ""]);
+    setLateTaskProgress((prev) => [...prev, 100]);
   };
 
   const removeLateDailyDone = (index) => {
     if (lateDailyDone.length > 1) {
       setLateDailyDone(lateDailyDone.filter((_, i) => i !== index));
+      setLateTaskProgress((prev) => prev.filter((_, i) => i !== index));
     } else {
       toast.error("Minimal harus ada 1 pekerjaan");
     }
@@ -542,6 +731,13 @@ const Attendance = () => {
     const updated = [...lateDailyDone];
     updated[index] = value;
     setLateDailyDone(updated);
+  };
+
+  const updateLateTaskProgress = (index, value) => {
+    const num = Math.max(0, Math.min(100, Number(value)));
+    const updated = [...lateTaskProgress];
+    updated[index] = num;
+    setLateTaskProgress(updated);
   };
 
   // Enhanced status helpers with new 'late' status
@@ -560,36 +756,36 @@ const Attendance = () => {
     const isEarlyCheckOut = checkOutTotalMinutes < fourPM;
     
     if (isLateCheckIn && isEarlyCheckOut) {
-      return { 
-        status: 'late', 
-        color: 'text-red-600', 
-        // bgColor: 'bg-red-50', 
-        borderColor: 'border-red-200', 
-        label: 'Terlambat & Pulang Cepat' 
+      return {
+        status: "late",
+        color: "text-red-400",
+        bgColor: "bg-red-500/10",
+        borderColor: "border-red-500/40",
+        label: "Terlambat & Pulang Cepat",
       };
     } else if (isLateCheckIn) {
-      return { 
-        status: 'late_checkin', 
-        color: 'text-orange-600', 
-        // bgColor: 'bg-orange-50', 
-        borderColor: 'border-orange-200', 
-        label: 'Terlambat Check-in' 
+      return {
+        status: "late_checkin",
+        color: "text-orange-400",
+        bgColor: "bg-orange-500/10",
+        borderColor: "border-orange-500/40",
+        label: "Terlambat Check-in",
       };
     } else if (isEarlyCheckOut) {
-      return { 
-        status: 'early_checkout', 
-        color: 'text-yellow-600', 
-        // bgColor: 'bg-yellow-50', 
-        borderColor: 'border-yellow-200', 
-        label: 'Pulang Cepat' 
+      return {
+        status: "early_checkout",
+        color: "text-yellow-400",
+        bgColor: "bg-yellow-500/10",
+        borderColor: "border-yellow-500/40",
+        label: "Pulang Cepat",
       };
     } else {
-      return { 
-        status: 'normal', 
-        color: 'text-green-600', 
-        // bgColor: 'bg-green-50', 
-        borderColor: 'border-green-200', 
-        label: 'Normal' 
+      return {
+        status: "normal",
+        color: "text-green-400",
+        bgColor: "bg-emerald-500/10",
+        borderColor: "border-emerald-500/40",
+        label: "Normal",
       };
     }
   };
@@ -601,9 +797,21 @@ const Attendance = () => {
     const eightAM = 8 * 60;
     
     if (totalMinutes <= eightAM) {
-      return { status: 'ontime', color: 'text-green-600', bgColor: 'bg-slate-900', borderColor: 'border-green-200', label: 'Tepat Waktu' };
+      return {
+        status: "ontime",
+        color: "text-green-400",
+        bgColor: "bg-slate-900",
+        borderColor: "border-emerald-500/40",
+        label: "Tepat Waktu",
+      };
     } else {
-      return { status: 'late', color: 'text-red-600', bgColor: 'bg-slate-900', borderColor: 'border-red-200', label: 'Terlambat' };
+      return {
+        status: "late",
+        color: "text-red-400",
+        bgColor: "bg-slate-900",
+        borderColor: "border-red-500/40",
+        label: "Terlambat",
+      };
     }
   };
 
@@ -615,11 +823,29 @@ const Attendance = () => {
     const ninePM = 21 * 60;
     
     if (totalMinutes >= fourPM && totalMinutes <= ninePM) {
-      return { status: 'normal', color: 'text-green-600', bgColor: 'bg-green-50', borderColor: 'border-green-200', label: 'Normal' };
+      return {
+        status: "normal",
+        color: "text-green-400",
+        bgColor: "bg-emerald-500/10",
+        borderColor: "border-emerald-500/40",
+        label: "Normal",
+      };
     } else if (totalMinutes < fourPM) {
-      return { status: 'early', color: 'text-yellow-600', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', label: 'Pulang Cepat' };
+      return {
+        status: "early",
+        color: "text-yellow-400",
+        bgColor: "bg-yellow-500/10",
+        borderColor: "border-yellow-500/40",
+        label: "Pulang Cepat",
+      };
     } else {
-      return { status: 'toolate', color: 'text-red-600', bgColor: 'bg-red-50', borderColor: 'border-red-200', label: 'Checkout Terlalu Malam' };
+      return {
+        status: "toolate",
+        color: "text-red-400",
+        bgColor: "bg-red-500/10",
+        borderColor: "border-red-500/40",
+        label: "Checkout Terlalu Malam",
+      };
     }
   };
 
@@ -677,6 +903,77 @@ const Attendance = () => {
 
   const shouldHideLateForm = lateDate && hasLateRequestForDate(lateDate);
 
+  const getCalendarDayStyle = (day) => {
+    const attendanceRecord = day.attendance;
+    if (!attendanceRecord) {
+      // Tidak ada presensi: jika Minggu, tandai libur khusus, selain itu abu-abu
+      if (day.isSunday) {
+        return {
+          bg: "bg-slate-950/60",
+          border: "border-slate-700",
+          text: "text-slate-500",
+          label: "Libur",
+        };
+      }
+      return {
+        bg: "bg-slate-800/60",
+        border: "border-slate-700",
+        text: "text-slate-400",
+        label: "Belum Presensi",
+      };
+    }
+
+    const status = attendanceRecord.status;
+    if (status === "normal") {
+      return {
+        bg: "bg-emerald-500/15",
+        border: "border-emerald-500/60",
+        text: "text-emerald-300",
+        label: "Normal",
+      };
+    }
+    if (status === "late_checkin" || status === "early_checkout") {
+      return {
+        bg: "bg-yellow-500/15",
+        border: "border-yellow-500/60",
+        text: "text-yellow-300",
+        label: status === "late_checkin" ? "Late In" : "Early Out",
+      };
+    }
+    if (status === "late") {
+      return {
+        bg: "bg-red-500/15",
+        border: "border-red-500/60",
+        text: "text-red-300",
+        label: "Late",
+      };
+    }
+    if (status === "manual") {
+      return {
+        bg: "bg-blue-500/15",
+        border: "border-blue-500/60",
+        text: "text-blue-300",
+        label: "Manual",
+      };
+    }
+    if (status === "forget") {
+      return {
+        bg: "bg-purple-500/15",
+        border: "border-purple-500/60",
+        text: "text-purple-300",
+        label: "Lupa",
+      };
+    }
+
+    // Fallback
+    return {
+      bg: "bg-slate-800/60",
+      border: "border-slate-700",
+      text: "text-slate-400",
+      label: status || "Presensi",
+    };
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900">
@@ -722,6 +1019,35 @@ const Attendance = () => {
                 Hari ini adalah hari Minggu (libur). Presensi tidak dapat dilakukan.
               </p>
             </div>
+          )}
+        </motion.div>
+
+        {/* Monthly attendance overview (last 30 days) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-blue-400" />
+                Ringkasan Presensi 30 Hari Terakhir
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                Hijau: normal • Abu-abu: belum presensi • Kuning: late check-in / early check-out •
+                Merah: terlambat • Biru: manual • Ungu: lupa • Kotak gelap di Minggu: libur
+              </p>
+            </div>
+          </div>
+          {loadingMonthlyDays ? (
+            <div className="text-xs text-slate-400 py-2">Memuat ringkasan...</div>
+          ) : (
+            <AttendanceScroller
+              monthlyDays={monthlyDays}
+              getCalendarDayStyle={getCalendarDayStyle}
+              formatWIBDate={formatWIBDate}
+            />
           )}
         </motion.div>
 
