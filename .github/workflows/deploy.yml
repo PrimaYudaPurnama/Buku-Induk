@@ -71,12 +71,14 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages project create template1-buatwebsite-ku --production-branch=main
-        continue-on-error: true  # Project sudah ada = error diabaikan, deploy tetap jalan
+          wranglerVersion: '3.90.0'
+          command: pages project create buku-induk --production-branch=main
+        continue-on-error: true
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=template1-buatwebsite-ku --branch=main
+          wranglerVersion: '3.90.0'
+          command: pages deploy dist --project-name=buku-induk
