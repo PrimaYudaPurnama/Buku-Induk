@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy to Cloudflare Pages
 
 on:
   push:
@@ -43,24 +43,40 @@ jobs:
         working-directory: ./frontend
         run: pnpm run build
 
-      - name: Create CNAME  # ✅ Tambahan baru
-        run: echo "dashboard.resolusiindonesia.com" > ./frontend/dist/CNAME
-
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: dist
           path: ./frontend/dist
+          retention-days: 1
 
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      pages: write
-      id-token: write
+      contents: read
+      deployments: write
+    environment:
+      name: production
+      url: https://dashboard.resolusiindonesia.com
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: ./dist
+
+      - name: Create Cloudflare Pages project if not exists
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create template1-buatwebsite-ku --production-branch=main
+        continue-on-error: true  # Project sudah ada = error diabaikan, deploy tetap jalan
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=template1-buatwebsite-ku --branch=main
