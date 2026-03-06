@@ -57,7 +57,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: production
+      name: buku induk / production
       url: https://dashboard.resolusiindonesia.com
     steps:
       - name: Download artifact
