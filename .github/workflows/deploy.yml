@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    environment:                        
+      name: buku induk / production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,6 +40,13 @@ jobs:
         run: |
           echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" > .env
           echo "VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> .env
+
+      - name: Verify .env file
+        working-directory: ./frontend
+        run: |
+          echo "Checking .env keys exist:"
+          grep -q "VITE_API_URL=" .env       && echo "✅ VITE_API_URL is set"       || echo "❌ VITE_API_URL is MISSING"
+          grep -q "VITE_API_BASE_URL=" .env  && echo "✅ VITE_API_BASE_URL is set"  || echo "❌ VITE_API_BASE_URL is MISSING"
 
       - name: Build
         working-directory: ./frontend
