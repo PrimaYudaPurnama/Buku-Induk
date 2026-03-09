@@ -1740,7 +1740,9 @@ const Attendance = () => {
                             key={id}
                             className="flex items-center gap-2 bg-green-500/20 border border-green-500/30 rounded-xl px-3 py-2"
                           >
-                            <span className="text-sm text-green-400 font-medium">{proj.name}</span>
+                            <span className="text-sm text-green-400 font-medium">
+                              {proj.name} ({proj.percentage}%)
+                            </span>
                             <div className="flex items-center gap-1">
                               <input
                                 type="number"
@@ -1787,9 +1789,11 @@ const Attendance = () => {
                       >
                         <option value="" disabled>Pilih proyek...</option>
                         {projects
-                          .filter((p) => !selectedProjects.includes(p._id))
+                          .filter((p) => !selectedProjects.includes(p._id) && p.status === "ongoing")
                           .map((p) => (
-                            <option key={p._id} value={p._id}>{p.name}</option>
+                            <option key={p._id} value={p._id}>
+                              {p.name} ({p.percentage}%)
+                            </option>
                           ))}
                       </select>
                       <motion.button
@@ -2149,7 +2153,9 @@ const Attendance = () => {
                                 key={id}
                                 className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5"
                               >
-                                <span className="text-sm text-green-800 font-medium">{proj.name}</span>
+                                <span className="text-sm text-green-800 font-medium">
+                                  {proj.name} ({proj.percentage}%)
+                                </span>
                                 <div className="flex items-center gap-1">
                                   <input
                                     type="number"
@@ -2196,9 +2202,11 @@ const Attendance = () => {
                           >
                             <option value="" disabled>Pilih proyek...</option>
                             {projects
-                              .filter((p) => !lateSelectedProjects.includes(p._id))
+                              .filter((p) => !lateSelectedProjects.includes(p._id) && p.status === "ongoing")
                               .map((p) => (
-                                <option key={p._id} value={p._id}>{p.name}</option>
+                                <option key={p._id} value={p._id}>
+                                  {p.name} ({p.percentage}%)
+                                </option>
                               ))}
                           </select>
                           <button

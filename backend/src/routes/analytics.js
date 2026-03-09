@@ -64,6 +64,16 @@ analyticsRouter.get(
   (c) => AnalyticsController.getAttendanceDetails(c)
 );
 
+// GET /api/v1/analytics/attendance-drilldown
+analyticsRouter.get(
+  "/attendance-drilldown",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_analytics", "dashboard:read"],
+  }),
+  (c) => AnalyticsController.getAttendanceDrilldown(c)
+);
+
 // GET /api/v1/analytics/project-overview
 analyticsRouter.get(
   "/project-overview",

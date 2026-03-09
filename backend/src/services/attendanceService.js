@@ -257,7 +257,15 @@ const applyProjectContributions = async (attendance) => {
     if (contrib === 0) continue;
     const proj = map.get(id);
     const current = proj.percentage || 0;
-    proj.percentage = current + contrib;
+    const newPercentage = current + contrib;
+    proj.percentage = newPercentage;
+    
+    // Auto-complete: if percentage reaches 100, set status to completed and end_date to today
+    if (newPercentage >= 100 && proj.status !== "completed" && proj.status !== "cancelled") {
+      proj.status = "completed";
+      proj.end_date = new Date();
+    }
+    
     await proj.save();
   }
 };

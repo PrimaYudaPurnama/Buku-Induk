@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -18,6 +19,7 @@ import {
   fetchAttendanceDetails,
   fetchUsers,
   fetchDivisions,
+  fetchAttendanceDrilldown,
 } from "../utils/api.jsx";
 import toast from "react-hot-toast";
 
@@ -39,11 +41,163 @@ const STATUS_LABELS = {
   forget: "Lupa Presensi",
 };
 
+// Late request metric → drilldown value mapping
+const LATE_REQUEST_METRICS = {
+  total: { metric: "late_request_status", value: "all", label: "Semua Pengajuan" },
+  pending: { metric: "late_request_status", value: "pending", label: "Pending" },
+  approved: { metric: "late_request_status", value: "approved", label: "Approved" },
+  rejected: { metric: "late_request_status", value: "rejected", label: "Rejected" },
+  filled: { metric: "late_request_status", value: "filled", label: "Filled" },
+};
+
+// SearchSelect with portal-based dropdown to fix z-index/overflow issues
+const SearchSelect = ({
+  value,
+  onChange,
+  options,
+  placeholder = "Pilih...",
+  allLabel = "Semua",
+}) => {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [dropdownStyle, setDropdownStyle] = useState({});
+  const buttonRef = useRef(null);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = options.filter((o) => {
+    const hay = `${o.label} ${o.subLabel || ""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  const openDropdown = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownHeight = 280;
+
+      if (spaceBelow < dropdownHeight) {
+        // open upward
+        setDropdownStyle({
+          position: "fixed",
+          bottom: window.innerHeight - rect.top + 4,
+          left: rect.left,
+          width: rect.width,
+          zIndex: 9999,
+        });
+      } else {
+        setDropdownStyle({
+          position: "fixed",
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+          zIndex: 9999,
+        });
+      }
+    }
+    setOpen(true);
+  };
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (buttonRef.current && !buttonRef.current.contains(e.target)) {
+        setOpen(false);
+        setQ("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const dropdown = open
+    ? createPortal(
+        <div
+          style={dropdownStyle}
+          className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl overflow-hidden"
+        >
+          <div className="p-2 border-b border-slate-700">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={placeholder}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+                setQ("");
+              }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 ${
+                value === "" ? "text-blue-300" : "text-slate-200"
+              }`}
+            >
+              {allLabel}
+            </button>
+            {filtered.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                  setQ("");
+                }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 ${
+                  o.value === value ? "text-blue-300" : "text-slate-200"
+                }`}
+              >
+                <div className="font-medium">{o.label}</div>
+                {o.subLabel && (
+                  <div className="text-[11px] text-slate-400">{o.subLabel}</div>
+                )}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-3 text-sm text-slate-400">Tidak ada hasil</div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? (setOpen(false), setQ("")) : openDropdown())}
+        className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-left"
+      >
+        <span className={selected ? "text-white" : "text-slate-400"}>
+          {selected ? selected.label : allLabel}
+        </span>
+      </button>
+      {dropdown}
+    </div>
+  );
+};
+
 const AttendanceAnalytics = () => {
   const [activeTab, setActiveTab] = useState("overview");
   const [overview, setOverview] = useState(null);
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillTitle, setDrillTitle] = useState("");
+  const [drillMetric, setDrillMetric] = useState(null);
+  const [drillValue, setDrillValue] = useState(null);
+  const [drillRows, setDrillRows] = useState([]);
+  const [drillPagination, setDrillPagination] = useState(null);
   const [filters, setFilters] = useState({
     start_date: "",
     end_date: "",
@@ -55,6 +209,57 @@ const AttendanceAnalytics = () => {
   });
   const [users, setUsers] = useState([]);
   const [divisions, setDivisions] = useState([]);
+
+  const openDrilldown = async ({ title, metric, value }) => {
+    try {
+      setDrillOpen(true);
+      setDrillTitle(title);
+      setDrillMetric(metric);
+      setDrillValue(value);
+      setDrillLoading(true);
+
+      const res = await fetchAttendanceDrilldown({
+        metric,
+        value,
+        page: 1,
+        limit: 20,
+        start_date: filters.start_date || undefined,
+        end_date: filters.end_date || undefined,
+        user_id: filters.user_id || undefined,
+        division_id: filters.division_id || undefined,
+      });
+
+      setDrillRows(res.data || []);
+      setDrillPagination(res.pagination || null);
+    } catch (error) {
+      toast.error(error.message || "Gagal memuat drilldown");
+    } finally {
+      setDrillLoading(false);
+    }
+  };
+
+  const loadMoreDrilldown = async (newPage) => {
+    if (!drillMetric || !drillValue) return;
+    try {
+      setDrillLoading(true);
+      const res = await fetchAttendanceDrilldown({
+        metric: drillMetric,
+        value: drillValue,
+        page: newPage,
+        limit: drillPagination?.limit || 20,
+        start_date: filters.start_date || undefined,
+        end_date: filters.end_date || undefined,
+        user_id: filters.user_id || undefined,
+        division_id: filters.division_id || undefined,
+      });
+      setDrillRows(res.data || []);
+      setDrillPagination(res.pagination || null);
+    } catch (error) {
+      toast.error(error.message || "Gagal memuat drilldown");
+    } finally {
+      setDrillLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadOverview();
@@ -140,17 +345,6 @@ const AttendanceAnalytics = () => {
     });
   };
 
-  const formatDateTime = (date) => {
-    if (!date) return "-";
-    return new Date(date).toLocaleString("id-ID", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
   const handleFilterChange = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
   };
@@ -158,6 +352,45 @@ const AttendanceAnalytics = () => {
   const handlePageChange = (newPage) => {
     setFilters((prev) => ({ ...prev, page: newPage }));
   };
+
+  // Config for late request cards
+  const lateRequestCards = [
+    {
+      key: "total",
+      label: "Total",
+      colorClass: "bg-slate-700/30",
+      textClass: "text-white",
+      subTextClass: "text-slate-400",
+    },
+    {
+      key: "pending",
+      label: "Pending",
+      colorClass: "bg-yellow-500/20 border border-yellow-500/30",
+      textClass: "text-yellow-400",
+      subTextClass: "text-yellow-400/80",
+    },
+    {
+      key: "approved",
+      label: "Approved",
+      colorClass: "bg-green-500/20 border border-green-500/30",
+      textClass: "text-green-400",
+      subTextClass: "text-green-400/80",
+    },
+    {
+      key: "rejected",
+      label: "Rejected",
+      colorClass: "bg-red-500/20 border border-red-500/30",
+      textClass: "text-red-400",
+      subTextClass: "text-red-400/80",
+    },
+    {
+      key: "filled",
+      label: "Filled",
+      colorClass: "bg-blue-500/20 border border-blue-500/30",
+      textClass: "text-blue-400",
+      subTextClass: "text-blue-400/80",
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 lg:p-8">
@@ -250,35 +483,29 @@ const AttendanceAnalytics = () => {
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Divisi
               </label>
-              <select
+              <SearchSelect
                 value={filters.division_id}
-                onChange={(e) => handleFilterChange("division_id", e.target.value)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Semua Divisi</option>
-                {divisions.map((div) => (
-                  <option key={div._id} value={div._id}>
-                    {div.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => handleFilterChange("division_id", val)}
+                options={divisions.map((d) => ({ value: d._id, label: d.name }))}
+                placeholder="Cari divisi..."
+                allLabel="Semua Divisi"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Karyawan
               </label>
-              <select
+              <SearchSelect
                 value={filters.user_id}
-                onChange={(e) => handleFilterChange("user_id", e.target.value)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Semua Karyawan</option>
-                {users.map((user) => (
-                  <option key={user._id} value={user._id}>
-                    {user.full_name} ({user.employee_code || user.email})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => handleFilterChange("user_id", val)}
+                options={users.map((u) => ({
+                  value: u._id,
+                  label: u.full_name,
+                  subLabel: `${u.employee_code || u.email}`,
+                }))}
+                placeholder="Cari karyawan..."
+                allLabel="Semua Karyawan"
+              />
             </div>
             {activeTab === "details" && (
               <div>
@@ -390,9 +617,17 @@ const AttendanceAnalytics = () => {
                   const total = overview.total_attendances || 1;
                   const percentage = (count / total) * 100;
                   return (
-                    <div
+                    <button
                       key={key}
-                      className={`p-4 rounded-lg border ${STATUS_COLORS[key] || "bg-slate-700/50"}`}
+                      type="button"
+                      onClick={() =>
+                        openDrilldown({
+                          title: `Drilldown: ${label}`,
+                          metric: "status",
+                          value: key,
+                        })
+                      }
+                      className={`p-4 rounded-lg border cursor-pointer hover:opacity-80 transition-opacity ${STATUS_COLORS[key] || "bg-slate-700/50"}`}
                     >
                       <div className="text-2xl font-bold mb-1">{count}</div>
                       <div className="text-sm opacity-80">{label}</div>
@@ -402,50 +637,76 @@ const AttendanceAnalytics = () => {
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Late Requests */}
+            {/* Late Requests — clickable cards */}
             <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
               <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
                 Pengajuan Presensi Terlambat
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="p-4 bg-slate-700/30 rounded-lg">
-                  <div className="text-2xl font-bold text-white mb-1">
-                    {overview.late_requests?.total || 0}
-                  </div>
-                  <div className="text-sm text-slate-400">Total</div>
-                </div>
-                <div className="p-4 bg-yellow-500/20 rounded-lg border border-yellow-500/30">
-                  <div className="text-2xl font-bold text-yellow-400 mb-1">
-                    {overview.late_requests?.pending || 0}
-                  </div>
-                  <div className="text-sm text-yellow-400/80">Pending</div>
-                </div>
-                <div className="p-4 bg-green-500/20 rounded-lg border border-green-500/30">
-                  <div className="text-2xl font-bold text-green-400 mb-1">
-                    {overview.late_requests?.approved || 0}
-                  </div>
-                  <div className="text-sm text-green-400/80">Approved</div>
-                </div>
-                <div className="p-4 bg-red-500/20 rounded-lg border border-red-500/30">
-                  <div className="text-2xl font-bold text-red-400 mb-1">
-                    {overview.late_requests?.rejected || 0}
-                  </div>
-                  <div className="text-sm text-red-400/80">Rejected</div>
-                </div>
-                <div className="p-4 bg-blue-500/20 rounded-lg border border-blue-500/30">
-                  <div className="text-2xl font-bold text-blue-400 mb-1">
-                    {overview.late_requests?.filled || 0}
-                  </div>
-                  <div className="text-sm text-blue-400/80">Filled</div>
-                </div>
+                {lateRequestCards.map(({ key, label, colorClass, textClass, subTextClass }) => {
+                  const lrMeta = LATE_REQUEST_METRICS[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() =>
+                        openDrilldown({
+                          title: `Drilldown Pengajuan: ${label}`,
+                          metric: lrMeta.metric,
+                          value: lrMeta.value,
+                        })
+                      }
+                      className={`p-4 rounded-lg text-left cursor-pointer hover:opacity-80 transition-opacity ${colorClass}`}
+                    >
+                      <div className={`text-2xl font-bold mb-1 ${textClass}`}>
+                        {overview.late_requests?.[key] || 0}
+                      </div>
+                      <div className={`text-sm ${subTextClass}`}>{label}</div>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+
+            {/* Activity Breakdown */}
+            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
+              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Breakdown Aktivitas (Activity)
+              </h2>
+              {(!overview.by_activity || overview.by_activity.length === 0) ? (
+                <div className="text-sm text-slate-400">Belum ada aktivitas tercatat pada filter ini.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {overview.by_activity.map((a) => (
+                    <button
+                      key={a.activity_id}
+                      type="button"
+                      onClick={() =>
+                        openDrilldown({
+                          title: `Drilldown: Aktivitas • ${a.name_activity || "Unknown"}`,
+                          metric: "activity",
+                          value: a.activity_id,
+                        })
+                      }
+                      className="p-4 rounded-lg border bg-slate-700/30 border-slate-600 hover:bg-slate-700/50 transition-all text-left"
+                    >
+                      <div className="text-sm text-slate-300 font-semibold mb-1">
+                        {a.name_activity || "Unknown Activity"}
+                      </div>
+                      <div className="text-2xl font-bold text-white">{a.count || 0}</div>
+                      <div className="text-xs text-slate-400 mt-1">Jumlah kemunculan activity di presensi</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Daily Trend */}
@@ -587,6 +848,106 @@ const AttendanceAnalytics = () => {
           </motion.div>
         )}
       </div>
+
+      {/* Drilldown Modal */}
+      {drillOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            setDrillOpen(false);
+            setDrillRows([]);
+            setDrillPagination(null);
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div>
+                <div className="text-white font-bold">{drillTitle}</div>
+                <div className="text-xs text-slate-400">
+                  Menampilkan user + total kemunculan sesuai filter tanggal/divisi/karyawan
+                </div>
+              </div>
+              <button
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm"
+                onClick={() => {
+                  setDrillOpen(false);
+                  setDrillRows([]);
+                  setDrillPagination(null);
+                }}
+              >
+                Tutup
+              </button>
+            </div>
+
+            <div className="p-4">
+              {drillLoading ? (
+                <div className="text-slate-400 text-sm">Memuat...</div>
+              ) : drillRows.length === 0 ? (
+                <div className="text-slate-400 text-sm">Tidak ada data.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-700 text-slate-300 text-sm">
+                        <th className="text-left py-2 px-2">User</th>
+                        <th className="text-left py-2 px-2">Divisi</th>
+                        <th className="text-right py-2 px-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drillRows.map((r, idx) => (
+                        <tr key={idx} className="border-b border-slate-800 text-sm">
+                          <td className="py-2 px-2 text-white">
+                            <div className="font-medium">{r.user?.full_name || "-"}</div>
+                            <div className="text-xs text-slate-400">
+                              {r.user?.employee_code || r.user?.email || "-"}
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-slate-200">
+                            {r.user?.division?.name || "-"}
+                          </td>
+                          <td className="py-2 px-2 text-right text-white font-bold tabular-nums">
+                            {r.count || 0}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {drillPagination && drillPagination.pages > 1 && (
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="text-xs text-slate-400">
+                    Halaman {drillPagination.page} / {drillPagination.pages} • Total {drillPagination.total}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm disabled:opacity-50"
+                      disabled={drillLoading || drillPagination.page <= 1}
+                      onClick={() => loadMoreDrilldown(drillPagination.page - 1)}
+                    >
+                      Prev
+                    </button>
+                    <button
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm disabled:opacity-50"
+                      disabled={drillLoading || drillPagination.page >= drillPagination.pages}
+                      onClick={() => loadMoreDrilldown(drillPagination.page + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

@@ -543,22 +543,40 @@ const ProjectAnalytics = () => {
                           {projectDetails.timeline.map((item, idx) => (
                             <div
                               key={idx}
-                              className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg border border-slate-600/50"
+                              className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/50"
                             >
-                              <div className="flex items-center gap-3">
-                                <Calendar className="w-4 h-4 text-slate-400" />
-                                <span className="text-white font-medium">
-                                  {formatDate(item.date)}
-                                </span>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                  <Calendar className="w-4 h-4 text-slate-400" />
+                                  <span className="text-white font-medium">
+                                    {formatDate(item.date)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span className="text-slate-400 text-sm">
+                                    {item.contribution_count} kontribusi
+                                  </span>
+                                  <span className="text-white font-medium">
+                                    {item.total_contribution.toFixed(2)}%
+                                  </span>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-4">
-                                <span className="text-slate-400 text-sm">
-                                  {item.contribution_count} kontribusi
-                                </span>
-                                <span className="text-white font-medium">
-                                  {item.total_contribution.toFixed(2)}%
-                                </span>
-                              </div>
+                              {item.contributors && item.contributors.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-slate-600/50">
+                                  <div className="text-xs text-slate-400 mb-1">Kontributor:</div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {item.contributors.map((contrib, cIdx) => (
+                                      <span
+                                        key={cIdx}
+                                        className="px-2 py-0.5 bg-slate-600/50 rounded text-xs text-slate-300"
+                                        title={contrib.user_email}
+                                      >
+                                        {contrib.user_name} ({contrib.contribution.toFixed(1)}%)
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

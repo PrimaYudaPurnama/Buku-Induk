@@ -73,10 +73,11 @@ export const authorizeByLevel = (minLevel) => {
   };
 };
 
-export const restrictUserAccess = (req, res, next) => {
-  const currentUser = req.user;
-  const targetUser = req.targetUser;
-  const targetId = req.params.id;
+export const restrictUserAccess = async (c, next) => {
+  const currentUser = c.get("user");
+  const targetId = c.req.param("id");
+  const targetUser = c.get("targetUser");
+  
 
   const role = currentUser.role_id;
   const perms = role.permissions;
@@ -103,7 +104,7 @@ export const restrictUserAccess = (req, res, next) => {
     return next();
   }
 
-  return res.status(403).json({ message: "Forbidden: Access denied" });
+  return c.json({ message: "Forbidden: Access denied" }, 403);  
 };
 
 /**

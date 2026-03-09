@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Search, Download, Filter, X, Target, Edit, Trash2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Loader2, Save, Plus, AlertCircle, Sparkles, Calendar, Code, TrendingUp
+  Loader2, Save, Plus, AlertCircle, Sparkles, Calendar, Code, TrendingUp, Ban
 } from "lucide-react";
 import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
@@ -71,9 +71,9 @@ export default function ProjectList() {
     name: "",
     work_type: "management",
     percentage: 0,
-    status: "planned",
+    status: "planned", // Default, hidden from form
     start_date: "",
-    end_date: "",
+    end_date: "", // Hidden from form, auto-filled by system
   });
 
   const activeFiltersCount = [search, workTypeFilter, statusFilter].filter(Boolean).length;
@@ -110,9 +110,9 @@ export default function ProjectList() {
       name: "",
       work_type: "management",
       percentage: 0,
-      status: "planned",
+      status: "planned", // Default, hidden from form
       start_date: "",
-      end_date: "",
+      end_date: "", // Hidden from form, auto-filled by system
     });
   };
 
@@ -128,9 +128,9 @@ export default function ProjectList() {
       name: project.name || "",
       work_type: project.work_type || "management",
       percentage: project.percentage || 0,
-      status: project.status || "planned",
+      status: project.status || "planned", // Hidden from form
       start_date: project.start_date ? new Date(project.start_date).toISOString().split("T")[0] : "",
-      end_date: project.end_date ? new Date(project.end_date).toISOString().split("T")[0] : "",
+      end_date: "", // Hidden from form, auto-filled by system
     });
     setShowEditModal(true);
   };
@@ -140,6 +140,22 @@ export default function ProjectList() {
     setShowDeleteConfirm(true);
   };
 
+  const handleCancelProject = async (project) => {
+    if (processing) return;
+    if (!confirm(`Apakah Anda yakin ingin membatalkan proyek "${project.name}"?`)) return;
+    
+    setProcessing(true);
+    try {
+      await updateProject(project._id, { status: "cancelled" });
+      toast.success("Proyek berhasil dibatalkan");
+      loadProjects();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Gagal membatalkan proyek");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (processing) return;
@@ -147,10 +163,12 @@ export default function ProjectList() {
 
     try {
       const payload = {
-        ...formData,
+        code: formData.code,
+        name: formData.name,
+        work_type: formData.work_type,
         percentage: Number(formData.percentage),
         start_date: formData.start_date || null,
-        end_date: formData.end_date || null,
+        // status dan end_date tidak dikirim, biar sistem yang handle otomatis
       };
 
       if (showAddModal) {
@@ -158,7 +176,16 @@ export default function ProjectList() {
         toast.success("Proyek berhasil ditambahkan");
         setShowAddModal(false);
       } else if (showEditModal) {
-        await updateProject(selectedProject._id, payload);
+        // For edit, only send fields that user can modify (status & end_date are system-managed)
+        const editPayload = {
+          code: payload.code,
+          name: payload.name,
+          work_type: payload.work_type,
+          percentage: payload.percentage,
+          start_date: payload.start_date,
+          // status dan end_date tidak dikirim, biar sistem yang handle otomatis
+        };
+        await updateProject(selectedProject._id, editPayload);
         toast.success("Proyek berhasil diperbarui");
         setShowEditModal(false);
       }
@@ -456,10 +483,15 @@ export default function ProjectList() {
                         <td className="w-48 px-8 py-6 text-right sticky right-0 bg-slate-900/80 backdrop-blur-sm z-10">
                           <div className="flex justify-end gap-4">
                             <>
-                              <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openEditModal(proj)} className="text-blue-400 hover:text-blue-300">
+                              <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openEditModal(proj)} className="text-blue-400 hover:text-blue-300" title="Edit">
                                 <Edit className="w-6 h-6" />
                               </motion.button>
-                              <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openDeleteConfirm(proj)} className="text-red-400 hover:text-red-300">
+                              {proj.status !== "cancelled" && proj.status !== "completed" && (
+                                <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => handleCancelProject(proj)} disabled={processing} className="text-orange-400 hover:text-orange-300 disabled:opacity-50" title="Batalkan Proyek">
+                                  <Ban className="w-6 h-6" />
+                                </motion.button>
+                              )}
+                              <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openDeleteConfirm(proj)} className="text-red-400 hover:text-red-300" title="Hapus">
                                 <Trash2 className="w-6 h-6" />
                               </motion.button>
                             </>
@@ -556,21 +588,6 @@ export default function ProjectList() {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">Status *</label>
-                      <select
-                        required
-                        value={formData.status}
-                        onChange={(e) => setFormData({...formData, status: e.target.value})}
-                        className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 backdrop-blur-sm"
-                      >
-                        {STATUS_OPTIONS.map(opt => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                   </div>
 
                   <div>
@@ -582,7 +599,8 @@ export default function ProjectList() {
                         max="100"
                         value={formData.percentage}
                         onChange={(e) => setFormData({...formData, percentage: Number(e.target.value)})}
-                        className="flex-1"
+                        className="flex-1 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
+                        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
                       />
                       <input 
                         type="number"
@@ -593,27 +611,22 @@ export default function ProjectList() {
                         className="w-24 px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 backdrop-blur-sm text-center"
                       />
                     </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Progress akan otomatis terisi dari kontribusi attendance. Saat mencapai 100%, status otomatis menjadi "Selesai" dan tanggal selesai terisi.
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
-                      <input 
-                        type="date" 
-                        value={formData.start_date} 
-                        onChange={(e) => setFormData({...formData, start_date: e.target.value})} 
-                        className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Selesai</label>
-                      <input 
-                        type="date" 
-                        value={formData.end_date} 
-                        onChange={(e) => setFormData({...formData, end_date: e.target.value})} 
-                        className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
+                    <input 
+                      type="date" 
+                      value={formData.start_date} 
+                      onChange={(e) => setFormData({...formData, start_date: e.target.value})} 
+                      className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Status akan otomatis berubah menjadi "Berjalan" saat tanggal mulai tercapai
+                    </p>
                   </div>
 
                   <div className="flex justify-end gap-4 pt-4">

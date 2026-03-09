@@ -22,10 +22,14 @@ import Role from "./models/role.js";
 import divisionRouter from './routes/division.js';
 import activityRouter from './routes/activity.js';
 import projectRouter from './routes/project.js';
+import { startProjectCronJob } from './services/projectCronService.js';
 
 const app = new Hono();
 
 connectDB();
+
+// Initialize cron jobs
+startProjectCronJob();
 
 // Middlewares
 app.use("*", logger());

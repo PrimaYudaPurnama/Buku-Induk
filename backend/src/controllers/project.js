@@ -88,14 +88,16 @@ class ProjectController {
     }
 
     try {
+      // Always set status to "planned" on create (will auto-change to "ongoing" via cron if start_date passed)
+      // end_date is auto-filled by system when percentage = 100
       const created = await Project.create({
         code: code.toUpperCase().trim(),
         name: name.trim(),
         work_type,
         percentage: percentage || 0,
-        status: status || "planned",
+        status: "planned", // Always "planned" on create, auto-changed by cron
         start_date: start_date || null,
-        end_date: end_date || null,
+        end_date: null, // Auto-filled by system when percentage = 100
       });
 
       // Log audit
@@ -156,9 +158,10 @@ class ProjectController {
       if (body.name) updateData.name = body.name.trim();
       if (body.work_type) updateData.work_type = body.work_type;
       if (body.percentage !== undefined) updateData.percentage = body.percentage;
-      if (body.status) updateData.status = body.status;
+      // Allow manual status update only for "cancelled" (other status changes are automatic)
+      if (body.status === "cancelled") updateData.status = "cancelled";
       if (body.start_date !== undefined) updateData.start_date = body.start_date || null;
-      if (body.end_date !== undefined) updateData.end_date = body.end_date || null;
+      // end_date is auto-filled by system when percentage = 100, don't allow manual update
 
       const updated = await Project.findByIdAndUpdate(id, updateData, {
         new: true,

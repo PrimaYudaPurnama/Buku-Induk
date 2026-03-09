@@ -994,6 +994,37 @@ export const fetchAttendanceDetails = async ({ page = 1, limit = 20, start_date,
   return data;
 };
 
+export const fetchAttendanceDrilldown = async ({
+  metric,
+  value,
+  page = 1,
+  limit = 20,
+  start_date,
+  end_date,
+  user_id,
+  division_id,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (metric) params.append("metric", metric);
+  if (value) params.append("value", value);
+  params.append("page", page);
+  params.append("limit", limit);
+  if (start_date) params.append("start_date", start_date);
+  if (end_date) params.append("end_date", end_date);
+  if (user_id) params.append("user_id", user_id);
+  if (division_id) params.append("division_id", division_id);
+
+  const response = await fetch(`${API_BASE}/analytics/attendance-drilldown?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat drilldown presensi");
+  return data;
+};
+
 // ==================== PROJECT ANALYTICS ====================
 export const fetchProjectOverview = async ({ work_type, status } = {}) => {
   const params = new URLSearchParams();

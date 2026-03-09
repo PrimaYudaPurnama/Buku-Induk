@@ -4,9 +4,11 @@ import User from "../models/user.js";
 import Role from "../models/role.js";
 import Division from "../models/division.js";
 import Attendance from "../models/attendance.js";
+import Activity from "../models/activity.js";
 import Project from "../models/project.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
 import { generateApprovalSteps } from "../lib/approvalWorkflows.js";
+import mongoose from "mongoose";
 
 class AnalyticsController {
   /**
@@ -740,17 +742,341 @@ class AnalyticsController {
         attendanceRate = expectedAttendances > 0 ? (totalAttendances / expectedAttendances) * 100 : 0;
       }
 
+      // Activity breakdown (count of activity occurrences in attendance records)
+      // Note: one attendance can have multiple activities, so counts can exceed total_attendances.
+      const activityMatch = { ...filter };
+      // Ensure we don't pass string user_id accidentally into aggregate if it was set from query
+      if (typeof activityMatch.user_id === "string") {
+        try {
+          activityMatch.user_id = new mongoose.Types.ObjectId(activityMatch.user_id);
+        } catch (_) {
+          // ignore invalid, aggregate will return empty anyway
+        }
+      }
+
+      const byActivityAgg = await Attendance.aggregate([
+        { $match: activityMatch },
+        { $unwind: "$activities" },
+        {
+          $group: {
+            _id: "$activities",
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 24 },
+        {
+          $lookup: {
+            from: Activity.collection.name,
+            localField: "_id",
+            foreignField: "_id",
+            as: "activity",
+          },
+        },
+        { $unwind: { path: "$activity", preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 0,
+            activity_id: "$_id",
+            name_activity: "$activity.name_activity",
+            count: 1,
+          },
+        },
+      ]);
+
       return c.json({
         data: {
           total_attendances: totalAttendances,
           by_status: byStatus,
           by_date: byDate.slice(0, 30), // Last 30 days
           late_requests: lateRequestStats,
+          by_activity: byActivityAgg || [],
           attendance_rate: Math.round(attendanceRate * 100) / 100,
         },
       });
     } catch (error) {
       console.error("Get attendance overview error:", error);
+      return c.json({ message: error.message || "Internal server error" }, 500);
+    }
+  }
+
+  /**
+   * GET /api/v1/analytics/attendance-drilldown
+   * Drilldown per user for a selected metric.
+   * Query:
+   * - metric: "status" | "activity"
+   * - value: status string OR activity_id
+   * - start_date, end_date, user_id, division_id
+   * - page, limit
+   */
+  static async getAttendanceDrilldown(c) {
+    try {
+      const currentUser = c.get("user");
+      if (!currentUser) return c.json({ message: "Unauthorized" }, 401);
+
+      const query = c.req.query();
+      const {
+        metric,
+        value,
+        start_date,
+        end_date,
+        user_id,
+        division_id,
+        page = 1,
+        limit = 20,
+      } = query;
+
+      if (!metric || !value) {
+        return c.json({ message: "metric and value are required" }, 400);
+      }
+
+      const userPerms = currentUser?.role_id?.permissions || [];
+
+      // Build base filter (same spirit as getAttendanceDetails)
+      const filter = {};
+      if (start_date || end_date) {
+        filter.date = {};
+        if (start_date) {
+          const start = new Date(start_date);
+          start.setHours(0, 0, 0, 0);
+          filter.date.$gte = start;
+        }
+        if (end_date) {
+          const end = new Date(end_date);
+          end.setHours(23, 59, 59, 999);
+          filter.date.$lte = end;
+        }
+      }
+
+      // Apply permission filters
+      if (userPerms.includes("user:read:own_division") && !userPerms.includes("user:read:any")) {
+        if (currentUser?.division_id) {
+          const usersInDivision = await User.find({ division_id: currentUser.division_id })
+            .select("_id")
+            .lean();
+          filter.user_id = { $in: usersInDivision.map((u) => u._id) };
+        } else {
+          return c.json({
+            data: [],
+            pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 },
+          });
+        }
+      } else if (
+        userPerms.includes("user:read:self") &&
+        !userPerms.includes("user:read:any") &&
+        !userPerms.includes("user:read:own_division")
+      ) {
+        filter.user_id = currentUser._id;
+      }
+
+      // User filter (explicit)
+      if (user_id) filter.user_id = user_id;
+
+      // Division filter (explicit)
+      if (division_id) {
+        const usersInDivision = await User.find({ division_id }).select("_id").lean();
+        filter.user_id = { $in: usersInDivision.map((u) => u._id) };
+      }
+
+      const pageNum = Math.max(1, parseInt(page));
+      const limitNum = Math.max(1, Math.min(100, parseInt(limit)));
+      const skip = (pageNum - 1) * limitNum;
+
+      let rows = [];
+      let total = 0;
+
+      if (metric === "status" || metric === "activity") {
+        const match = { ...filter };
+
+        if (metric === "status") {
+          match.status = value;
+        } else if (metric === "activity") {
+          if (!mongoose.Types.ObjectId.isValid(value)) {
+            return c.json({ message: "Invalid activity id" }, 400);
+          }
+          match.activities = new mongoose.Types.ObjectId(value);
+        }
+
+        const pipeline = [
+          { $match: match },
+          {
+            $group: {
+              _id: "$user_id",
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+          {
+            $lookup: {
+              from: User.collection.name,
+              localField: "_id",
+              foreignField: "_id",
+              as: "user",
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: Division.collection.name,
+              localField: "user.division_id",
+              foreignField: "_id",
+              as: "division",
+            },
+          },
+          { $unwind: { path: "$division", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 0,
+              user: {
+                _id: "$user._id",
+                full_name: "$user.full_name",
+                email: "$user.email",
+                employee_code: "$user.employee_code",
+                division: {
+                  _id: "$division._id",
+                  name: "$division.name",
+                },
+              },
+              count: 1,
+            },
+          },
+        ];
+
+        const [rowsAgg, totalAgg] = await Promise.all([
+          Attendance.aggregate([...pipeline, { $skip: skip }, { $limit: limitNum }]),
+          Attendance.aggregate([...pipeline, { $count: "total" }]),
+        ]);
+
+        rows = rowsAgg || [];
+        total = totalAgg?.[0]?.total || 0;
+      } else if (metric === "late_request_status") {
+        const lrFilter = {};
+
+        // Date range (reuse attendance filter.date if present)
+        if (filter.date) {
+          lrFilter.date = filter.date;
+        } else if (start_date || end_date) {
+          lrFilter.date = {};
+          if (start_date) {
+            const s = new Date(start_date);
+            s.setHours(0, 0, 0, 0);
+            lrFilter.date.$gte = s;
+          }
+          if (end_date) {
+            const e = new Date(end_date);
+            e.setHours(23, 59, 59, 999);
+            lrFilter.date.$lte = e;
+          }
+        }
+
+        // Permission filters / division / user
+        if (filter.user_id) {
+          lrFilter.user_id = filter.user_id;
+        }
+
+        // Additional explicit filters from query
+        if (user_id) {
+          lrFilter.user_id = user_id;
+        }
+
+        if (division_id) {
+          const usersInDivision = await User.find({ division_id }).select("_id").lean();
+          lrFilter.user_id = { $in: usersInDivision.map((u) => u._id) };
+        } else if (
+          userPerms.includes("user:read:own_division") &&
+          !userPerms.includes("user:read:any")
+        ) {
+          if (currentUser?.division_id) {
+            const usersInDivision = await User.find({ division_id: currentUser.division_id })
+              .select("_id")
+              .lean();
+            lrFilter.user_id = { $in: usersInDivision.map((u) => u._id) };
+          } else {
+            return c.json({
+              data: [],
+              pagination: { page: pageNum, limit: limitNum, total: 0, pages: 0 },
+            });
+          }
+        } else if (
+          userPerms.includes("user:read:self") &&
+          !userPerms.includes("user:read:any") &&
+          !userPerms.includes("user:read:own_division")
+        ) {
+          lrFilter.user_id = currentUser._id;
+        }
+
+        // Status filter
+        if (value && value !== "all") {
+          lrFilter.status = value;
+        }
+
+        const pipeline = [
+          { $match: lrFilter },
+          {
+            $group: {
+              _id: "$user_id",
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+          {
+            $lookup: {
+              from: User.collection.name,
+              localField: "_id",
+              foreignField: "_id",
+              as: "user",
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: Division.collection.name,
+              localField: "user.division_id",
+              foreignField: "_id",
+              as: "division",
+            },
+          },
+          { $unwind: { path: "$division", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 0,
+              user: {
+                _id: "$user._id",
+                full_name: "$user.full_name",
+                email: "$user.email",
+                employee_code: "$user.employee_code",
+                division: {
+                  _id: "$division._id",
+                  name: "$division.name",
+                },
+              },
+              count: 1,
+            },
+          },
+        ];
+
+        const [rowsAgg, totalAgg] = await Promise.all([
+          LateAttendanceRequest.aggregate([...pipeline, { $skip: skip }, { $limit: limitNum }]),
+          LateAttendanceRequest.aggregate([...pipeline, { $count: "total" }]),
+        ]);
+
+        rows = rowsAgg || [];
+        total = totalAgg?.[0]?.total || 0;
+      } else {
+        return c.json({ message: "Invalid metric (allowed: status, activity, late_request_status)" }, 400);
+      }
+
+      return c.json({
+        data: rows || [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (error) {
+      console.error("Get attendance drilldown error:", error);
       return c.json({ message: error.message || "Internal server error" }, 500);
     }
   }
@@ -1072,16 +1398,34 @@ class AnalyticsController {
         contributions: entry.contributions.sort((a, b) => new Date(b.date) - new Date(a.date)),
       }));
 
-      // Calculate timeline (by date)
+      // Calculate timeline (by date) with contributors
       const timelineMap = new Map();
       contributions.forEach((contrib) => {
         const dateStr = new Date(contrib.date).toISOString().split("T")[0];
         if (!timelineMap.has(dateStr)) {
-          timelineMap.set(dateStr, { date: dateStr, total_contribution: 0, count: 0 });
+          timelineMap.set(dateStr, { 
+            date: dateStr, 
+            total_contribution: 0, 
+            count: 0,
+            contributors: []
+          });
         }
         const entry = timelineMap.get(dateStr);
         entry.total_contribution += contrib.contribution_percentage;
         entry.count++;
+        // Add contributor info if not already added for this date
+        const userId = contrib.user?._id?.toString() || contrib.user?.toString();
+        const existingContrib = entry.contributors.find(c => c.user_id === userId);
+        if (existingContrib) {
+          existingContrib.contribution += contrib.contribution_percentage;
+        } else {
+          entry.contributors.push({
+            user_id: userId,
+            user_name: contrib.user?.full_name || "Unknown",
+            user_email: contrib.user?.email || "",
+            contribution: contrib.contribution_percentage
+          });
+        }
       });
 
       const timeline = Array.from(timelineMap.values())
@@ -1090,6 +1434,10 @@ class AnalyticsController {
           date: entry.date,
           total_contribution: Math.round(entry.total_contribution * 100) / 100,
           contribution_count: entry.count,
+          contributors: entry.contributors.map(c => ({
+            ...c,
+            contribution: Math.round(c.contribution * 100) / 100
+          })).sort((a, b) => b.contribution - a.contribution)
         }));
 
       return c.json({
