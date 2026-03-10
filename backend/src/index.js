@@ -23,6 +23,7 @@ import divisionRouter from './routes/division.js';
 import activityRouter from './routes/activity.js';
 import projectRouter from './routes/project.js';
 import { startProjectCronJob } from './services/projectCronService.js';
+import importRouter from './routes/importRoutes.js';
 
 const app = new Hono();
 
@@ -58,6 +59,7 @@ app.route("/api/v1/analytics", analyticsRouter);
 app.route("/api/v1/org-chart", orgChartRouter);
 app.route("/api/v1/public", publicRouter);
 app.route("/api/v1/attendance", attendanceRouter);
+app.route("/api/v1/import", importRouter);
 
 
 // app.post("/tes/masukin", async (c) => {

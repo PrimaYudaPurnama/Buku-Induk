@@ -23,6 +23,7 @@ import ProjectAnalytics from './ProjectAnalytics.jsx'
 import { useAuthStore } from '../stores/useAuthStore' 
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser } from '../utils/api.jsx';
+import ImportAttendance from './ImportAttendance.jsx'
 
 export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -107,6 +108,8 @@ export default function Dashboard() {
         return <ProjectAnalytics />
       case 'OrgChart':
         return <OrgChart />
+      case 'ImportAttendance':
+        return <ImportAttendance />
       default:
         return <Home />
     }

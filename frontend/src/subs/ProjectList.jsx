@@ -62,6 +62,7 @@ export default function ProjectList() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [processing, setProcessing] = useState(false);
 
@@ -139,15 +140,19 @@ export default function ProjectList() {
     setSelectedProject(project);
     setShowDeleteConfirm(true);
   };
+  const openCancelConfirm = (project) => {
+    setSelectedProject(project);
+    setShowCancelConfirm(true);
+  };
 
-  const handleCancelProject = async (project) => {
+  const handleCancelProject = async () => {
     if (processing) return;
-    if (!confirm(`Apakah Anda yakin ingin membatalkan proyek "${project.name}"?`)) return;
-    
     setProcessing(true);
+    
     try {
-      await updateProject(project._id, { status: "cancelled" });
+      await updateProject(selectedProject._id, { status: "cancelled" });
       toast.success("Proyek berhasil dibatalkan");
+      setShowCancelConfirm(false);
       loadProjects();
     } catch (err) {
       toast.error(err.response?.data?.message || "Gagal membatalkan proyek");
@@ -487,7 +492,7 @@ export default function ProjectList() {
                                 <Edit className="w-6 h-6" />
                               </motion.button>
                               {proj.status !== "cancelled" && proj.status !== "completed" && (
-                                <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => handleCancelProject(proj)} disabled={processing} className="text-orange-400 hover:text-orange-300 disabled:opacity-50" title="Batalkan Proyek">
+                                <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openCancelConfirm(proj)} disabled={processing} className="text-orange-400 hover:text-orange-300 disabled:opacity-50" title="Batalkan Proyek">
                                   <Ban className="w-6 h-6" />
                                 </motion.button>
                               )}
@@ -701,6 +706,52 @@ export default function ProjectList() {
                   />
                   {processing ? <Loader2 className="animate-spin w-6 h-6" /> : <Trash2 className="w-6 h-6" />}
                   Hapus
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {/* Modal Konfirmasi Batalkan - Premium Style */}
+        {showCancelConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div 
+              className="bg-slate-900/90 backdrop-blur-2xl rounded-3xl max-w-md w-full p-8 border border-red-900/50 shadow-2xl"
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+            >
+              <div className="flex items-center gap-4 text-red-400 mb-6">
+                <AlertCircle className="w-12 h-12" />
+                <h3 className="text-2xl font-bold text-white">Konfirmasi Batalkan</h3>
+              </div>
+              <p className="text-slate-300 mb-8">
+                Apakah Anda yakin ingin membatalkan proyek <strong className="text-white">{selectedProject?.name}</strong> ({selectedProject?.code})?
+              </p>
+              <div className="flex justify-end gap-4">
+                <motion.button 
+                  onClick={() => setShowCancelConfirm(false)} 
+                  className="px-6 py-4 bg-slate-800/70 border border-slate-700 rounded-2xl text-slate-300 hover:bg-slate-700/70 transition-all font-medium"
+                  whileHover={{ scale: 1.03 }}
+                >
+                  Batal
+                </motion.button>
+                <motion.button 
+                  onClick={handleCancelProject} 
+                  disabled={processing}
+                  className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-2xl font-semibold disabled:opacity-50 relative overflow-hidden group"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-0 group-hover:opacity-20"
+                    animate={{ x: ['-100%', '100%'] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                  />
+                  {processing ? <Loader2 className="animate-spin w-6 h-6" /> : <Ban className="w-6 h-6" />}
+                  Batalkan
                 </motion.button>
               </div>
             </motion.div>
