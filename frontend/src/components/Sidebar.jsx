@@ -10,7 +10,6 @@ const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage 
     { id: 'Home', label: 'Home', icon: Home, permission: null },
     // { id: 'Attendance', label: 'Presensi', icon: Clock, permission: ["dashboard:read", "user:read:self"] },
     { id: 'Attendance', label: 'Presensi', icon: Clock, permission: null },
-    { id: 'ImportAttendance', label: 'Import Presensi', icon: Upload, permission: null },
     { id: 'AttendanceAnalytics', label: 'Analytics Presensi', icon: TrendingUp, permission: ["system:manage_analytics", "dashboard:read"] },
     { id: 'ProjectAnalytics', label: 'Analytics Proyek', icon: Target, permission: ["system:manage_analytics", "dashboard:read"] },
     // { id: 'WorkflowAnalytics', label: 'Workflow Analytics', icon: BarChart3, permission: ["system:manage_analytics", "dashboard:read"]},

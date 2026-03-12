@@ -1,7 +1,7 @@
 import { Cron } from "croner";
 import Project from "../models/project.js";
 export const startProjectCronJob = () => {
-  new Cron("0 */6 * * *", async () => {
+  new Cron("0 0 */6 * * *", async () => {
     try {
 
       const now = new Date()

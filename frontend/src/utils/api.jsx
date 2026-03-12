@@ -41,6 +41,49 @@ const handleResponse = async (response) => {
   return response.json();
 };
 
+// ==================== IMPORT / MIGRATION (EXCEL) ====================
+/**
+ * Upload attendance Excel to backend importer.
+ * @param {File} file
+ */
+export const importAttendanceExcel = async (file) => {
+  if (!file) throw new Error("File Excel belum dipilih");
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const response = await fetch(`${API_BASE}/import/attendance`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal import presensi");
+  return data;
+};
+
+/**
+ * Upload project Excel to backend importer.
+ * @param {File} file
+ */
+export const importProjectsExcel = async (file) => {
+  if (!file) throw new Error("File Excel belum dipilih");
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const response = await fetch(`${API_BASE}/import/projects`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal import proyek");
+  return data;
+};
+
 // ==================== AUTH ====================
 export const fetchCurrentUser = async () => {
 

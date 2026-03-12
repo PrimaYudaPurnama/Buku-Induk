@@ -13,6 +13,8 @@ import {
   Users,
   CalendarCheck,
   Timer,
+  Upload,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   fetchAttendanceOverview,
@@ -20,7 +22,9 @@ import {
   fetchUsers,
   fetchDivisions,
   fetchAttendanceDrilldown,
+  importAttendanceExcel,
 } from "../utils/api.jsx";
+import { buildExcelPreview } from "../utils/excelPreview.js";
 import toast from "react-hot-toast";
 
 const STATUS_COLORS = {
@@ -62,6 +66,7 @@ const SearchSelect = ({
   const [q, setQ] = useState("");
   const [dropdownStyle, setDropdownStyle] = useState({});
   const buttonRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   const selected = options.find((o) => o.value === value);
   const filtered = options.filter((o) => {
@@ -76,7 +81,6 @@ const SearchSelect = ({
       const dropdownHeight = 280;
 
       if (spaceBelow < dropdownHeight) {
-        // open upward
         setDropdownStyle({
           position: "fixed",
           bottom: window.innerHeight - rect.top + 4,
@@ -97,11 +101,12 @@ const SearchSelect = ({
     setOpen(true);
   };
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
-      if (buttonRef.current && !buttonRef.current.contains(e.target)) {
+      const insideButton = buttonRef.current?.contains(e.target);
+      const insideDropdown = dropdownRef.current?.contains(e.target);
+      if (!insideButton && !insideDropdown) {
         setOpen(false);
         setQ("");
       }
@@ -113,6 +118,7 @@ const SearchSelect = ({
   const dropdown = open
     ? createPortal(
         <div
+          ref={dropdownRef}
           style={dropdownStyle}
           className="bg-slate-800 border border-slate-700 rounded-lg shadow-2xl overflow-hidden"
         >
@@ -128,12 +134,7 @@ const SearchSelect = ({
           <div className="max-h-56 overflow-y-auto">
             <button
               type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-                setQ("");
-              }}
+              onClick={() => { onChange(""); setOpen(false); setQ(""); }}
               className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 ${
                 value === "" ? "text-blue-300" : "text-slate-200"
               }`}
@@ -144,12 +145,7 @@ const SearchSelect = ({
               <button
                 key={o.value}
                 type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onChange(o.value);
-                  setOpen(false);
-                  setQ("");
-                }}
+                onClick={() => { onChange(o.value); setOpen(false); setQ(""); }}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 ${
                   o.value === value ? "text-blue-300" : "text-slate-200"
                 }`}
@@ -209,6 +205,61 @@ const AttendanceAnalytics = () => {
   });
   const [users, setUsers] = useState([]);
   const [divisions, setDivisions] = useState([]);
+
+  // Import (Excel)
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
+  const resetImportState = () => {
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setPreviewLoading(false);
+    setImporting(false);
+  };
+
+  const onPickImportFile = async (file) => {
+    setImportFile(file || null);
+    setImportResult(null);
+    setImportPreview(null);
+    if (!file) return;
+    try {
+      setPreviewLoading(true);
+      const preview = await buildExcelPreview(file, { maxRows: 8, mode: "attendance" });
+      setImportPreview(preview);
+    } catch (e) {
+      toast.error(e.message || "Gagal membuat preview Excel");
+      setImportPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const doImportAttendance = async () => {
+    if (!importFile) return toast.error("Pilih file Excel terlebih dahulu");
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const res = await importAttendanceExcel(importFile);
+      setImportResult(res);
+
+      if ((res?.success_rows || 0) > 0) {
+        toast.success(`Import sukses: ${res.success_rows} baris`);
+        await loadOverview();
+        if (activeTab === "details") await loadDetails();
+      } else {
+        toast.error("Tidak ada baris yang berhasil diimport");
+      }
+    } catch (e) {
+      toast.error(e.message || "Gagal import presensi");
+      setImportResult({ error: e.message || "Gagal import presensi" });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const openDrilldown = async ({ title, metric, value }) => {
     try {
@@ -527,6 +578,133 @@ const AttendanceAnalytics = () => {
               </div>
             )}
           </div>
+        </motion.div>
+
+        {/* Import Excel (Attendance) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-xl p-4 border border-slate-700/50"
+        >
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-lg">
+                <FileSpreadsheet className="w-5 h-5 text-indigo-300" />
+              </div>
+              <div>
+                <div className="text-white font-semibold">Import / Migrasi Presensi (Excel)</div>
+                <div className="text-xs text-slate-400">
+                  Preview dulu sebelum upload. File akan diproses via API <span className="text-slate-300">POST /import/attendance</span>.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(e) => onPickImportFile(e.target.files?.[0] || null)}
+                className="block w-full sm:w-[320px] text-sm text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-slate-700/60 file:text-slate-200 hover:file:bg-slate-700"
+              />
+              <button
+                type="button"
+                onClick={resetImportState}
+                disabled={!importFile && !importResult && !importPreview}
+                className="px-3 py-2 rounded-lg bg-slate-700/40 hover:bg-slate-700 text-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={doImportAttendance}
+                disabled={!importFile || previewLoading || importing}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 justify-center"
+              >
+                <Upload className="w-4 h-4" />
+                {importing ? "Mengimport..." : "Import"}
+              </button>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="mt-4">
+            {previewLoading && <div className="text-sm text-slate-400">Membuat preview...</div>}
+
+            {!previewLoading && importPreview && (
+              <div className="space-y-3">
+                <div className="text-xs text-slate-400">
+                  Sheet: <span className="text-slate-200">{importPreview.sheetName}</span> • Total baris data:{" "}
+                  <span className="text-slate-200">{importPreview.totalRows}</span> • Preview:{" "}
+                  <span className="text-slate-200">{importPreview.rows.length}</span> baris pertama
+                </div>
+                {importPreview.headers.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-slate-700">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-900/60">
+                        <tr>
+                          {importPreview.displayHeaders.map((h) => (
+                            <th key={h} className="text-left py-2 px-3 text-slate-300 font-medium whitespace-nowrap">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.rows.map((r, idx) => (
+                          <tr key={idx} className="border-t border-slate-800">
+                            {importPreview.displayHeaders.map((h) => (
+                              <td key={h} className="py-2 px-3 text-slate-200 whitespace-nowrap">
+                                {String(r?.[h] ?? "")}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-400">Tidak ada header/kolom yang terbaca.</div>
+                )}
+                <div className="text-[11px] text-slate-500">
+                  Catatan: preview hanya untuk memastikan format file benar—import tetap mengikuti parser backend.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Result */}
+          {importResult && (
+            <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900/40 p-3">
+              {importResult.error ? (
+                <div className="text-sm text-red-300">Error: {importResult.error}</div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-3 text-sm">
+                    <span className="text-slate-200">
+                      Berhasil: <span className="font-bold text-white">{importResult.success_rows || 0}</span>
+                    </span>
+                    <span className="text-slate-200">
+                      Gagal: <span className="font-bold text-white">{importResult.failed_rows || 0}</span>
+                    </span>
+                  </div>
+                  {(importResult.failed_rows || 0) > 0 && Array.isArray(importResult.errors) && (
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-slate-300 hover:text-white">
+                        Lihat detail error ({importResult.errors.length})
+                      </summary>
+                      <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+                        {importResult.errors.map((e, i) => (
+                          <div key={i} className="text-xs text-slate-300">
+                            <span className="text-slate-400">Row {e.rowNumber}:</span> {e.reason}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </motion.div>
 
         {/* Content */}

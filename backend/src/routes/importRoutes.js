@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { parseExcelBuffer } from "../utils/parseExcel.js";
 import { importAttendanceService } from "../services/importAttendanceService.js";
+import { parseProjectExcelBuffer } from "../utils/parseProjectExcel.js";
+import { importProjectService }    from "../services/importProjectService.js";
 import Attendance from "../models/attendance.js";
 
 const importRouter = new Hono();
@@ -189,6 +191,72 @@ importRouter.get("/attendance", async (c) => {
     activity_frequency: activityFreq,
     project_contributions: projectContrib,
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helper – read & validate the uploaded file from FormData
+// ─────────────────────────────────────────────────────────────────────────────
+async function readUploadedFile(c) {
+  let formData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return { err: c.json({ error: "Expected multipart/form-data body" }, 400) };
+  }
+
+  const file = formData.get("file");
+  if (!file || typeof file === "string") {
+    return { err: c.json({ error: 'Missing file field "file"' }, 400) };
+  }
+
+  const ext = (file.name ?? "").split(".").pop()?.toLowerCase();
+  if (!["xlsx", "xls"].includes(ext)) {
+    return { err: c.json({ error: "Only .xlsx / .xls files are accepted" }, 400) };
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    return { buffer: Buffer.from(arrayBuffer) };
+  } catch (err) {
+    return { err: c.json({ error: `Failed to read uploaded file: ${err.message}` }, 400) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /import/projects
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * @body  multipart/form-data  { file: .xlsx }
+ * @returns {
+ *   success_rows : number,
+ *   inserted     : number,
+ *   updated      : number,
+ *   failed_rows  : number,
+ *   errors       : { rowNumber, code, reason }[]
+ * }
+ */
+importRouter.post("/projects", async (c) => {
+  const { buffer, err } = await readUploadedFile(c);
+  if (err) return err;
+
+  let rawRows;
+  try {
+    rawRows = parseProjectExcelBuffer(buffer);
+  } catch (e) {
+    return c.json({ error: `Excel parsing failed: ${e.message}` }, 422);
+  }
+
+  if (!rawRows.length) {
+    return c.json({ error: "No data rows found in the uploaded file" }, 422);
+  }
+
+  try {
+    const result = await importProjectService(rawRows);
+    return c.json(result, 200);
+  } catch (e) {
+    console.error("[importProjects] unexpected error:", e);
+    return c.json({ error: "Import failed due to an internal error" }, 500);
+  }
 });
 
 export default importRouter;

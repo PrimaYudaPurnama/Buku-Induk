@@ -11,11 +11,15 @@ import {
   CheckCircle2,
   Clock,
   X,
+  Upload,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   fetchProjectOverview,
   fetchProjectDetails,
+  importProjectsExcel,
 } from "../utils/api.jsx";
+import { buildExcelPreview } from "../utils/excelPreview.js";
 import toast from "react-hot-toast";
 
 const STATUS_COLORS = {
@@ -37,6 +41,16 @@ const WORK_TYPE_LABELS = {
   technic: "Teknis",
 };
 
+// Mirror backend deriveWorkType logic for preview:
+// - MAN...  → management
+// - PROJ... → technic
+const deriveWorkTypeFromCode = (code = "") => {
+  const upper = String(code || "").toUpperCase();
+  if (upper.startsWith("MAN")) return "management";
+  if (upper.startsWith("PROJ")) return "technic";
+  return "technic";
+};
+
 const ProjectAnalytics = () => {
   const [overview, setOverview] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -47,6 +61,13 @@ const ProjectAnalytics = () => {
     work_type: "",
     status: "",
   });
+
+  // Import (Excel)
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   useEffect(() => {
     loadOverview();
@@ -77,6 +98,56 @@ const ProjectAnalytics = () => {
       toast.error(error.message || "Gagal memuat detail proyek");
     } finally {
       setDetailsLoading(false);
+    }
+  };
+
+  const resetImportState = () => {
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setPreviewLoading(false);
+    setImporting(false);
+  };
+
+  const onPickImportFile = async (file) => {
+    setImportFile(file || null);
+    setImportResult(null);
+    setImportPreview(null);
+    if (!file) return;
+    try {
+      setPreviewLoading(true);
+      const preview = await buildExcelPreview(file, { maxRows: 8, mode: "project" });
+      setImportPreview(preview);
+    } catch (e) {
+      toast.error(e.message || "Gagal membuat preview Excel");
+      setImportPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const doImportProjects = async () => {
+    if (!importFile) return toast.error("Pilih file Excel terlebih dahulu");
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const res = await importProjectsExcel(importFile);
+      setImportResult(res);
+
+      const success = (res?.success_rows || 0) > 0;
+      if (success) {
+        toast.success(
+          `Import sukses: ${res.success_rows} • inserted ${res.inserted || 0} • updated ${res.updated || 0}`
+        );
+        await loadOverview();
+      } else {
+        toast.error("Tidak ada baris yang berhasil diimport");
+      }
+    } catch (e) {
+      toast.error(e.message || "Gagal import proyek");
+      setImportResult({ error: e.message || "Gagal import proyek" });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -163,6 +234,164 @@ const ProjectAnalytics = () => {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Import Excel (Projects) */}
+          <div className="mt-4 bg-slate-800/50 backdrop-blur-xl rounded-xl p-4 border border-slate-700/50">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/20 rounded-lg">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-300" />
+                </div>
+                <div>
+                  <div className="text-white font-semibold">Import / Migrasi Proyek (Excel)</div>
+                  <div className="text-xs text-slate-400">
+                    Preview dulu sebelum upload. File akan diproses via API{" "}
+                    <span className="text-slate-300">POST /import/projects</span>.
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => onPickImportFile(e.target.files?.[0] || null)}
+                  className="block w-full sm:w-[320px] text-sm text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-slate-700/60 file:text-slate-200 hover:file:bg-slate-700"
+                />
+                <button
+                  type="button"
+                  onClick={resetImportState}
+                  disabled={!importFile && !importResult && !importPreview}
+                  className="px-3 py-2 rounded-lg bg-slate-700/40 hover:bg-slate-700 text-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={doImportProjects}
+                  disabled={!importFile || previewLoading || importing}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 justify-center"
+                >
+                  <Upload className="w-4 h-4" />
+                  {importing ? "Mengimport..." : "Import"}
+                </button>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="mt-4">
+              {previewLoading && <div className="text-sm text-slate-400">Membuat preview...</div>}
+
+              {!previewLoading && importPreview && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-400">
+                    Sheet: <span className="text-slate-200">{importPreview.sheetName}</span> • Total baris data:{" "}
+                    <span className="text-slate-200">{importPreview.totalRows}</span> • Preview:{" "}
+                    <span className="text-slate-200">{importPreview.rows.length}</span> baris pertama
+                  </div>
+                  {importPreview.headers.length > 0 ? (() => {
+                    // Cari kolom kode pekerjaan untuk hitung work_type auto
+                    const headers = importPreview.headers;
+                    const codeHeader =
+                      headers.find((h) => /kode\s*pekerjaan|kode\s*proyek|project\s*code/i.test(String(h)))
+                      ?? importPreview.displayHeaders[0];
+
+                      const headersWithWorkType = [...importPreview.displayHeaders, "work_type (auto)"];
+
+                    const rowsWithWorkType = importPreview.rows.map((r) => {
+                      const codeVal = r?.[codeHeader] ?? "";
+                      return {
+                        ...r,
+                        "__work_type": deriveWorkTypeFromCode(codeVal),
+                      };
+                    });
+
+                    return (
+                      <div className="overflow-x-auto rounded-lg border border-slate-700">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-slate-900/60">
+                            <tr>
+                              {headersWithWorkType.map((h) => (
+                                <th
+                                  key={h}
+                                  className="text-left py-2 px-3 text-slate-300 font-medium whitespace-nowrap"
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rowsWithWorkType.map((r, idx) => (
+                              <tr key={idx} className="border-t border-slate-800">
+                                {headersWithWorkType.map((h) => (
+                                  <td key={h} className="py-2 px-3 text-slate-200 whitespace-nowrap">
+                                    {h === "work_type (auto)"
+                                      ? WORK_TYPE_LABELS[r.__work_type] || r.__work_type
+                                      : String(r?.[h] ?? "")}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })() : (
+                    <div className="text-sm text-slate-400">Tidak ada header/kolom yang terbaca.</div>
+                  )}
+                  <div className="text-[11px] text-slate-500">
+                    Catatan: preview menampilkan work_type (auto) berdasarkan prefix kode (MAN → management, PROJ → technic).
+                    Import tetap mengikuti parser & rules di backend.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Result */}
+            {importResult && (
+              <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900/40 p-3">
+                {importResult.error ? (
+                  <div className="text-sm text-red-300">Error: {importResult.error}</div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-3 text-sm">
+                      <span className="text-slate-200">
+                        Berhasil: <span className="font-bold text-white">{importResult.success_rows || 0}</span>
+                      </span>
+                      <span className="text-slate-200">
+                        Inserted: <span className="font-bold text-white">{importResult.inserted || 0}</span>
+                      </span>
+                      <span className="text-slate-200">
+                        Updated: <span className="font-bold text-white">{importResult.updated || 0}</span>
+                      </span>
+                      <span className="text-slate-200">
+                        Gagal: <span className="font-bold text-white">{importResult.failed_rows || 0}</span>
+                      </span>
+                    </div>
+                    {(importResult.failed_rows || 0) > 0 && Array.isArray(importResult.errors) && (
+                      <details className="text-sm">
+                        <summary className="cursor-pointer text-slate-300 hover:text-white">
+                          Lihat detail error ({importResult.errors.length})
+                        </summary>
+                        <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+                          {importResult.errors.map((e, i) => (
+                            <div key={i} className="text-xs text-slate-300">
+                              <span className="text-slate-400">
+                                Row {e.rowNumber}
+                                {e.code ? ` • ${e.code}` : ""}:
+                              </span>{" "}
+                              {e.reason}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </motion.div>
 

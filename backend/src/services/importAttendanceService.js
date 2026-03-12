@@ -1,7 +1,8 @@
-import Attendance from "../models/Attendance.js";
-import { buildLookupMaps } from "../utils/lookupMaps.js";
-import { resolveRow } from "../utils/resolveRow.js";
-import { buildMergeOperation } from "../utils/mergeAttendance.js";
+import Attendance from "../models/attendance.js";
+import Task       from "../models/task.js";
+import { buildLookupMaps }          from "../utils/lookupMaps.js";
+import { resolveRow }               from "../utils/resolveRow.js";
+import { buildMergeOperation }      from "../utils/mergeAttendance.js";
 import { updateProjectPercentages } from "../utils/updateProjectPercentages.js";
 
 const BATCH_SIZE = 100;
@@ -9,123 +10,160 @@ const BATCH_SIZE = 100;
 /**
  * Main attendance import service.
  *
- * After saving attendance documents it also accumulates each row's
- * contribution_percentage into the corresponding Project.percentage
- * (capped at 100).
+ * Per row:
+ *  1. Resolve user, timestamps, projects, activities, tasks
+ *  2. Derive attendance status (normal / late / late_checkin / early_checkout)
+ *  3. Insert new attendance OR merge into existing (by user_id + date)
+ *  4. Insert Task documents (one per task title, split by comma)
+ *  5. Link Task _ids into attendance.tasks_today
+ *  6. Replace Project.percentage with value from this import
  *
  * @param {RawRow[]} rawRows  – output of parseExcelBuffer()
  * @returns {Promise<ImportResult>}
  */
 export async function importAttendanceService(rawRows) {
-  // ── Pre-load all lookup data ───────────────────────────────────────────────
-  const maps = await buildLookupMaps();
+  const maps  = await buildLookupMaps();
+  const errors = [];
 
-  const errors   = [];
-  const newDocs  = [];   // payloads for insertMany
-  const mergeOps = [];   // bulkWrite ops for existing attendance docs
+  // Buckets filled during the resolve pass
+  const newAttendanceDocs    = [];   // { payload, tasks }  – no existing record
+  const mergeAttendanceOps   = [];   // { op, tasks }       – existing record found
+  const allProjectContribs   = [];   // { project_id, contribution_percentage }
 
-  /**
-   * Flat list of every project contribution from SUCCESSFUL rows.
-   * Used after all attendance writes to update Project.percentage.
-   * Shape: { project_id: ObjectId, contribution_percentage: number }
-   */
-  const allContributions = [];
-
-  // ── Resolve every row ─────────────────────────────────────────────────────
+  // ── 1. Resolve pass ────────────────────────────────────────────────────────
   for (const raw of rawRows) {
-    const result = await resolveRow(raw, maps);
+    let result;
+    try {
+      result = await resolveRow(raw, maps);
+    } catch (err) {
+      errors.push({ rowNumber: raw.rowNumber, reason: `Resolve error: ${err.message}` });
+      continue;
+    }
 
     if (!result.ok) {
       errors.push({ rowNumber: result.rowNumber, reason: result.reason });
       continue;
     }
 
-    const { payload } = result;
+    const { payload, tasks } = result;
 
-    // Check for existing attendance record (unique index: user_id + date)
-    const existing = await Attendance.findOne({
-      user_id: payload.user_id,
-      date:    payload.date,
-    }).lean();
+    // Track project contributions for Project.percentage update
+    for (const p of payload.projects) {
+      allProjectContribs.push({
+        project_id             : p.project_id,
+        contribution_percentage: p.contribution_percentage,
+      });
+    }
+
+    // Check for duplicate attendance
+    let existing = null;
+    try {
+      existing = await Attendance.findOne({
+        user_id: payload.user_id,
+        date   : payload.date,
+      }).lean();
+    } catch (err) {
+      errors.push({ rowNumber: raw.rowNumber, reason: `DB lookup error: ${err.message}` });
+      continue;
+    }
 
     if (existing) {
-      // For merges: only count contributions for *new* projects being added.
-      // Projects already present in the existing doc were already counted
-      // during the original import — do NOT accumulate again.
-      const existingProjectIds = new Set(
-        existing.projects.map((p) => p.project_id.toString())
-      );
-
-      for (const p of payload.projects) {
-        if (!existingProjectIds.has(p.project_id.toString())) {
-          allContributions.push({
-            project_id: p.project_id,
-            contribution_percentage: p.contribution_percentage,
-          });
-        }
-      }
-
-      mergeOps.push(buildMergeOperation(existing, payload));
+      mergeAttendanceOps.push({ op: buildMergeOperation(existing, payload), tasks });
     } else {
-      // Brand-new attendance doc → count all its project contributions
-      for (const p of payload.projects) {
-        allContributions.push({
-          project_id: p.project_id,
-          contribution_percentage: p.contribution_percentage,
-        });
-      }
-      newDocs.push(payload);
+      newAttendanceDocs.push({ payload, tasks });
     }
   }
 
   let successCount = 0;
 
-  // ── Batch insert new attendance documents ─────────────────────────────────
-  for (let i = 0; i < newDocs.length; i += BATCH_SIZE) {
-    const batch = newDocs.slice(i, i + BATCH_SIZE);
-    try {
-      const inserted = await Attendance.insertMany(batch, {
-        ordered:   false,
-        rawResult: true,
-      });
-      successCount += inserted.insertedCount ?? batch.length;
-    } catch (err) {
-      if (err.result?.nInserted != null) {
-        successCount += err.result.nInserted;
+  // ── 2. Insert new attendance docs + their tasks ────────────────────────────
+  for (let i = 0; i < newAttendanceDocs.length; i += BATCH_SIZE) {
+    const batch = newAttendanceDocs.slice(i, i + BATCH_SIZE);
+
+    for (const { payload, tasks } of batch) {
+      try {
+        // 2a. Insert tasks first so we have their _ids
+        const taskIds = await insertTasks(tasks);
+
+        // 2b. Insert attendance with tasks_today linked
+        const doc = await Attendance.create({
+          ...payload,
+          tasks_today: taskIds,
+        });
+
+        successCount += 1;
+      } catch (err) {
+        errors.push({
+          rowNumber: "insert",
+          reason   : `Insert failed for user ${payload.user_id}: ${err.message}`,
+        });
       }
     }
   }
 
-  // ── Batch update existing attendance documents ────────────────────────────
-  for (let i = 0; i < mergeOps.length; i += BATCH_SIZE) {
-    const batch = mergeOps.slice(i, i + BATCH_SIZE);
-    try {
-      const result = await Attendance.bulkWrite(batch, { ordered: false });
-      successCount += result.modifiedCount ?? 0;
-    } catch (err) {
-      if (err.result?.nModified != null) {
-        successCount += err.result.nModified;
+  // ── 3. Merge into existing attendance docs + append tasks ──────────────────
+  for (let i = 0; i < mergeAttendanceOps.length; i += BATCH_SIZE) {
+    const batch = mergeAttendanceOps.slice(i, i + BATCH_SIZE);
+
+    for (const { op, tasks } of batch) {
+      try {
+        // 3a. Insert tasks
+        const taskIds = await insertTasks(tasks);
+
+        // 3b. Append task _ids to existing attendance doc
+        if (taskIds.length) {
+          const attendanceId = op.updateOne.filter._id;
+          op.updateOne.update.$push = op.updateOne.update.$push ?? {};
+          op.updateOne.update.$push.tasks_today = { $each: taskIds };
+        }
+
+        // 3c. Execute the merge update
+        await Attendance.bulkWrite([op], { ordered: false });
+        successCount += 1;
+      } catch (err) {
+        errors.push({
+          rowNumber: "merge",
+          reason   : `Merge failed: ${err.message}`,
+        });
       }
-      errors.push({ rowNumber: "bulk-update", reason: err.message });
     }
   }
 
-  // ── Update Project.percentage (accumulate, cap at 100) ────────────────────
-  // Only runs if at least one successful row had project contributions.
+  // ── 4. Replace Project.percentage ─────────────────────────────────────────
   try {
-    await updateProjectPercentages(allContributions);
+    await updateProjectPercentages(allProjectContribs);
   } catch (err) {
-    // Non-fatal: attendance data is already saved. Log and surface as a warning.
-    console.error("[importAttendance] failed to update project percentages:", err);
+    console.error("[importAttendance] project percentage update failed:", err);
     errors.push({
-      rowNumber: "project-percentage-update",
-      reason:    `Project percentage update failed: ${err.message}`,
+      rowNumber: "project-pct",
+      reason   : `Project percentage update failed: ${err.message}`,
     });
   }
 
   return {
     success_rows: successCount,
-    failed_rows:  errors.length,
+    failed_rows : errors.length,
     errors,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper – insert an array of task payloads and return their _ids.
+// Returns [] if tasks is empty. Each task is inserted individually so that
+// a single bad task doesn't kill the whole row.
+// ─────────────────────────────────────────────────────────────────────────────
+async function insertTasks(tasks) {
+  if (!tasks || tasks.length === 0) return [];
+
+  const ids = [];
+  for (const taskPayload of tasks) {
+    try {
+      const doc = await Task.create(taskPayload);
+      ids.push(doc._id);
+    } catch (err) {
+      // Non-fatal: log but don't fail the whole attendance row
+      console.warn(`[insertTasks] Could not insert task "${taskPayload.title}": ${err.message}`);
+    }
+  }
+  return ids;
 }
