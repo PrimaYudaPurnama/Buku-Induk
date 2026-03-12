@@ -1143,20 +1143,49 @@ class AnalyticsController {
         .populate({
           path: "user_id",
           select: "full_name email employee_code division_id",
-          populate: {
-            path: "division_id",
-            select: "name",
-          },
+          populate: { path: "division_id", select: "name" },
         })
+        .populate("approved_by", "full_name email")
         .populate({
-          path: "approved_by",
-          select: "full_name email",
+          path: "late_request_id",
+          select: "late_reason status approved_by approved_at rejected_by rejected_at rejected_reason date",
+          populate: [
+            { path: "approved_by", select: "full_name email" },
+            { path: "rejected_by", select: "full_name email" },
+          ],
         })
-        .populate("late_request_id")
+        .populate("tasks_today", "title description progress status start_at completed_at weight")
+        .populate({
+          path: "projects.project_id",
+          select: "code name work_type percentage status start_date end_date",
+        })
+        .populate("activities", "name_activity")
         .sort({ date: -1 })
         .limit(parseInt(limit))
         .skip(skip)
         .lean();
+
+        // Setelah .lean(), tambah ini:
+const projectIds = attendances.flatMap(a => 
+  a.projects.map(p => p.project_id)
+).filter(Boolean);
+
+const populatedProjects = await mongoose.model("Project")
+  .find({ _id: { $in: projectIds } })
+  .select("code name work_type percentage status start_date end_date")
+  .lean();
+
+const projectMap = Object.fromEntries(
+  populatedProjects.map(p => [p._id.toString(), p])
+);
+
+// Inject ke setiap attendance
+attendances.forEach(a => {
+  a.projects = a.projects.map(p => ({
+    ...p,
+    project_id: projectMap[p.project_id?.toString()] || p.project_id,
+  }));
+});
 
       const total = await Attendance.countDocuments(filter);
 

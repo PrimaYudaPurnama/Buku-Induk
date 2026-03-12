@@ -5,6 +5,7 @@ import DocumentCard from "../components/DocumentCard";
 import { motion } from "framer-motion";
 import { Sparkles, User, FileText, Search } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
+import SearchSelect from "../components/SearchSelect";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -151,18 +152,14 @@ const DocumentList = () => {
                     <User className="w-5 h-5 text-blue-400" />
                     Pilih Karyawan
                   </label>
-                  <select
+                  <SearchSelect
                     value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    className="w-full px-6 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm"
-                  >
-                    <option value="">-- Pilih Karyawan --</option>
-                    {filteredUsers.map((u) => (
-                      <option key={u._id} value={u._id}>
-                        {u.full_name} ({u.email}) — {u.role_id?.name || "No Role"}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => setSelectedUserId(value)}
+                    options={filteredUsers.map((u) => ({
+                      value: u._id,
+                      label: `${u.full_name} (${u.email}) — ${u.role_id?.name || "No Role"}`,
+                    }))}
+                  />
                 </div>
               )}
 

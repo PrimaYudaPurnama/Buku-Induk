@@ -47,14 +47,12 @@ export function parseWIBTimestamp(raw) {
  * @returns {Date}
  */
 export function startOfDayWIB(utcDate) {
-  // Convert back to WIB to get the local calendar date
+  // Geser ke WIB untuk dapat tanggal kalender yang benar
   const wibMs = utcDate.getTime() + WIB_OFFSET_MS;
-  const wib = new Date(wibMs);
+  const wib   = new Date(wibMs);
 
-  // Build midnight WIB as UTC
-  const midnightWIBinUTC =
-    Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate()) -
-    WIB_OFFSET_MS;
-
-  return new Date(midnightWIBinUTC);
+  // Simpan sebagai midnight UTC murni (00:00:00.000Z) dari tanggal WIB-nya.
+  // Sistem menyimpan date sebagai 2026-01-15T00:00:00.000Z, bukan
+  // 2026-01-14T17:00:00.000Z (midnight WIB dalam UTC) — jadi JANGAN kurangi offset.
+  return new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate()));
 }
