@@ -344,17 +344,58 @@ class AttendanceService {
     // task_ids: array of Task ObjectIds belonging to user (daily tasks for today)
     let normalizedTaskIds = [];
     if (Array.isArray(taskIds) && taskIds.length > 0) {
-      normalizedTaskIds = taskIds.filter((id) => id && id.toString?.()).map((id) => id.toString());
+      normalizedTaskIds = taskIds
+        .filter((id) => id && id.toString?.())
+        .map((id) => id.toString());
     }
 
-    // Validate that all task IDs exist and belong to user
+    // Validate that all task IDs exist, are not already approved,
+    // and that ongoing tasks cannot be selected if owned by someone else.
     if (normalizedTaskIds.length > 0) {
-      const tasks = await Task.find({ _id: { $in: normalizedTaskIds }, user_id: user._id });
+      const tasks = await Task.find({ _id: { $in: normalizedTaskIds } });
       if (tasks.length !== normalizedTaskIds.length) {
-        const err = new Error("One or more task IDs are invalid or do not belong to you");
+        const err = new Error(
+          "One or more task IDs are invalid or do not belong to you"
+        );
         err.code = "INVALID_TASK_IDS";
         err.status = 400;
         throw err;
+      }
+
+      const hasApproved = tasks.some((t) => t.status === "approved");
+      if (hasApproved) {
+        const err = new Error(
+          "Approved tasks cannot be attached to a new attendance"
+        );
+        err.code = "APPROVED_TASK_FORBIDDEN";
+        err.status = 400;
+        throw err;
+      }
+
+      const hasOtherOngoing = tasks.some(
+        (t) =>
+          t.status === "ongoing" &&
+          t.user_id &&
+          t.user_id.toString() !== user._id.toString()
+      );
+      if (hasOtherOngoing) {
+        const err = new Error(
+          "Tidak bisa memilih task ongoing yang sedang dikerjakan orang lain"
+        );
+        err.code = "ONGOING_TASK_LOCKED";
+        err.status = 400;
+        throw err;
+      }
+
+      // Any planned or rejected task becomes ongoing once selected for today.
+      const toOngoingIds = tasks
+        .filter((t) => ["planned", "rejected"].includes(t.status))
+        .map((t) => t._id);
+      if (toOngoingIds.length > 0) {
+        await Task.updateMany(
+          { _id: { $in: toOngoingIds } },
+          { $set: { status: "ongoing", user_id: user._id } }
+        );
       }
     }
 
@@ -509,7 +550,7 @@ class AttendanceService {
    * - tasks_today.length > 0 and at least one task is done (progress 100)
    * - lock record from further edits
    */
-  async checkOut({ user, consentCheckOut }) {
+  async checkOut({ user, consentCheckOut, tasksPayload = [] }) {
     if (!user?._id) {
       const err = new Error("User context is required");
       err.code = "MISSING_USER";
@@ -559,16 +600,29 @@ class AttendanceService {
       throw err;
     }
 
-    const tasks = await Task.find({ _id: { $in: taskIds } }).lean();
-    // const atLeastOneDone = tasks.some((t) => t.status === "done" || (t.progress >= 100));
-    // if (!atLeastOneDone) {
-    //   const err = new Error(
-    //     "Cannot check out without at least one task completed (progress 100% or status done)"
-    //   );
-    //   err.code = "NO_TASK_DONE";
-    //   err.status = 400;
-    //   throw err;
-    // }
+    // Optionally update task statuses based on payload.
+    const normalizedMap = new Map();
+    if (Array.isArray(tasksPayload)) {
+      for (const item of tasksPayload) {
+        if (!item || !item.task_id) continue;
+        const id = item.task_id.toString();
+        if (!taskIds.some((tid) => tid.toString() === id)) continue;
+        if (!["done", "ongoing"].includes(item.status)) continue;
+        normalizedMap.set(id, item.status);
+      }
+    }
+
+    if (normalizedMap.size > 0) {
+      const updateIds = Array.from(normalizedMap.keys());
+      const tasks = await Task.find({ _id: { $in: updateIds } });
+      for (const t of tasks) {
+        const desired = normalizedMap.get(t._id.toString());
+        if (!desired) continue;
+        if (t.status === "approved") continue;
+        t.status = desired;
+        await t.save();
+      }
+    }
 
     // Validate check-out time based on working hours
     const checkOutValidation = validateCheckOutTime(nowWIB);

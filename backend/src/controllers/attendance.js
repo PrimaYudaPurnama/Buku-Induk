@@ -107,6 +107,7 @@ class AttendanceController {
         user,
         consentCheckOut:
           body.user_consent?.checkOut ?? body.consentCheckOut ?? true,
+        tasksPayload: Array.isArray(body.tasks) ? body.tasks : [],
       });
 
       return c.json({

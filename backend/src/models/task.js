@@ -5,7 +5,17 @@ const TaskSchema = new mongoose.Schema(
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
+      index: true,
+    },
+
+    // Optional linkage to a project. Only tasks with project_id
+    // will be counted towards project percentage.
+    project_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      default: null,
       index: true,
     },
 
@@ -27,29 +37,29 @@ const TaskSchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    progress: {
+    // Bobot jam untuk task ini (digunakan menghitung progress project).
+    hour_weight: {
       type: Number,
-      min: 0,
-      max: 100,
-      default: 0,
+      required: true,
+      min: 0.25,
     },
 
     status: {
       type: String,
-      enum: ["ongoing", "done"],
-      default: "ongoing",
+      enum: ["planned", "ongoing", "done", "approved", "rejected"],
+      default: "planned",
       index: true,
     },
 
-    completed_at: {
-      type: Date,
+    approved_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       default: null,
     },
 
-    weight: {
-      type: Number,
-      default: 1, // untuk future KPI
-      min: 1,
+    approved_at: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -61,19 +71,20 @@ const TaskSchema = new mongoose.Schema(
 );
 
 TaskSchema.pre("save", function (next) {
-    if (this.progress >= 100) {
-      this.progress = 100;
-      this.status = "done";
-  
-      if (!this.completed_at) {
-        this.completed_at = new Date();
+  // Keep approval metadata in sync with status.
+  if (this.isModified("status")) {
+    if (this.status === "approved") {
+      if (!this.approved_at) {
+        this.approved_at = new Date();
       }
     } else {
-      this.status = "ongoing";
-      this.completed_at = null;
+      // Any status change away from approved clears approval metadata.
+      this.approved_by = null;
+      this.approved_at = null;
     }
-  
-    next();
-  });
+  }
+
+  next();
+});
 
 export default mongoose.model("Task", TaskSchema);

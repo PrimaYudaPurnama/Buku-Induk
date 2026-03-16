@@ -1158,6 +1158,21 @@ export const updateTask = async (taskId, payload) => {
   return data;
 };
 
+export const fetchProjectTasks = async (projectId) => {
+  const response = await fetch(
+    `${API_BASE}/attendance/tasks/by-project/${projectId}`,
+    {
+      method: "GET",
+      headers: defaultHeaders(),
+      credentials: "include",
+    }
+  );
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat task proyek");
+  return data;
+};
+
 export const checkIn = async (taskIds = []) => {
   const response = await fetch(`${API_BASE}/attendance/check-in`, {
     method: "POST",
@@ -1187,12 +1202,15 @@ export const updateDailyWork = async (payload) => {
   return data;
 };
 
-export const checkOut = async () => {
+export const checkOut = async (tasks = []) => {
   const response = await fetch(`${API_BASE}/attendance/check-out`, {
     method: "POST",
     headers: defaultHeaders(),
     credentials: "include",
-    body: JSON.stringify({ user_consent: { checkOut: true } }),
+    body: JSON.stringify({
+      user_consent: { checkOut: true },
+      tasks: Array.isArray(tasks) ? tasks : [],
+    }),
   });
 
   const data = await handleResponse(response);
@@ -1338,6 +1356,49 @@ export const updateDailyWorkById = async (attendanceId, payload) => {
 
   const data = await handleResponse(response);
   if (!data) throw new Error("Gagal mengupdate pekerjaan harian");
+  return data;
+};
+
+export const approveTask = async (taskId, payload = {}) => {
+  const response = await fetch(
+    `${API_BASE}/attendance/tasks/${taskId}/approve`,
+    {
+      method: "POST",
+      headers: defaultHeaders(),
+      credentials: "include",
+      body: JSON.stringify(payload),
+    }
+  );
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menyetujui task");
+  return data;
+};
+
+export const rejectTask = async (taskId) => {
+  const response = await fetch(
+    `${API_BASE}/attendance/tasks/${taskId}/reject`,
+    {
+      method: "POST",
+      headers: defaultHeaders(),
+      credentials: "include",
+    }
+  );
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menolak task");
+  return data;
+};
+
+export const deleteTask = async (taskId) => {
+  const response = await fetch(`${API_BASE}/attendance/tasks/${taskId}`, {
+    method: "DELETE",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menghapus task");
   return data;
 };
 

@@ -24,7 +24,8 @@ const ProjectSchema = new mongoose.Schema(
       required: true,
     },
 
-    // ===== PROGRESS (SUMBER DARI MILESTONE) =====
+    // Progress project (0-100). Di-update otomatis dari akumulasi task
+    // melalui layanan projectProgressService, bukan dari input manual.
     percentage: {
       type: Number,
       min: 0,

@@ -27,6 +27,15 @@ attendanceRouter.post(
   (c) => TaskController.createTask(c)
 );
 
+attendanceRouter.get(
+  "/tasks/by-project/:projectId",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => TaskController.getTasksByProject(c)
+);
+
 attendanceRouter.patch(
   "/tasks/:id",
   authenticate(),
@@ -34,6 +43,33 @@ attendanceRouter.patch(
     permissions: ["dashboard:read", "user:read:any", "user:read:self"],
   }),
   (c) => TaskController.updateTask(c)
+);
+
+attendanceRouter.post(
+  "/tasks/:id/approve",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_projects"],
+  }),
+  (c) => TaskController.approveTask(c)
+);
+
+attendanceRouter.post(
+  "/tasks/:id/reject",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_projects"],
+  }),
+  (c) => TaskController.rejectTask(c)
+);
+
+attendanceRouter.delete(
+  "/tasks/:id",
+  authenticate(),
+  authorize({
+    permissions: ["system:manage_projects"],
+  }),
+  (c) => TaskController.deleteTask(c)
 );
 
 attendanceRouter.get(

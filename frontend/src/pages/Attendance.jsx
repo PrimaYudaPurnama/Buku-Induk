@@ -3,7 +3,6 @@ import {
   checkIn,
   checkOut,
   getTodayAttendance,
-  getDailyTasks,
   createTask,
   updateTask,
   updateDailyWork,
@@ -14,6 +13,7 @@ import {
   fetchActivities,
   fetchProjects,
   getAttendanceHistory,
+  fetchProjectTasks,
 } from "../utils/api.jsx";
 import toast from "react-hot-toast";
 import { 
@@ -29,6 +29,8 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import SearchSelect from "../components/SearchSelect.jsx";
+import { useAuthStore } from "../stores/useAuthStore";
 
 function AttendanceScroller({ monthlyDays, getCalendarDayStyle, formatWIBDate }) {
   const scrollRef = useRef(null);
@@ -215,6 +217,8 @@ const isPastCheckInDeadline = () => {
 };
 
 const Attendance = () => {
+  const { user } = useAuthStore();
+  const currentUserId = user?._id || null;
   const [attendance, setAttendance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -239,14 +243,17 @@ const Attendance = () => {
   const [note, setNote] = useState("");
   const [projectContributions, setProjectContributions] = useState({});
 
-  // Daily tasks: carry-over (ongoing) + new. Shown before check-in. After check-in come from attendance.tasks_today.
-  const [dailyTasks, setDailyTasks] = useState([]);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [loadingDailyTasks, setLoadingDailyTasks] = useState(false);
-  const [creatingTask, setCreatingTask] = useState(false);
+  // Perencanaan sebelum check-in: pilih proyek & task per proyek
+  const [selectedProjectsForToday, setSelectedProjectsForToday] = useState([]);
+  const [projectPickerValue, setProjectPickerValue] = useState("");
+  const [projectTasksMap, setProjectTasksMap] = useState({});
+  const [selectedTasksToday, setSelectedTasksToday] = useState([]);
+  const [newTaskTitleByProject, setNewTaskTitleByProject] = useState({});
+  const [newTaskHourByProject, setNewTaskHourByProject] = useState({});
+  const [creatingTaskProjectId, setCreatingTaskProjectId] = useState(null);
 
-  // Optimistic progress untuk task — update lokal dulu, API di background, tanpa full refresh
-  const [taskProgressLocal, setTaskProgressLocal] = useState({});
+  // Status lokal task saat checkout (done/ongoing)
+  const [checkoutTaskStatuses, setCheckoutTaskStatuses] = useState({});
 
   // Late attendance form state
   const [showLateForm, setShowLateForm] = useState(false);
@@ -273,20 +280,13 @@ const Attendance = () => {
   const [monthlyDays, setMonthlyDays] = useState([]);
   const [loadingMonthlyDays, setLoadingMonthlyDays] = useState(false);
 
-  // Load today's attendance, daily tasks (when no attendance yet), and master data
+  // Load today's attendance, master data, dan overview
   useEffect(() => {
     loadTodayAttendance();
     loadMasterData();
     loadMyLateRequests();
     loadMonthlyOverview();
   }, []);
-
-  // When no attendance yet, load carry-over daily tasks for check-in form
-  useEffect(() => {
-    if (!attendance && !loading) {
-      loadDailyTasks();
-    }
-  }, [attendance, loading]);
 
   // Sync form state with attendance data (TODAY ONLY)
   useEffect(() => {
@@ -304,13 +304,40 @@ const Attendance = () => {
         }, {}) || {}
       );
       setNote(attendance.note || "");
-      setTaskProgressLocal({});
+      const initialStatuses = {};
+      (attendance.tasks_today || []).forEach((t) => {
+        initialStatuses[t._id] = t.status === "done" ? "done" : "ongoing";
+      });
+      setCheckoutTaskStatuses(initialStatuses);
+
+      // Setelah check-in: sinkronkan proyek & task hari ini agar UI konsisten.
+      const taskObjs = Array.isArray(attendance.tasks_today)
+        ? attendance.tasks_today.filter((t) => typeof t === "object" && t?._id)
+        : [];
+      const taskIds = taskObjs.map((t) => t._id);
+      const projIds = Array.from(
+        new Set(
+          taskObjs
+            .map((t) => t.project_id?._id || t.project_id)
+            .filter(Boolean)
+            .map(String)
+        )
+      );
+      setSelectedProjectsForToday(projIds);
+      setSelectedTasksToday(taskIds);
+      projIds.forEach((pid) => {
+        // Load full task list per project (planned/rejected + ongoing milik sendiri) for add/selection UI
+        loadProjectTasksFor(pid);
+      });
     } else {
       setSelectedActivities([]);
       setSelectedProjects([]);
       setNote("");
       setProjectContributions({});
-      setTaskProgressLocal({});
+      setCheckoutTaskStatuses({});
+      setSelectedProjectsForToday([]);
+      setSelectedTasksToday([]);
+      setProjectTasksMap({});
     }
   }, [attendance]);
 
@@ -327,18 +354,31 @@ const Attendance = () => {
     }
   };
 
-  const loadDailyTasks = async () => {
+  const loadProjectTasksFor = async (projectId) => {
+    if (!projectId) return;
     try {
-      setLoadingDailyTasks(true);
-      const result = await getDailyTasks();
-      setDailyTasks(result.data || []);
+      const res = await fetchProjectTasks(projectId);
+      const tasks = res.data || [];
+      setProjectTasksMap((prev) => ({ ...prev, [projectId]: tasks }));
+      // Auto-select ongoing tasks (owned by current user) and keep rejected/planned selectable.
+      const ongoingOwned = tasks
+        .filter(
+          (t) =>
+            t.status === "ongoing" &&
+            (t.user_id?._id || t.user_id) &&
+            String(t.user_id?._id || t.user_id) === String(currentUserId)
+        )
+        .map((t) => t._id);
+      if (ongoingOwned.length > 0) {
+        setSelectedTasksToday((prev) => Array.from(new Set([...prev, ...ongoingOwned])));
+      }
     } catch (error) {
-      console.error("Failed to load daily tasks:", error);
-      setDailyTasks([]);
-    } finally {
-      setLoadingDailyTasks(false);
+      console.error("Failed to load project tasks:", error);
+      toast.error("Gagal memuat task proyek");
     }
   };
+
+  const attendanceUserId = attendance?.user_id?._id || attendance?.user_id || null;
 
   const loadMasterData = async () => {
     try {
@@ -433,7 +473,12 @@ const Attendance = () => {
   const handleCheckIn = async () => {
     try {
       setCheckingIn(true);
-      const taskIds = dailyTasks.map((t) => t._id).filter(Boolean);
+      const taskIds = selectedTasksToday.filter(Boolean);
+      if (taskIds.length === 0) {
+        toast.error("Pilih minimal satu task sebelum check-in");
+        setCheckingIn(false);
+        return;
+      }
       await checkIn(taskIds);
       toast.success("Check-in berhasil!");
       await loadTodayAttendance();
@@ -449,7 +494,11 @@ const Attendance = () => {
   const handleCheckOut = async () => {
     try {
       setCheckingOut(true);
-      await checkOut();
+      const tasksPayload = (attendance?.tasks_today || []).map((t) => ({
+        task_id: t._id,
+        status: checkoutTaskStatuses[t._id] || "ongoing",
+      }));
+      await checkOut(tasksPayload);
       toast.success("Check-out berhasil!");
       await loadTodayAttendance();
     } catch (error) {
@@ -465,10 +514,6 @@ const Attendance = () => {
       setUpdating(true);
 
       const payload = {
-        projects: selectedProjects.map((id) => ({
-          project_id: id,
-          contribution_percentage: Number(projectContributions[id] ?? 0),
-        })),
         activities: selectedActivities,
         note: note,
       };
@@ -484,57 +529,93 @@ const Attendance = () => {
     }
   };
 
-  const handleProgressChange = (taskId, progress) => {
-    const p = Math.max(0, Math.min(100, Number(progress)));
-    setTaskProgressLocal((prev) => ({ ...prev, [taskId]: p }));
-    updateTask(taskId, { progress: p }).catch((e) => {
-      console.error("Update progress error:", e);
-      toast.error("Gagal update progress task");
-      setTaskProgressLocal((prev) => {
-        const next = { ...prev };
-        delete next[taskId];
-        return next;
+  const handleToggleTaskStatusForCheckout = (taskId) => {
+    setCheckoutTaskStatuses((prev) => {
+      const current = prev[taskId] || "ongoing";
+      const nextStatus = current === "done" ? "ongoing" : "done";
+      // Persist ke backend supaya tersimpan saat reload
+      updateTask(taskId, { status: nextStatus }).catch((e) => {
+        console.error("Gagal update status task:", e);
+        toast.error("Gagal menyimpan status task");
       });
+      return { ...prev, [taskId]: nextStatus };
     });
   };
 
-  const addDailyTask = async () => {
-    if (!newTaskTitle.trim()) {
+  const handleSelectProjectForToday = async (projectId) => {
+    if (!projectId) return;
+    if (selectedProjectsForToday.includes(projectId)) return;
+    const next = [...selectedProjectsForToday, projectId];
+    setSelectedProjectsForToday(next);
+    await loadProjectTasksFor(projectId);
+  };
+
+  const handleRemoveProjectForToday = (projectId) => {
+    setSelectedProjectsForToday((prev) => prev.filter((id) => id !== projectId));
+    setSelectedTasksToday((prev) =>
+      prev.filter((taskId) => {
+        const tasks = projectTasksMap[projectId] || [];
+        return !tasks.some((t) => t._id === taskId);
+      })
+    );
+  };
+
+  const handleToggleTaskForToday = (taskId) => {
+    setSelectedTasksToday((prev) =>
+      prev.includes(taskId)
+        ? prev.filter((id) => id !== taskId)
+        : [...prev, taskId]
+    );
+  };
+
+  const handleNewTaskTitleChange = (projectId, value) => {
+    setNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
+  const handleNewTaskHourChange = (projectId, value) => {
+    setNewTaskHourByProject((prev) => ({
+      ...prev,
+      [projectId]: Number(value) || 1,
+    }));
+  };
+
+  const handleAddProjectTask = async (projectId) => {
+    const title = (newTaskTitleByProject[projectId] || "").trim();
+    if (!title) {
       toast.error("Judul task tidak boleh kosong");
       return;
     }
     try {
-      setCreatingTask(true);
-      const res = await createTask({ title: newTaskTitle.trim() });
-      setDailyTasks((prev) => [...prev, res.data]);
-      setNewTaskTitle("");
+      setCreatingTaskProjectId(projectId);
+      const res = await createTask({
+        title,
+        project_id: projectId,
+        hour_weight: Number(
+          (newTaskHourByProject[projectId] ?? 1)
+        ) || 1,
+      });
+      const newTask = res.data;
+      setProjectTasksMap((prev) => {
+        const list = prev[projectId] || [];
+        return { ...prev, [projectId]: [...list, newTask] };
+      });
+      setSelectedTasksToday((prev) => [...prev, newTask._id]);
+      setNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: "" }));
+      // Jika sudah check-in, tambahkan task ke attendance hari ini juga
+      if (attendance && !attendance.checkOut_at) {
+        try {
+          await updateDailyWork({ tasks_today: [newTask._id] });
+          await loadTodayAttendance();
+        } catch (err) {
+          console.error("Failed to attach task to today:", err);
+        }
+      }
       toast.success("Task berhasil ditambahkan");
     } catch (e) {
       console.error("Create task error:", e);
       toast.error("Gagal menambah task");
     } finally {
-      setCreatingTask(false);
-    }
-  };
-
-  const addTaskToTodayAfterCheckIn = async () => {
-    if (!newTaskTitle.trim()) {
-      toast.error("Judul task tidak boleh kosong");
-      return;
-    }
-    try {
-      setCreatingTask(true);
-      const res = await createTask({ title: newTaskTitle.trim() });
-      const newTask = res.data;
-      await updateDailyWork({ tasks_today: [newTask._id] });
-      await loadTodayAttendance();
-      setNewTaskTitle("");
-      toast.success("Task berhasil ditambahkan ke hari ini");
-    } catch (e) {
-      console.error("Add task to today error:", e);
-      toast.error("Gagal menambah task");
-    } finally {
-      setCreatingTask(false);
+      setCreatingTaskProjectId(null);
     }
   };
 
@@ -857,10 +938,6 @@ const Attendance = () => {
 
   const isLocked = attendance?.checkOut_at;
   const tasksToday = attendance?.tasks_today || [];
-  const atLeastOneTaskDone = tasksToday.some((t) => {
-    const p = taskProgressLocal[t._id] ?? t?.progress ?? 0;
-    return t?.status === "done" || p >= 100;
-  });
   const canCheckOut =
     attendance &&
     !attendance.checkOut_at &&
@@ -1184,74 +1261,224 @@ const Attendance = () => {
               </div>
             )}
 
-            {/* Daily Task (Rencana Hari Ini) — tampil dulu sebelum check-in. Task ongoing kemarin otomatis masuk. */}
+      {/* Daily Task (Rencana Hari Ini) — pilih proyek dan task per proyek sebelum check-in */}
             <div className="mb-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6">
               <h3 className="font-semibold text-white mb-2 text-lg">
                 Daily Task (Rencana Hari Ini)
               </h3>
               <p className="text-xs text-slate-400 mb-4">
-                Task yang belum selesai (progress &lt; 100%) akan selalu terbawa ke hari berikutnya. Tambah task baru lalu check-in.
+                Pilih proyek yang akan dikerjakan hari ini, kemudian pilih atau tambah task
+                per proyek. Minimal satu task harus dipilih sebelum check-in.
               </p>
 
-              {loadingDailyTasks ? (
-                <div className="text-sm text-slate-400 py-4">Memuat task...</div>
+              {loadingMasterData ? (
+                <div className="text-sm text-slate-400 py-4">Memuat proyek...</div>
               ) : (
                 <>
-                  <div className="space-y-3 mb-4">
-                    {dailyTasks.map((task) => (
-                      <div
-                        key={task._id}
-                        className="p-3 bg-slate-800/50 rounded-xl border border-slate-700"
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span className="text-sm text-slate-200 font-medium">
-                            {task.title}
-                          </span>
-                          <span className="text-xs text-slate-400">
-                            {task.progress ?? 0}%
-                          </span>
-                        </div>
-                        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(100, task.progress ?? 0)}%` }}
-                          />
-                        </div>
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-slate-300 mb-2">
+                      Pilih Proyek
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <SearchSelect
+                          value={projectPickerValue}
+                          onChange={(v) => setProjectPickerValue(v)}
+                          options={projects
+                            .filter(
+                              (p) =>
+                                !selectedProjectsForToday.includes(p._id) &&
+                                p.status === "ongoing"
+                            )
+                            .map((p) => ({
+                              value: p._id,
+                              label: p.name,
+                              subLabel: `${p.code} • ${p.percentage}%`,
+                            }))}
+                          placeholder="Cari proyek..."
+                          allLabel="Pilih proyek..."
+                        />
                       </div>
-                    ))}
+                      <motion.button
+                        onClick={() => {
+                          if (projectPickerValue) {
+                            handleSelectProjectForToday(projectPickerValue);
+                            setProjectPickerValue("");
+                          }
+                        }}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Tambah
+                      </motion.button>
+                    </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") addDailyTask();
-                      }}
-                      placeholder="Tambah task baru..."
-                      className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm backdrop-blur-sm"
-                    />
-                    <motion.button
-                      onClick={addDailyTask}
-                      disabled={creatingTask || !newTaskTitle.trim()}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {creatingTask ? "..." : "Tambah"}
-                    </motion.button>
-                  </div>
+                  {selectedProjectsForToday.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      Belum ada proyek yang dipilih. Pilih minimal satu proyek untuk mulai
+                      mengatur task hari ini.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {selectedProjectsForToday.map((projectId) => {
+                        const proj = projects.find((p) => p._id === projectId);
+                        const tasks = projectTasksMap[projectId] || [];
+                        const newTitle = newTaskTitleByProject[projectId] || "";
+                        return (
+                          <div
+                            key={projectId}
+                            className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="text-sm font-semibold text-white">
+                                  {proj?.name || "Proyek"}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  {proj?.code} • Progress: {proj?.percentage ?? 0}%
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveProjectForToday(projectId)}
+                                className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1"
+                              >
+                                <X className="w-3 h-3" />
+                                Hapus
+                              </button>
+                            </div>
+
+                            <div className="space-y-2 mb-3">
+                              {tasks.length === 0 ? (
+                                <p className="text-xs text-slate-500">
+                                  Belum ada task untuk proyek ini.
+                                </p>
+                              ) : (
+                                tasks.map((task) => {
+                                  const checked = selectedTasksToday.includes(task._id);
+                                  const status = task.status;
+                                  const workerName =
+                                    task.user_id?.full_name ||
+                                    task.user_id?.email ||
+                                    "";
+                                  const isSelectable = status === "planned" || status === "rejected";
+                                  const isAuto = status === "ongoing";
+                                  const isRejected = status === "rejected";
+                                  return (
+                                    <label
+                                      key={task._id}
+                                      className={`flex items-center justify-between gap-2 p-2 rounded-xl border cursor-pointer ${
+                                        status === "planned"
+                                          ? "bg-slate-800/60 border-slate-700"
+                                          : status === "ongoing"
+                                          ? "bg-yellow-500/10 border-yellow-500/30"
+                                          : status === "rejected"
+                                          ? "bg-red-500/10 border-red-500/30"
+                                          : "bg-slate-800/60 border-slate-700"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={!isSelectable && !isAuto}
+                                          onChange={() => {
+                                            if (!isSelectable) return;
+                                            handleToggleTaskForToday(task._id);
+                                          }}
+                                          className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                                        />
+                                        <div>
+                                          <div className="text-xs text-slate-200 font-medium">
+                                            {task.title}
+                                          </div>
+                                          <div className="text-[10px] text-slate-500">
+                                            Bobot jam: {task.hour_weight} • Status: {status}
+                                            {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
+                                            {isAuto ? " • (Auto)" : ""}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newTitle}
+                                onChange={(e) =>
+                                  handleNewTaskTitleChange(projectId, e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleAddProjectTask(projectId);
+                                }}
+                                placeholder="Tambah task baru untuk proyek ini..."
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
+                              />
+                              <input
+                                type="number"
+                                min={0.25}
+                                step={0.25}
+                                value={newTaskHourByProject[projectId] ?? 1}
+                                onChange={(e) =>
+                                  handleNewTaskHourChange(projectId, e.target.value)
+                                }
+                                className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <motion.button
+                                onClick={() => handleAddProjectTask(projectId)}
+                                disabled={
+                                  creatingTaskProjectId === projectId ||
+                                  !newTitle.trim()
+                                }
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-xs flex items-center gap-1"
+                              >
+                                <Plus className="w-3 h-3" />
+                                {creatingTaskProjectId === projectId ? "..." : "Tambah"}
+                              </motion.button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               )}
             </div>
 
             <motion.button
               onClick={handleCheckIn}
-              disabled={checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline()}
-              whileHover={{ scale: checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 1.02 }}
-              whileTap={{ scale: checkingIn || dailyTasks.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 0.98 }}
+              disabled={
+                checkingIn ||
+                selectedTasksToday.length === 0 ||
+                isSunday(new Date()) ||
+                isPastCheckInDeadline()
+              }
+              whileHover={{
+                scale:
+                  checkingIn ||
+                  selectedTasksToday.length === 0 ||
+                  isSunday(new Date()) ||
+                  isPastCheckInDeadline()
+                    ? 1
+                    : 1.02,
+              }}
+              whileTap={{
+                scale:
+                  checkingIn ||
+                  selectedTasksToday.length === 0 ||
+                  isSunday(new Date()) ||
+                  isPastCheckInDeadline()
+                    ? 1
+                    : 0.98,
+              }}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
             >
               <Clock className="w-5 h-5" />
@@ -1261,8 +1488,8 @@ const Attendance = () => {
                 ? "Check-in Tidak Tersedia (Lewat Jam 16:00)"
                 : checkingIn
                 ? "Memproses..."
-                : dailyTasks.length === 0
-                ? "Tambahkan minimal 1 task untuk check-in"
+                : selectedTasksToday.length === 0
+                ? "Pilih minimal 1 task untuk check-in"
                 : "Check-in"}
             </motion.button>
 
@@ -1626,62 +1853,39 @@ const Attendance = () => {
               Catatan Pekerjaan Harian
             </h2>
 
-            {/* Tasks Today — progress bar (scroll bar style) */}
+            {/* Tasks Today — tandai selesai (done) atau lanjut (ongoing) */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-300 mb-3">
-                Task Hari Ini (geser untuk ubah progress)
+                Task Hari Ini (centang jika sudah selesai)
               </label>
               <div className="space-y-4">
                 {(attendance?.tasks_today || []).map((task) => {
-                  const displayProgress = taskProgressLocal[task._id] ?? task.progress ?? 0;
+                  const status = checkoutTaskStatuses[task._id] || task.status || "ongoing";
+                  const done = status === "done";
                   return (
                   <div
                     key={task._id}
                     className="p-4 bg-slate-800/50 rounded-xl border border-slate-700"
                   >
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-sm font-medium text-slate-200">
-                        {task.title}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          onChange={() => handleToggleTaskStatusForCheckout(task._id)}
+                          className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-slate-200">
+                          {task.title}
+                        </span>
+                      </div>
                       <span className="text-xs text-slate-400 tabular-nums">
-                        {displayProgress}%
+                        {done ? "Done" : "On-going"}
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={displayProgress}
-                      onChange={(e) =>
-                        handleProgressChange(task._id, e.target.value)
-                      }
-                      className="w-full h-3 bg-slate-700 rounded-full appearance-none cursor-pointer accent-blue-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer"
-                    />
                   </div>
                   );
                 })}
-              </div>
-              <div className="flex gap-2 mt-3">
-                <input
-                  type="text"
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") addTaskToTodayAfterCheckIn();
-                  }}
-                  placeholder="Tambah task ke hari ini..."
-                  className="flex-1 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                <motion.button
-                  onClick={addTaskToTodayAfterCheckIn}
-                  disabled={creatingTask || !newTaskTitle.trim()}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-sm flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" />
-                  {creatingTask ? "..." : "Tambah"}
-                </motion.button>
               </div>
             </div>
 
@@ -1720,106 +1924,34 @@ const Attendance = () => {
               )}
             </div>
 
-            {/* Projects with contribution - select + chips UI */}
+            {/* Proyek Hari Ini (otomatis dari task, tanpa input kontribusi %) */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-300 mb-3">
-                Proyek & Kontribusi Hari Ini (%)
+                Proyek Hari Ini
               </label>
-              {loadingMasterData ? (
-                <div className="text-sm text-slate-400">Memuat proyek...</div>
-              ) : (
-                <div className="border border-slate-700 rounded-xl p-4 space-y-3 bg-slate-800/30">
-                  {/* Selected project chips */}
-                  {selectedProjects.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProjects.map((id) => {
-                        const proj = projects.find((p) => p._id === id);
-                        if (!proj) return null;
-                        return (
-                          <div
-                            key={id}
-                            className="flex items-center gap-2 bg-green-500/20 border border-green-500/30 rounded-xl px-3 py-2"
-                          >
-                            <span className="text-sm text-green-400 font-medium">
-                              {proj.name} ({proj.percentage}%)
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={projectContributions[id] ?? ""}
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  const num = raw === "" ? "" : Math.max(0, Math.min(100, Number(raw)));
-                                  setProjectContributions((prev) => ({ ...prev, [id]: num }));
-                                }}
-                                className="w-16 px-2 py-1 border border-green-500/50 rounded-lg text-xs text-right bg-slate-800/50 text-white focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                placeholder="%"
-                              />
-                              <span className="text-xs text-green-400">%</span>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setSelectedProjects(selectedProjects.filter((pid) => pid !== id));
-                                setProjectContributions((prev) => {
-                                  const next = { ...prev };
-                                  delete next[id];
-                                  return next;
-                                });
-                              }}
-                              className="ml-1 p-1 text-green-400 hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Add-project row: dropdown + button */}
-                  {selectedProjects.length < projects.length && (
-                    <div className="flex gap-2">
-                      <select
-                        id="normal-project-select"
-                        defaultValue=""
-                        className="flex-1 px-4 py-3 border border-slate-700 rounded-2xl text-sm text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-800/50 backdrop-blur-sm"
-                        onChange={() => {}} // controlled via button click
-                      >
-                        <option value="" disabled>Pilih proyek...</option>
-                        {projects
-                          .filter((p) => !selectedProjects.includes(p._id) && p.status === "ongoing")
-                          .map((p) => (
-                            <option key={p._id} value={p._id}>
-                              {p.name} ({p.percentage}%)
-                            </option>
-                          ))}
-                      </select>
-                      <motion.button
-                        onClick={() => {
-                          const sel = document.getElementById("normal-project-select");
-                          if (sel && sel.value) {
-                            setSelectedProjects([...selectedProjects, sel.value]);
-                            setProjectContributions((prev) => ({ ...prev, [sel.value]: 0 }));
-                            sel.value = "";
-                          }
-                        }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Tambah
-                      </motion.button>
-                    </div>
-                  )}
-
-                  {projects.length === 0 && (
-                    <p className="text-sm text-slate-400">Tidak ada proyek tersedia</p>
-                  )}
-                </div>
-              )}
+              <div className="border border-slate-700 rounded-xl p-4 space-y-2 bg-slate-800/30">
+                {selectedProjectsForToday.length === 0 ? (
+                  <p className="text-sm text-slate-400">Belum ada proyek terpilih</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedProjectsForToday.map((id) => {
+                      const proj = projects.find((p) => p._id === id);
+                      if (!proj) return null;
+                      return (
+                        <span
+                          key={id}
+                          className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-sm font-medium"
+                        >
+                          {proj.name} ({proj.percentage}%)
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500">
+                  Progress proyek dihitung otomatis dari akumulasi bobot jam task yang disetujui.
+                </p>
+              </div>
             </div>
 
             {/* Note */}

@@ -12,7 +12,13 @@ import {
   fetchProjectsList,
   createProject,
   updateProject,
-  deleteProject
+  deleteProject,
+  fetchProjectTasks,
+  approveTask,
+  rejectTask,
+  createTask,
+  updateTask,
+  deleteTask,
 } from "../utils/api.jsx";
 
 const containerVariants = {
@@ -40,6 +46,120 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Dibatalkan" },
 ];
 
+function TaskListWithActions({
+  tasks,
+  project,
+  processing,
+  onApprove,
+  onReject,
+  onOpenDetail,
+}) {
+  const totalHours = tasks.reduce(
+    (sum, t) => sum + (Number(t.hour_weight) || 0),
+    0
+  );
+
+  const handleHourChange = async (task, value) => {
+    const n = Number(value);
+    if (Number.isNaN(n) || n <= 0) {
+      toast.error("Bobot jam harus lebih dari 0");
+      return;
+    }
+    try {
+      await updateTask(task._id, { hour_weight: n });
+      toast.success("Bobot jam task diupdate");
+    } catch (err) {
+      const msg = err?.message || "Gagal mengupdate bobot jam";
+      toast.error(msg);
+    }
+  };
+
+  const canApproveReject = (status) => status === "done";
+  const statusBadge = (status) => {
+    if (status === "approved") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+    if (status === "rejected") return "bg-red-500/15 text-red-300 border-red-500/30";
+    if (status === "done") return "bg-blue-500/15 text-blue-300 border-blue-500/30";
+    if (status === "ongoing") return "bg-yellow-500/15 text-yellow-300 border-yellow-500/30";
+    return "bg-slate-500/15 text-slate-200 border-slate-500/30";
+  };
+
+  return (
+    <div className="space-y-2 max-h-80 overflow-y-auto">
+      {tasks.map((task) => {
+        const hours = Number(task.hour_weight) || 0;
+        const percent =
+          totalHours > 0 ? ((hours / totalHours) * 100).toFixed(1) : "0.0";
+        const isDone = task.status === "done";
+        const isApproved = task.status === "approved";
+
+        return (
+          <button
+            key={task._id}
+            type="button"
+            onClick={() => onOpenDetail?.(task)}
+            className="w-full text-left flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-900/95 transition-colors"
+          >
+            <div className="flex-1">
+              <div className="text-sm text-slate-100 font-medium">
+                {task.title}
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
+                <span className={`px-2 py-0.5 rounded-full border ${statusBadge(task.status)}`}>
+                  {task.status}
+                </span>
+                <span>
+                  Bobot jam:{" "}
+                  <input
+                    type="number"
+                    min={0.25}
+                    step={0.25}
+                    defaultValue={hours}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => handleHourChange(task, e.target.value)}
+                    className="w-16 px-1 py-0.5 text-xs bg-slate-900 border border-slate-600 rounded ml-1"
+                  />{" "}
+                  ({percent}% dari total jam task proyek)
+                </span>
+                {task.user_id?.full_name && <span>Dikerjakan oleh: {task.user_id.full_name}</span>}
+                {task.approved_by && task.approved_at && (
+                  <span>
+                    Disetujui:{" "}
+                    {new Date(task.approved_at).toLocaleString("id-ID")}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {canApproveReject(task.status) && !isApproved && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  disabled={processing}
+                  onClick={() => onApprove(task)}
+                  className="px-3 py-1 rounded-full text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                >
+                  Approve
+                </motion.button>
+              )}
+              {canApproveReject(task.status) && !isApproved && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  disabled={processing}
+                  onClick={() => onReject(task)}
+                  className="px-3 py-1 rounded-full text-xs bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+                >
+                  Reject
+                </motion.button>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ProjectList() {
   const { user } = useAuthStore();
   const permissions = user?.role_id?.permissions || [];
@@ -65,6 +185,18 @@ export default function ProjectList() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [processing, setProcessing] = useState(false);
+
+  // Task management per project
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskModalProject, setTaskModalProject] = useState(null);
+  const [projectTasks, setProjectTasks] = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [taskForm, setTaskForm] = useState({ title: "", hour_weight: 1 });
+  const [taskProcessing, setTaskProcessing] = useState(false);
+  const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
+  const [taskDetail, setTaskDetail] = useState(null);
+  const [taskDetailHour, setTaskDetailHour] = useState(1);
+  const [initialTasks, setInitialTasks] = useState([{ title: "", hour_weight: 1 }]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -115,6 +247,7 @@ export default function ProjectList() {
       start_date: "",
       end_date: "", // Hidden from form, auto-filled by system
     });
+    setInitialTasks([{ title: "", hour_weight: 1 }]);
   };
 
   const openAddModal = () => {
@@ -145,6 +278,141 @@ export default function ProjectList() {
     setShowCancelConfirm(true);
   };
 
+  const openTaskModal = async (project) => {
+    setTaskModalProject(project);
+    setShowTaskModal(true);
+    setTaskForm({ title: "", hour_weight: 1 });
+    setLoadingTasks(true);
+    try {
+      const res = await fetchProjectTasks(project._id);
+      setProjectTasks(res.data || []);
+    } catch (err) {
+      toast.error("Gagal memuat task proyek");
+      setProjectTasks([]);
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  const refreshTasks = async () => {
+    if (!taskModalProject) return;
+    setLoadingTasks(true);
+    try {
+      const res = await fetchProjectTasks(taskModalProject._id);
+      setProjectTasks(res.data || []);
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal memuat task proyek");
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  const handleCreateTaskForProject = async (e) => {
+    e.preventDefault();
+    if (!taskModalProject || !taskForm.title.trim()) {
+      toast.error("Judul task wajib diisi");
+      return;
+    }
+    setTaskProcessing(true);
+    try {
+      await createProjectTask(taskModalProject._id, taskForm);
+      toast.success("Task berhasil ditambahkan");
+      setTaskForm({ title: "", hour_weight: 1 });
+      await refreshTasks();
+    } catch (err) {
+      const msg = err?.message || "Gagal menambah task";
+      toast.error(msg);
+    } finally {
+      setTaskProcessing(false);
+    }
+  };
+
+  const createProjectTask = async (projectId, form) => {
+    const payload = {
+      title: form.title.trim(),
+      project_id: projectId,
+      hour_weight: Number(form.hour_weight) || 1,
+      status: "planned",
+    };
+    await createTask(payload);
+  };
+
+  const handleApproveTask = async (task) => {
+    setTaskProcessing(true);
+    try {
+      await approveTask(task._id, { hour_weight: task.hour_weight });
+      toast.success("Task disetujui");
+      await refreshTasks();
+      await loadProjects();
+    } catch (err) {
+      const msg = err?.message || "Gagal menyetujui task";
+      toast.error(msg);
+    } finally {
+      setTaskProcessing(false);
+    }
+  };
+
+  const handleRejectTask = async (task) => {
+    setTaskProcessing(true);
+    try {
+      await rejectTask(task._id);
+      toast.success("Task ditolak");
+      await refreshTasks();
+      await loadProjects();
+    } catch (err) {
+      const msg = err?.message || "Gagal menolak task";
+      toast.error(msg);
+    } finally {
+      setTaskProcessing(false);
+    }
+  };
+
+  const openTaskDetail = (task) => {
+    setTaskDetail(task);
+    setTaskDetailHour(Number(task?.hour_weight) || 1);
+    setShowTaskDetailModal(true);
+  };
+
+  const closeTaskDetail = () => {
+    setShowTaskDetailModal(false);
+    setTaskDetail(null);
+  };
+
+  const handleSaveTaskDetail = async () => {
+    if (!taskDetail) return;
+    setTaskProcessing(true);
+    try {
+      await updateTask(taskDetail._id, { hour_weight: Number(taskDetailHour) || 1 });
+      toast.success("Bobot jam diperbarui");
+      await refreshTasks();
+      await loadProjects();
+      closeTaskDetail();
+    } catch (err) {
+      toast.error(err?.message || "Gagal memperbarui bobot jam");
+    } finally {
+      setTaskProcessing(false);
+    }
+  };
+
+  const handleDeleteTask = async () => {
+    if (!taskDetail) return;
+    const ok = window.confirm("Hapus task ini? Aksi ini tidak bisa dibatalkan.");
+    if (!ok) return;
+    setTaskProcessing(true);
+    try {
+      await deleteTask(taskDetail._id);
+      toast.success("Task dihapus");
+      await refreshTasks();
+      await loadProjects();
+      closeTaskDetail();
+    } catch (err) {
+      toast.error(err?.message || "Gagal menghapus task");
+    } finally {
+      setTaskProcessing(false);
+    }
+  };
+
   const handleCancelProject = async () => {
     if (processing) return;
     setProcessing(true);
@@ -171,24 +439,46 @@ export default function ProjectList() {
         code: formData.code,
         name: formData.name,
         work_type: formData.work_type,
-        percentage: Number(formData.percentage),
         start_date: formData.start_date || null,
-        // status dan end_date tidak dikirim, biar sistem yang handle otomatis
       };
 
       if (showAddModal) {
-        await createProject(payload);
+        const created = await createProject(payload);
+        const createdProject = created?.data || created;
+        const projectId = createdProject?._id;
+        if (projectId) {
+          const tasksToCreate = (initialTasks || [])
+            .map((t) => ({
+              title: String(t.title || "").trim(),
+              hour_weight: Number(t.hour_weight) || 1,
+            }))
+            .filter((t) => t.title.length > 0);
+
+          if (tasksToCreate.length > 0) {
+            await Promise.all(
+              tasksToCreate.map((t) =>
+                createTask({
+                  title: t.title,
+                  project_id: projectId,
+                  hour_weight: t.hour_weight,
+                  status: "planned",
+                  user_id: null, // manager menyiapkan task unassigned
+                })
+              )
+            );
+          }
+        }
         toast.success("Proyek berhasil ditambahkan");
         setShowAddModal(false);
+        // Jika di masa depan ingin langsung membuka modal task untuk project baru,
+        // bisa panggil openTaskModal(created).
       } else if (showEditModal) {
         // For edit, only send fields that user can modify (status & end_date are system-managed)
         const editPayload = {
           code: payload.code,
           name: payload.name,
           work_type: payload.work_type,
-          percentage: payload.percentage,
           start_date: payload.start_date,
-          // status dan end_date tidak dikirim, biar sistem yang handle otomatis
         };
         await updateProject(selectedProject._id, editPayload);
         toast.success("Proyek berhasil diperbarui");
@@ -488,6 +778,15 @@ export default function ProjectList() {
                         <td className="w-48 px-8 py-6 text-right sticky right-0 bg-slate-900/80 backdrop-blur-sm z-10">
                           <div className="flex justify-end gap-4">
                             <>
+                              <motion.button
+                                whileHover={{ scale: 1.2 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => openTaskModal(proj)}
+                                className="text-emerald-400 hover:text-emerald-300"
+                                title="Kelola Task"
+                              >
+                                <TrendingUp className="w-6 h-6" />
+                              </motion.button>
                               <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }} onClick={() => openEditModal(proj)} className="text-blue-400 hover:text-blue-300" title="Edit">
                                 <Edit className="w-6 h-6" />
                               </motion.button>
@@ -593,47 +892,105 @@ export default function ProjectList() {
                         ))}
                       </select>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Progress (%)</label>
-                    <div className="flex items-center gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
                       <input 
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={formData.percentage}
-                        onChange={(e) => setFormData({...formData, percentage: Number(e.target.value)})}
-                        className="flex-1 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
-                        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+                        type="date" 
+                        value={formData.start_date} 
+                        onChange={(e) => setFormData({...formData, start_date: e.target.value})} 
+                        className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
                       />
-                      <input 
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={formData.percentage}
-                        onChange={(e) => setFormData({...formData, percentage: Math.max(0, Math.min(100, Number(e.target.value)))})}
-                        className="w-24 px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 backdrop-blur-sm text-center"
-                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Status akan otomatis berubah menjadi "Berjalan" saat tanggal mulai tercapai
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Progress akan otomatis terisi dari kontribusi attendance. Saat mencapai 100%, status otomatis menjadi "Selesai" dan tanggal selesai terisi.
-                    </p>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
-                    <input 
-                      type="date" 
-                      value={formData.start_date} 
-                      onChange={(e) => setFormData({...formData, start_date: e.target.value})} 
-                      className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
-                    />
-                    <p className="text-xs text-slate-400 mt-1">
-                      Status akan otomatis berubah menjadi "Berjalan" saat tanggal mulai tercapai
+                  <div className="border border-slate-800 rounded-2xl p-4 bg-slate-950/60">
+                    <h3 className="text-sm font-semibold text-slate-100 mb-3">
+                      Task Awal Proyek (opsional)
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mb-3">
+                      Anda dapat menyiapkan beberapa task awal beserta bobot jamnya. Task akan dibuat
+                      dengan status <span className="font-semibold">planned</span> setelah proyek tersimpan.
                     </p>
+
+                    {showAddModal && (
+                      <div className="space-y-3">
+                        {initialTasks.map((t, idx) => (
+                          <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                            <div className="md:col-span-8">
+                              <input
+                                value={t.title}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setInitialTasks((prev) => {
+                                    const next = [...prev];
+                                    next[idx] = { ...next[idx], title: v };
+                                    return next;
+                                  });
+                                }}
+                                placeholder={`Judul task #${idx + 1}`}
+                                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="md:col-span-3">
+                              <input
+                                type="number"
+                                min={0.25}
+                                step={0.25}
+                                value={t.hour_weight}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setInitialTasks((prev) => {
+                                    const next = [...prev];
+                                    next[idx] = { ...next[idx], hour_weight: v };
+                                    return next;
+                                  });
+                                }}
+                                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="md:col-span-1 flex items-center justify-end">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInitialTasks((prev) => {
+                                    if (prev.length <= 1) return [{ title: "", hour_weight: 1 }];
+                                    return prev.filter((_, i) => i !== idx);
+                                  });
+                                }}
+                                className="p-3 rounded-2xl bg-slate-800/70 border border-slate-700 text-slate-300 hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-300 transition-all"
+                                title="Hapus baris"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        <div className="flex justify-between items-center">
+                          <p className="text-[11px] text-slate-500">
+                            Tip: kosongkan judul jika tidak ingin membuat task awal.
+                          </p>
+                          <motion.button
+                            type="button"
+                            whileHover={{ scale: 1.03 }}
+                            whileTap={{ scale: 0.97 }}
+                            onClick={() =>
+                              setInitialTasks((prev) => [...prev, { title: "", hour_weight: 1 }])
+                            }
+                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Tambah Task
+                          </motion.button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
+                  
                   <div className="flex justify-end gap-4 pt-4">
                     <motion.button 
                       type="button" 
@@ -753,6 +1110,262 @@ export default function ProjectList() {
                   {processing ? <Loader2 className="animate-spin w-6 h-6" /> : <Ban className="w-6 h-6" />}
                   Batalkan
                 </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {/* Modal Task Management per Project */}
+        {showTaskModal && taskModalProject && (
+          <motion.div
+            className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div
+              className="bg-slate-900/95 backdrop-blur-2xl rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-blue-900/50 shadow-2xl"
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                      <Target className="w-6 h-6 text-indigo-400" />
+                      Task Proyek: {taskModalProject.name}
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Kelola daftar task, bobot jam, dan approval untuk proyek ini.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowTaskModal(false);
+                      setTaskModalProject(null);
+                      setProjectTasks([]);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:bg-slate-700/80"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="mb-4 border border-slate-800 rounded-2xl p-4 bg-slate-950/60">
+                  <h3 className="text-sm font-semibold text-slate-100 mb-3">
+                    Tambah Task Baru
+                  </h3>
+                  <form
+                    className="flex flex-col md:flex-row gap-3"
+                    onSubmit={handleCreateTaskForProject}
+                  >
+                    <input
+                      type="text"
+                      placeholder="Judul task..."
+                      value={taskForm.title}
+                      onChange={(e) =>
+                        setTaskForm((prev) => ({ ...prev, title: e.target.value }))
+                      }
+                      className="flex-1 px-4 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="number"
+                      min={0.25}
+                      step={0.25}
+                      value={taskForm.hour_weight}
+                      onChange={(e) =>
+                        setTaskForm((prev) => ({
+                          ...prev,
+                          hour_weight: Number(e.target.value) || 1,
+                        }))
+                      }
+                      className="w-28 px-3 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                    />
+                    <motion.button
+                      type="submit"
+                      disabled={taskProcessing || !taskForm.title.trim()}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl text-sm font-semibold disabled:opacity-50 flex items-center gap-2 justify-center"
+                    >
+                      {taskProcessing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4" />
+                      )}
+                      Tambah
+                    </motion.button>
+                  </form>
+                </div>
+
+                <div className="border border-slate-800 rounded-2xl p-4 bg-slate-950/40">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-slate-100">
+                      Daftar Task
+                    </h3>
+                    <button
+                      onClick={refreshTasks}
+                      className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                    >
+                      <Loader2 className="w-3 h-3" />
+                      Refresh
+                    </button>
+                  </div>
+
+                  {loadingTasks ? (
+                    <div className="py-6 text-sm text-slate-400">
+                      Memuat task proyek...
+                    </div>
+                  ) : projectTasks.length === 0 ? (
+                    <div className="py-6 text-sm text-slate-400">
+                      Belum ada task untuk proyek ini.
+                    </div>
+                  ) : (
+                    <TaskListWithActions
+                      tasks={projectTasks}
+                      project={taskModalProject}
+                      loading={loadingTasks}
+                      processing={taskProcessing}
+                      onApprove={handleApproveTask}
+                      onReject={handleRejectTask}
+                      onOpenDetail={openTaskDetail}
+                    />
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Modal Detail Task */}
+        {showTaskDetailModal && taskDetail && (
+          <motion.div
+            className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div
+              className="bg-slate-900/95 backdrop-blur-2xl rounded-3xl max-w-xl w-full border border-blue-900/50 shadow-2xl"
+              initial={{ scale: 0.95, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+            >
+              <div className="p-6">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-white">{taskDetail.title}</h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Status: <span className="font-semibold">{taskDetail.status}</span>
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeTaskDetail}
+                    className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:bg-slate-700/80"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-sm text-slate-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                      <div className="text-[11px] text-slate-500 mb-1">Dikerjakan oleh</div>
+                      <div className="font-medium">
+                        {taskDetail.user_id?.full_name || "-"}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {taskDetail.user_id?.email || ""}
+                      </div>
+                    </div>
+                    <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                      <div className="text-[11px] text-slate-500 mb-1">Disetujui oleh</div>
+                      <div className="font-medium">
+                        {taskDetail.approved_by?.full_name || "-"}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {taskDetail.approved_at
+                          ? new Date(taskDetail.approved_at).toLocaleString("id-ID")
+                          : ""}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                    <div className="text-[11px] text-slate-500 mb-2">Bobot jam</div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0.25}
+                        step={0.25}
+                        value={taskDetailHour}
+                        onChange={(e) => setTaskDetailHour(e.target.value)}
+                        className="w-28 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-xs text-slate-400">jam</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                      <div className="text-[11px] text-slate-500 mb-1">Dibuat</div>
+                      <div className="text-xs text-slate-300">
+                        {taskDetail.created_at
+                          ? new Date(taskDetail.created_at).toLocaleString("id-ID")
+                          : "-"}
+                      </div>
+                    </div>
+                    <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                      <div className="text-[11px] text-slate-500 mb-1">Diupdate</div>
+                      <div className="text-xs text-slate-300">
+                        {taskDetail.updated_at
+                          ? new Date(taskDetail.updated_at).toLocaleString("id-ID")
+                          : "-"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 mt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleDeleteTask}
+                    disabled={taskProcessing}
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold disabled:opacity-50"
+                  >
+                    Hapus Task
+                  </motion.button>
+                  <div className="flex items-center gap-2">
+                    {taskDetail.status === "done" && (
+                      <>
+                        <motion.button
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => handleApproveTask(taskDetail)}
+                          disabled={taskProcessing}
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50"
+                        >
+                          Approve
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => handleRejectTask(taskDetail)}
+                          disabled={taskProcessing}
+                          className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold disabled:opacity-50"
+                        >
+                          Reject
+                        </motion.button>
+                      </>
+                    )}
+                    <motion.button
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={handleSaveTaskDetail}
+                      disabled={taskProcessing}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
+                    >
+                      Simpan
+                    </motion.button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </motion.div>
