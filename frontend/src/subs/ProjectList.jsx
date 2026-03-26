@@ -65,6 +65,12 @@ function TaskListWithActions({
       toast.error("Bobot jam harus lebih dari 0");
       return;
     }
+    const current = Number(task.hour_weight) || 0;
+    if (n === current) return;
+    const confirmed = window.confirm(
+      `Ubah bobot jam task "${task.title}" dari ${current} menjadi ${n}?`
+    );
+    if (!confirmed) return;
     try {
       await updateTask(task._id, { hour_weight: n });
       toast.success("Bobot jam task diupdate");

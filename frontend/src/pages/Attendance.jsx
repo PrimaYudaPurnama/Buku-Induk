@@ -251,6 +251,7 @@ const Attendance = () => {
   const [newTaskTitleByProject, setNewTaskTitleByProject] = useState({});
   const [newTaskHourByProject, setNewTaskHourByProject] = useState({});
   const [creatingTaskProjectId, setCreatingTaskProjectId] = useState(null);
+  const [savingPlanAfterCheckIn, setSavingPlanAfterCheckIn] = useState(false);
 
   // Status lokal task saat checkout (done/ongoing)
   const [checkoutTaskStatuses, setCheckoutTaskStatuses] = useState({});
@@ -616,6 +617,25 @@ const Attendance = () => {
       toast.error("Gagal menambah task");
     } finally {
       setCreatingTaskProjectId(null);
+    }
+  };
+
+  const handleSavePlanAfterCheckIn = async () => {
+    try {
+      setSavingPlanAfterCheckIn(true);
+      const uniqueTaskIds = Array.from(new Set(selectedTasksToday.filter(Boolean)));
+      if (uniqueTaskIds.length === 0) {
+        toast.error("Minimal satu task harus dipilih");
+        return;
+      }
+      await updateDailyWork({ tasks_today: uniqueTaskIds });
+      toast.success("Project & task hari ini berhasil diperbarui");
+      await loadTodayAttendance();
+    } catch (error) {
+      console.error("Failed to save tasks_today after check-in:", error);
+      toast.error(error?.message || "Gagal menyimpan project dan task");
+    } finally {
+      setSavingPlanAfterCheckIn(false);
     }
   };
 
@@ -1852,6 +1872,186 @@ const Attendance = () => {
               <Calendar className="w-6 h-6 text-blue-400" />
               Catatan Pekerjaan Harian
             </h2>
+
+            {/* Dynamic planner after check-in: project & task can still be adjusted */}
+            <div className="mb-6 border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
+              <h3 className="font-semibold text-white mb-2">
+                Atur Ulang Project & Task Hari Ini
+              </h3>
+              <p className="text-xs text-slate-400 mb-4">
+                Setelah check-in, Anda tetap bisa menambah/mengurangi project dan task untuk hari ini.
+              </p>
+
+              {loadingMasterData ? (
+                <div className="text-sm text-slate-400 py-2">Memuat proyek...</div>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-slate-300 mb-2">
+                      Tambah Proyek
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <SearchSelect
+                          value={projectPickerValue}
+                          onChange={(v) => setProjectPickerValue(v)}
+                          options={projects
+                            .filter(
+                              (p) =>
+                                !selectedProjectsForToday.includes(p._id) &&
+                                p.status === "ongoing"
+                            )
+                            .map((p) => ({
+                              value: p._id,
+                              label: p.name,
+                              subLabel: `${p.code} • ${p.percentage}%`,
+                            }))}
+                          placeholder="Cari proyek..."
+                          allLabel="Pilih proyek..."
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (projectPickerValue) {
+                            handleSelectProjectForToday(projectPickerValue);
+                            setProjectPickerValue("");
+                          }
+                        }}
+                        className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl transition-all text-sm"
+                      >
+                        Tambah
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedProjectsForToday.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      Belum ada proyek dipilih.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {selectedProjectsForToday.map((projectId) => {
+                        const proj = projects.find((p) => p._id === projectId);
+                        const tasks = projectTasksMap[projectId] || [];
+                        const newTitle = newTaskTitleByProject[projectId] || "";
+                        return (
+                          <div
+                            key={projectId}
+                            className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="text-sm font-semibold text-white">
+                                  {proj?.name || "Proyek"}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  {proj?.code} • Progress: {proj?.percentage ?? 0}%
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveProjectForToday(projectId)}
+                                className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1"
+                              >
+                                <X className="w-3 h-3" />
+                                Hapus
+                              </button>
+                            </div>
+
+                            <div className="space-y-2 mb-3">
+                              {tasks.length === 0 ? (
+                                <p className="text-xs text-slate-500">Belum ada task untuk proyek ini.</p>
+                              ) : (
+                                tasks.map((task) => {
+                                  const checked = selectedTasksToday.includes(task._id);
+                                  const status = task.status;
+                                  const workerName = task.user_id?.full_name || task.user_id?.email || "";
+                                  const isRejected = status === "rejected";
+                                  const isOngoingOwned =
+                                    status === "ongoing" &&
+                                    String(task.user_id?._id || task.user_id || "") === String(currentUserId);
+                                  const isSelectable =
+                                    status === "planned" || status === "rejected" || isOngoingOwned;
+                                  return (
+                                    <label
+                                      key={task._id}
+                                      className={`flex items-center justify-between gap-2 p-2 rounded-xl border ${
+                                        status === "planned"
+                                          ? "bg-slate-800/60 border-slate-700"
+                                          : status === "ongoing"
+                                          ? "bg-yellow-500/10 border-yellow-500/30"
+                                          : status === "rejected"
+                                          ? "bg-red-500/10 border-red-500/30"
+                                          : "bg-slate-800/60 border-slate-700"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={!isSelectable}
+                                          onChange={() => {
+                                            if (!isSelectable) return;
+                                            handleToggleTaskForToday(task._id);
+                                          }}
+                                          className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                                        />
+                                        <div>
+                                          <div className="text-xs text-slate-200 font-medium">{task.title}</div>
+                                          <div className="text-[10px] text-slate-500">
+                                            Bobot jam: {task.hour_weight} • Status: {status}
+                                            {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newTitle}
+                                onChange={(e) => handleNewTaskTitleChange(projectId, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleAddProjectTask(projectId);
+                                }}
+                                placeholder="Tambah task baru..."
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
+                              />
+                              <input
+                                type="number"
+                                min={0.25}
+                                step={0.25}
+                                value={newTaskHourByProject[projectId] ?? 1}
+                                onChange={(e) => handleNewTaskHourChange(projectId, e.target.value)}
+                                className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <button
+                                onClick={() => handleAddProjectTask(projectId)}
+                                disabled={creatingTaskProjectId === projectId || !newTitle.trim()}
+                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-xs"
+                              >
+                                {creatingTaskProjectId === projectId ? "..." : "Tambah"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleSavePlanAfterCheckIn}
+                    disabled={savingPlanAfterCheckIn || selectedTasksToday.length === 0}
+                    className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 text-white font-medium py-3 rounded-xl"
+                  >
+                    {savingPlanAfterCheckIn ? "Menyimpan..." : "Simpan Perubahan Project & Task"}
+                  </button>
+                </>
+              )}
+            </div>
 
             {/* Tasks Today — tandai selesai (done) atau lanjut (ongoing) */}
             <div className="mb-6">

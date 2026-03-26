@@ -185,6 +185,27 @@ class AttendanceController {
     }
   }
 
+  async getMyAttendanceCalendar(c) {
+    try {
+      const user = c.get("user");
+      const month = c.req.query("month") || null;
+      const result = await AttendanceService.getMyAttendanceCalendar({ user, month });
+      return c.json({ success: true, data: result });
+    } catch (error) {
+      const status = error.status || 500;
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message || "Failed to fetch attendance calendar",
+            code: error.code || "GET_ATTENDANCE_CALENDAR_ERROR",
+          },
+        },
+        status
+      );
+    }
+  }
+
   async getActivities(c) {
     try {
       const Activity = (await import("../models/activity.js")).default;

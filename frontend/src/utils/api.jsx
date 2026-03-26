@@ -1245,6 +1245,20 @@ export const getAttendanceHistory = async ({ from, to } = {}) => {
   return data;
 };
 
+export const getMyAttendanceCalendar = async ({ month } = {}) => {
+  const params = new URLSearchParams();
+  if (month) params.append("month", month);
+  const response = await fetch(`${API_BASE}/attendance/my-calendar?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat kalender riwayat presensi");
+  return data;
+};
+
 export const requestLateAttendance = async ({ date, reason }) => {
   const response = await fetch(`${API_BASE}/attendance/late-request`, {
     method: "POST",

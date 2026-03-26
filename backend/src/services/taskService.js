@@ -162,13 +162,13 @@ async function updateTask({ user, taskId, payload }) {
     err.status = 404;
     throw err;
   }
-
-  if (task.user_id.toString() !== user._id.toString()) {
-    const err = new Error("Task does not belong to current user");
-    err.code = "FORBIDDEN_OWNERSHIP";
-    err.status = 403;
-    throw err;
-  }
+  // if (task.user_id.toString() !== user._id.toString()) {
+  //   console.log(task.user_id.toString(), user._id.toString());
+  //   const err = new Error("Task does not belong to current user");
+  //   err.code = "FORBIDDEN_OWNERSHIP";
+  //   err.status = 403;
+  //   throw err;
+  // }
 
   const { title, description, hour_weight, status, project_id } = payload || {};
 

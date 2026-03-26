@@ -270,6 +270,14 @@ const applyProjectContributions = async (attendance) => {
   }
 };
 
+const normalizeDateKey = (date) => {
+  const d = getWIBDate(new Date(date));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 class AttendanceService {
   /**
    * Check-in: create new attendance for today.
@@ -468,22 +476,64 @@ class AttendanceService {
 
     const updateOps = {};
 
-    // tasks_today - $addToSet valid task IDs belonging to user
-    if (Array.isArray(payload.tasks_today) && payload.tasks_today.length > 0) {
+    // tasks_today - replace full list, not add-only. This enables dynamic add/remove after check-in.
+    if (payload.tasks_today !== undefined) {
+      if (!Array.isArray(payload.tasks_today)) {
+        const err = new Error("tasks_today must be an array");
+        err.code = "INVALID_TASK_IDS";
+        err.status = 400;
+        throw err;
+      }
       const taskIds = payload.tasks_today
         .filter((id) => id && id.toString?.())
         .map((id) => id.toString());
+
       if (taskIds.length > 0) {
-        const tasks = await Task.find({ _id: { $in: taskIds }, user_id: user._id });
+        const tasks = await Task.find({ _id: { $in: taskIds } });
         if (tasks.length !== taskIds.length) {
-          const err = new Error("One or more task IDs are invalid or do not belong to you");
+          const err = new Error("One or more task IDs are invalid");
           err.code = "INVALID_TASK_IDS";
           err.status = 400;
           throw err;
         }
-        updateOps.$addToSet = updateOps.$addToSet || {};
-        updateOps.$addToSet.tasks_today = { $each: taskIds };
+
+        const hasApproved = tasks.some((t) => t.status === "approved");
+        if (hasApproved) {
+          const err = new Error("Approved tasks cannot be attached to attendance");
+          err.code = "APPROVED_TASK_FORBIDDEN";
+          err.status = 400;
+          throw err;
+        }
+
+        const hasOtherOngoing = tasks.some(
+          (t) =>
+            t.status === "ongoing" &&
+            t.user_id &&
+            t.user_id.toString() !== user._id.toString()
+        );
+        if (hasOtherOngoing) {
+          const err = new Error(
+            "Tidak bisa memilih task ongoing yang sedang dikerjakan orang lain"
+          );
+          err.code = "ONGOING_TASK_LOCKED";
+          err.status = 400;
+          throw err;
+        }
+
+        // Any planned/rejected picked by user becomes ongoing and is assigned to the user.
+        const toOngoingIds = tasks
+          .filter((t) => ["planned", "rejected"].includes(t.status))
+          .map((t) => t._id);
+        if (toOngoingIds.length > 0) {
+          await Task.updateMany(
+            { _id: { $in: toOngoingIds } },
+            { $set: { status: "ongoing", user_id: user._id } }
+          );
+        }
       }
+
+      updateOps.$set = updateOps.$set || {};
+      updateOps.$set.tasks_today = taskIds;
     }
 
     // projects / activities - $set (replace entire array) to avoid duplicates from $addToSet
@@ -525,7 +575,6 @@ class AttendanceService {
     }
 
     if (
-      !updateOps.$addToSet &&
       !(updateOps.$set && Object.keys(updateOps.$set).length > 0)
     ) {
       const err = new Error("No valid updates provided");
@@ -1065,22 +1114,62 @@ class AttendanceService {
 
     const updateOps = {};
 
-    // tasks_today - $addToSet valid task IDs belonging to user
-    if (Array.isArray(payload.tasks_today) && payload.tasks_today.length > 0) {
+    if (payload.tasks_today !== undefined) {
+      if (!Array.isArray(payload.tasks_today)) {
+        const err = new Error("tasks_today must be an array");
+        err.code = "INVALID_TASK_IDS";
+        err.status = 400;
+        throw err;
+      }
       const taskIds = payload.tasks_today
         .filter((id) => id && id.toString?.())
         .map((id) => id.toString());
+
       if (taskIds.length > 0) {
-        const tasks = await Task.find({ _id: { $in: taskIds }, user_id: attendance.user_id });
+        const tasks = await Task.find({ _id: { $in: taskIds } });
         if (tasks.length !== taskIds.length) {
-          const err = new Error("One or more task IDs are invalid or do not belong to you");
+          const err = new Error("One or more task IDs are invalid");
           err.code = "INVALID_TASK_IDS";
           err.status = 400;
           throw err;
         }
-        updateOps.$addToSet = updateOps.$addToSet || {};
-        updateOps.$addToSet.tasks_today = { $each: taskIds };
+
+        const hasApproved = tasks.some((t) => t.status === "approved");
+        if (hasApproved) {
+          const err = new Error("Approved tasks cannot be attached to attendance");
+          err.code = "APPROVED_TASK_FORBIDDEN";
+          err.status = 400;
+          throw err;
+        }
+
+        const hasOtherOngoing = tasks.some(
+          (t) =>
+            t.status === "ongoing" &&
+            t.user_id &&
+            t.user_id.toString() !== attendance.user_id.toString()
+        );
+        if (hasOtherOngoing) {
+          const err = new Error(
+            "Tidak bisa memilih task ongoing yang sedang dikerjakan orang lain"
+          );
+          err.code = "ONGOING_TASK_LOCKED";
+          err.status = 400;
+          throw err;
+        }
+
+        const toOngoingIds = tasks
+          .filter((t) => ["planned", "rejected"].includes(t.status))
+          .map((t) => t._id);
+        if (toOngoingIds.length > 0) {
+          await Task.updateMany(
+            { _id: { $in: toOngoingIds } },
+            { $set: { status: "ongoing", user_id: attendance.user_id } }
+          );
+        }
       }
+
+      updateOps.$set = updateOps.$set || {};
+      updateOps.$set.tasks_today = taskIds;
     }
 
     const projectItems = Array.isArray(payload.projects)
@@ -1120,7 +1209,6 @@ class AttendanceService {
     }
 
     if (
-      !updateOps.$addToSet &&
       !(updateOps.$set && Object.keys(updateOps.$set).length > 0)
     ) {
       const err = new Error("No valid updates provided");
@@ -1136,6 +1224,73 @@ class AttendanceService {
     );
 
     return updated;
+  }
+
+  async getMyAttendanceCalendar({ user, month }) {
+    if (!user?._id) {
+      const err = new Error("User context is required");
+      err.code = "MISSING_USER";
+      err.status = 400;
+      throw err;
+    }
+
+    const nowWib = getWIBDate(new Date());
+    const monthMatch = typeof month === "string" ? month.match(/^(\d{4})-(\d{2})$/) : null;
+    const year = monthMatch ? Number(monthMatch[1]) : nowWib.getFullYear();
+    const monthIndex = monthMatch ? Number(monthMatch[2]) - 1 : nowWib.getMonth();
+    if (monthIndex < 0 || monthIndex > 11) {
+      const err = new Error("month must be in format YYYY-MM");
+      err.code = "INVALID_MONTH";
+      err.status = 400;
+      throw err;
+    }
+
+    const startLocal = new Date(year, monthIndex, 1);
+    const endLocal = new Date(year, monthIndex + 1, 0);
+    const start = normalizeToDateOnly(startLocal);
+    const end = normalizeToDateOnly(endLocal);
+
+    const records = await Attendance.find({
+      user_id: user._id,
+      date: { $gte: start, $lte: end },
+    })
+      .sort({ date: 1 })
+      .populate("tasks_today")
+      .populate("projects.project_id")
+      .populate("activities");
+
+    const map = new Map();
+    for (const rec of records) {
+      map.set(normalizeDateKey(rec.date), rec);
+    }
+
+    const days = [];
+    const cursor = new Date(startLocal);
+    const todayKey = normalizeDateKey(new Date());
+    while (cursor <= endLocal) {
+      const key = normalizeDateKey(cursor);
+      const rec = map.get(key);
+      days.push({
+        date: key,
+        dayOfWeek: getWIBDayOfWeek(cursor),
+        isSunday: isSunday(cursor),
+        isToday: key === todayKey,
+        hasAttendance: !!rec,
+        status: rec?.status || null,
+        checkIn_at: rec?.checkIn_at || null,
+        checkOut_at: rec?.checkOut_at || null,
+        total_tasks: Array.isArray(rec?.tasks_today) ? rec.tasks_today.length : 0,
+        total_activities: Array.isArray(rec?.activities) ? rec.activities.length : 0,
+        total_projects: Array.isArray(rec?.projects) ? rec.projects.length : 0,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return {
+      month: `${year}-${String(monthIndex + 1).padStart(2, "0")}`,
+      days,
+      records,
+    };
   }
 }
 

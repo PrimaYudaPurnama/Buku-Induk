@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield,Upload, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch, UserCheck, Clock, TrendingUp, Target, Activity, FolderKanban } from 'lucide-react';
+import { X, Home, Users, BookOpen, FileText, Settings, LogOut, Shield,Upload, ClipboardList, CheckCircle, Bell, FolderOpen, Sparkles, BarChart3, GitBranch, UserCheck, Clock, TrendingUp, Target, Activity, FolderKanban, Calendar } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from "react-hot-toast";
 import { useAuthStore } from '../stores/useAuthStore';
@@ -10,6 +10,7 @@ const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage 
     { id: 'Home', label: 'Home', icon: Home, permission: null },
     // { id: 'Attendance', label: 'Presensi', icon: Clock, permission: ["dashboard:read", "user:read:self"] },
     { id: 'Attendance', label: 'Presensi', icon: Clock, permission: null },
+    { id: 'MyAttendanceHistory', label: 'Riwayat Presensi Saya', icon: Calendar, permission: null },
     { id: 'AttendanceAnalytics', label: 'Analytics Presensi', icon: TrendingUp, permission: ["system:manage_analytics", "dashboard:read"] },
     { id: 'ProjectAnalytics', label: 'Analytics Proyek', icon: Target, permission: ["system:manage_analytics", "dashboard:read"] },
     // { id: 'WorkflowAnalytics', label: 'Workflow Analytics', icon: BarChart3, permission: ["system:manage_analytics", "dashboard:read"]},

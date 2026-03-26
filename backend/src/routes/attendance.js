@@ -137,6 +137,15 @@ attendanceRouter.get(
   (c) => AttendanceController.getAttendanceHistory(c)
 );
 
+attendanceRouter.get(
+  "/my-calendar",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => AttendanceController.getMyAttendanceCalendar(c)
+);
+
 // Attendance by date (self)
 attendanceRouter.get(
   "/by-date",

@@ -20,6 +20,7 @@ import Attendance from './Attendance.jsx'
 import LateAttendanceApprovals from './LateAttendanceApprovals.jsx'
 import AttendanceAnalytics from './AttendanceAnalytics.jsx'
 import ProjectAnalytics from './ProjectAnalytics.jsx'
+import MyAttendanceHistory from './MyAttendanceHistory.jsx'
 import { useAuthStore } from '../stores/useAuthStore' 
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser } from '../utils/api.jsx';
@@ -75,6 +76,8 @@ export default function Dashboard() {
         return <Attendance />
       case 'LateAttendanceApprovals':
         return <LateAttendanceApprovals />
+      case 'MyAttendanceHistory':
+        return <MyAttendanceHistory />
       case 'UserList':
         return <UserList />
       case 'PendingUsers':
