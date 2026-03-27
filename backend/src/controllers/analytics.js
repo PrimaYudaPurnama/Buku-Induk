@@ -6,6 +6,7 @@ import Division from "../models/division.js";
 import Attendance from "../models/attendance.js";
 import Activity from "../models/activity.js";
 import Project from "../models/project.js";
+import Task from "../models/task.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
 import { generateApprovalSteps } from "../lib/approvalWorkflows.js";
 import mongoose from "mongoose";
@@ -1154,7 +1155,15 @@ class AnalyticsController {
             { path: "rejected_by", select: "full_name email" },
           ],
         })
-        .populate("tasks_today", "title description progress status start_at completed_at weight")
+        // Task: ikuti schema Task (lihat `backend/src/models/task.js`)
+        .populate({
+          path: "tasks_today",
+          select: "title description hour_weight project_id status start_at approved_at approved_by user_id",
+          populate: {
+            path: "project_id",
+            select: "code name work_type percentage status start_date end_date",
+          },
+        })
         .populate({
           path: "projects.project_id",
           select: "code name work_type percentage status start_date end_date",
@@ -1164,28 +1173,52 @@ class AnalyticsController {
         .limit(parseInt(limit))
         .skip(skip)
         .lean();
+        
+        // Merge project dari tasks_today ke projects[] tanpa duplikat
+        attendances.forEach(a => {
+          const existingProjectIds = new Set(
+            a.projects.map(p => p.project_id?._id?.toString() || p.project_id?.toString())
+          );
+        
+          const projectsFromTasks = (a.tasks_today || [])
+            .map(t => t.project_id)
+            .filter(p => p && !existingProjectIds.has(p._id?.toString()));
+        
+          // Deduplikasi dari tasks juga (kalau beberapa task pakai project sama)
+          const uniqueFromTasks = [];
+          const seenFromTasks = new Set();
+          for (const p of projectsFromTasks) {
+            const id = p._id?.toString();
+            if (!seenFromTasks.has(id)) {
+              seenFromTasks.add(id);
+              uniqueFromTasks.push({ project_id: p });
+            }
+          }
+        
+          a.projects = [...a.projects, ...uniqueFromTasks];
+        });
 
         // Setelah .lean(), tambah ini:
-const projectIds = attendances.flatMap(a => 
-  a.projects.map(p => p.project_id)
-).filter(Boolean);
+      const projectIds = attendances.flatMap(a => 
+        a.projects.map(p => p.project_id)
+      ).filter(Boolean);
 
-const populatedProjects = await mongoose.model("Project")
-  .find({ _id: { $in: projectIds } })
-  .select("code name work_type percentage status start_date end_date")
-  .lean();
+      const populatedProjects = await mongoose.model("Project")
+        .find({ _id: { $in: projectIds } })
+        .select("code name work_type percentage status start_date end_date")
+        .lean();
 
-const projectMap = Object.fromEntries(
-  populatedProjects.map(p => [p._id.toString(), p])
-);
+      const projectMap = Object.fromEntries(
+        populatedProjects.map(p => [p._id.toString(), p])
+      );
 
-// Inject ke setiap attendance
-attendances.forEach(a => {
-  a.projects = a.projects.map(p => ({
-    ...p,
-    project_id: projectMap[p.project_id?.toString()] || p.project_id,
-  }));
-});
+      // Inject ke setiap attendance
+      attendances.forEach(a => {
+        a.projects = a.projects.map(p => ({
+          ...p,
+          project_id: projectMap[p.project_id?.toString()] || p.project_id,
+        }));
+      });
 
       const total = await Attendance.countDocuments(filter);
 
@@ -1204,296 +1237,652 @@ attendances.forEach(a => {
     }
   }
 
+  /** Bulatkan ke N desimal */
+  static round = (n, dec = 2) => Math.round(n * 10 ** dec) / 10 ** dec;
+
+  /** Hitung selisih hari antara dua Date (positif = tgl2 lebih jauh ke depan) */
+  static daysDiff = (d1, d2) =>
+    Math.round((new Date(d2) - new Date(d1)) / 86_400_000);
+
   /**
-   * GET /api/v1/analytics/project-overview
-   * Get project overview statistics
-   */
-  static async getProjectOverview(c) {
-    try {
-      const currentUser = c.get("user");
-      if (!currentUser) {
-        return c.json({ message: "Unauthorized" }, 401);
-      }
+ * Hitung "project health" sederhana berdasarkan progress vs waktu terpakai.
+ *
+ * Returns:
+ *   { label: "on_track"|"at_risk"|"behind"|"no_timeline"|"completed",
+ *     time_elapsed_pct: number|null,
+ *     progress_pct: number }
+*/
+  static calcHealth(project) {
+    const { status, percentage, start_date, end_date } = project;
 
-      const query = c.req.query();
-      const { work_type, status } = query;
-
-      // Build filter
-      const filter = {};
-      if (work_type) filter.work_type = work_type;
-      if (status) filter.status = status;
-
-      // Get all projects
-      const projects = await Project.find(filter).sort({ created_at: -1 }).lean();
-
-      // Get all attendances with project contributions
-      const attendances = await Attendance.find({
-        "projects.project_id": { $exists: true, $ne: null },
-      })
-        .populate({
-          path: "user_id",
-          select: "full_name email employee_code division_id",
-          populate: {
-            path: "division_id",
-            select: "name",
-          },
-        })
-        .populate({
-          path: "projects.project_id",
-          select: "name code work_type percentage status",
-        })
-        .lean();
-      
-
-      // Calculate project statistics
-      const projectStats = projects.map((project) => {
-        // Find all attendances that contributed to this project
-        const contributions = attendances
-          .filter((att) =>
-            att.projects?.some(
-              (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === project._id.toString()
-            )
-          )
-          .map((att) => {
-            const projContrib = att.projects.find(
-              (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === project._id.toString()
-            );
-            return {
-              user_id: att.user_id,
-              contribution_percentage: projContrib?.contribution_percentage || 0,
-              date: att.date,
-            };
-          });
-
-        // Calculate total contribution percentage
-        const totalContribution = contributions.reduce(
-          (sum, c) => sum + (c.contribution_percentage || 0),
-          0
-        );
-
-        // Get unique contributors
-        const uniqueContributors = new Set(
-          contributions.map((c) => c.user_id?._id?.toString() || c.user_id?.toString())
-        );
-
-        // Calculate average contribution per user
-        const avgContributionPerUser =
-          uniqueContributors.size > 0 ? totalContribution / uniqueContributors.size : 0;
-
-        // Get contributor details
-        const contributorDetails = Array.from(uniqueContributors).map((userId) => {
-          const userContributions = contributions.filter(
-            (c) => (c.user_id?._id?.toString() || c.user_id?.toString()) === userId
-          );
-          const userTotal = userContributions.reduce(
-            (sum, c) => sum + (c.contribution_percentage || 0),
-            0
-          );
-          const user = attendances.find(
-            (att) => (att.user_id?._id?.toString() || att.user_id?.toString()) === userId
-          )?.user_id;
-
-          return {
-            user_id: userId,
-            user_name: user?.full_name || "Unknown",
-            user_email: user?.email || "",
-            total_contribution: Math.round(userTotal * 100) / 100,
-            contribution_count: userContributions.length,
-          };
-        });
-
-        return {
-          project: {
-            _id: project._id,
-            code: project.code,
-            name: project.name,
-            work_type: project.work_type,
-            percentage: project.percentage,
-            status: project.status,
-            start_date: project.start_date,
-            end_date: project.end_date,
-          },
-          statistics: {
-            total_contribution_percentage: Math.round(totalContribution * 100) / 100,
-            unique_contributors: uniqueContributors.size,
-            average_contribution_per_user: Math.round(avgContributionPerUser * 100) / 100,
-            contribution_count: contributions.length,
-          },
-          contributors: contributorDetails.sort((a, b) => b.total_contribution - a.total_contribution),
-        };
-      });
-
-      // Overall statistics
-      const overallStats = {
-        total_projects: projects.length,
-        by_status: {
-          planned: projects.filter((p) => p.status === "planned").length,
-          ongoing: projects.filter((p) => p.status === "ongoing").length,
-          completed: projects.filter((p) => p.status === "completed").length,
-          cancelled: projects.filter((p) => p.status === "cancelled").length,
-        },
-        by_work_type: {
-          management: projects.filter((p) => p.work_type === "management").length,
-          technic: projects.filter((p) => p.work_type === "technic").length,
-        },
-        average_progress: projects.length > 0
-          ? Math.round((projects.reduce((sum, p) => sum + (p.percentage || 0), 0) / projects.length) * 100) / 100
-          : 0,
+    if (status === "completed")
+      return {
+        label: "completed",
+        time_elapsed_pct: 100,
+        progress_pct: percentage ?? 0,
+      };
+    if (status === "cancelled")
+      return {
+        label: "cancelled",
+        time_elapsed_pct: null,
+        progress_pct: percentage ?? 0,
       };
 
-      return c.json({
-        data: {
-          overall: overallStats,
-          projects: projectStats,
-        },
-      });
-    } catch (error) {
-      console.error("Get project overview error:", error);
-      return c.json({ message: error.message || "Internal server error" }, 500);
+    if (!start_date || !end_date) {
+      return {
+        label: "no_timeline",
+        time_elapsed_pct: null,
+        progress_pct: percentage ?? 0,
+      };
     }
+
+    const totalDays = AnalyticsController.daysDiff(start_date, end_date);
+    if (totalDays <= 0)
+      return {
+        label: "no_timeline",
+        time_elapsed_pct: null,
+        progress_pct: percentage ?? 0,
+      };
+
+    const elapsed = Math.min(
+      AnalyticsController.daysDiff(start_date, new Date()),
+      totalDays
+    );
+    const timeElapsedPct = AnalyticsController.round(
+      (elapsed / totalDays) * 100
+    );
+    const progressPct = percentage ?? 0;
+
+    // Gap: berapa jauh progress tertinggal dari waktu yang sudah terpakai
+    const gap = timeElapsedPct - progressPct;
+
+    let label;
+    if (gap <= 5) label = "on_track";
+    else if (gap <= 20) label = "at_risk";
+    else label = "behind";
+
+    return { label, time_elapsed_pct: timeElapsedPct, progress_pct: progressPct };
   }
 
-  /**
-   * GET /api/v1/analytics/project-details/:id
-   * Get detailed analytics for a specific project
-   */
-  static async getProjectDetails(c) {
-    try {
-      const currentUser = c.get("user");
-      if (!currentUser) {
-        return c.json({ message: "Unauthorized" }, 401);
-      }
-
-      const projectId = c.req.param("id");
-
-      // Get project
-      const project = await Project.findById(projectId);
-      if (!project) {
-        return c.json({ message: "Project not found" }, 404);
-      }
-
-      // Get all attendances that contributed to this project
-      const attendances = await Attendance.find({
-        "projects.project_id": projectId,
+  // ─── getProjectOverview ──────────────────────────────────────
+ 
+/**
+ * GET /api/v1/analytics/project-overview
+ *
+ * Mengembalikan:
+ *  - overall : statistik agregat seluruh proyek
+ *  - projects: per-proyek dengan statistik task, contributor,
+ *              health, dan data presensi harian
+ */
+static async getProjectOverview(c) {
+  try {
+    const currentUser = c.get("user");
+    if (!currentUser) return c.json({ message: "Unauthorized" }, 401);
+ 
+    const { work_type, status } = c.req.query();
+ 
+    // 1. Ambil proyek dengan filter opsional
+    const filter = {};
+    if (work_type) filter.work_type = work_type;
+    if (status)    filter.status    = status;
+ 
+    const projects = await Project.find(filter).sort({ created_at: -1 }).lean();
+    const projectIds = projects.map((p) => p._id);
+ 
+    // 2. Ambil SEMUA task yang terhubung ke proyek-proyek ini
+    const allTasks = await Task.find({ project_id: { $in: projectIds } })
+      .populate({
+        path: "user_id",
+        select: "full_name email employee_code division_id",
+        populate: { path: "division_id", select: "name" },
       })
-        .populate({
-          path: "user_id",
-          select: "full_name email employee_code division_id",
-          populate: {
-            path: "division_id",
-            select: "name",
-          },
-        })
-        .sort({ date: -1 })
-        .lean();
-      
-
-      // Process contributions
-      const contributions = attendances.map((att) => {
-        const projContrib = att.projects.find(
-          (p) => (p.project_id?._id?.toString() || p.project_id?.toString()) === projectId
-        );
-        return {
-          attendance_id: att._id,
-          user: att.user_id,
-          date: att.date,
-          contribution_percentage: projContrib?.contribution_percentage || 0,
-        };
-      });
-
-      // Group by user
-      const userContributions = new Map();
-      contributions.forEach((contrib) => {
-        const userId = contrib.user?._id?.toString() || contrib.user?.toString();
-        if (!userContributions.has(userId)) {
-          userContributions.set(userId, {
-            user: contrib.user,
-            total_contribution: 0,
-            contribution_count: 0,
-            contributions: [],
-          });
-        }
-        const entry = userContributions.get(userId);
-        entry.total_contribution += contrib.contribution_percentage;
-        entry.contribution_count++;
-        entry.contributions.push(contrib);
-      });
-
-      const contributorStats = Array.from(userContributions.values()).map((entry) => ({
-        user: entry.user,
-        total_contribution: Math.round(entry.total_contribution * 100) / 100,
-        contribution_count: entry.contribution_count,
-        average_contribution: Math.round((entry.total_contribution / entry.contribution_count) * 100) / 100,
-        contributions: entry.contributions.sort((a, b) => new Date(b.date) - new Date(a.date)),
-      }));
-
-      // Calculate timeline (by date) with contributors
-      const timelineMap = new Map();
-      contributions.forEach((contrib) => {
-        const dateStr = new Date(contrib.date).toISOString().split("T")[0];
-        if (!timelineMap.has(dateStr)) {
-          timelineMap.set(dateStr, { 
-            date: dateStr, 
-            total_contribution: 0, 
-            count: 0,
-            contributors: []
-          });
-        }
-        const entry = timelineMap.get(dateStr);
-        entry.total_contribution += contrib.contribution_percentage;
-        entry.count++;
-        // Add contributor info if not already added for this date
-        const userId = contrib.user?._id?.toString() || contrib.user?.toString();
-        const existingContrib = entry.contributors.find(c => c.user_id === userId);
-        if (existingContrib) {
-          existingContrib.contribution += contrib.contribution_percentage;
-        } else {
-          entry.contributors.push({
-            user_id: userId,
-            user_name: contrib.user?.full_name || "Unknown",
-            user_email: contrib.user?.email || "",
-            contribution: contrib.contribution_percentage
-          });
-        }
-      });
-
-      const timeline = Array.from(timelineMap.values())
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .map((entry) => ({
-          date: entry.date,
-          total_contribution: Math.round(entry.total_contribution * 100) / 100,
-          contribution_count: entry.count,
-          contributors: entry.contributors.map(c => ({
-            ...c,
-            contribution: Math.round(c.contribution * 100) / 100
-          })).sort((a, b) => b.contribution - a.contribution)
-        }));
-
-      return c.json({
-        data: {
-          project: {
-            _id: project._id,
-            code: project.code,
-            name: project.name,
-            work_type: project.work_type,
-            percentage: project.percentage,
-            status: project.status,
-            start_date: project.start_date,
-            end_date: project.end_date,
-          },
-          contributors: contributorStats.sort((a, b) => b.total_contribution - a.total_contribution),
-          timeline: timeline,
-          total_contribution: Math.round(
-            contributions.reduce((sum, c) => sum + c.contribution_percentage, 0) * 100
-          ) / 100,
-          total_contributions: contributions.length,
-        },
-      });
-    } catch (error) {
-      console.error("Get project details error:", error);
-      return c.json({ message: error.message || "Internal server error" }, 500);
+      .lean();
+ 
+    // 3. Ambil data presensi untuk konteks kehadiran
+    const allAttendances = await Attendance.find({
+      "projects.project_id": { $in: projectIds },
+    })
+      .populate({
+        path: "user_id",
+        select: "full_name email employee_code division_id",
+        populate: { path: "division_id", select: "name" },
+      })
+      .lean();
+ 
+    // 4. Bangun lookup: projectId → tasks[]
+    const tasksByProject = new Map();
+    for (const task of allTasks) {
+      const pid = task.project_id?.toString();
+      if (!pid) continue;
+      if (!tasksByProject.has(pid)) tasksByProject.set(pid, []);
+      tasksByProject.get(pid).push(task);
     }
+ 
+    // 5. Bangun lookup: projectId → attendance[]
+    const attByProject = new Map();
+    for (const att of allAttendances) {
+      for (const contrib of att.projects ?? []) {
+        const pid = contrib.project_id?.toString();
+        if (!pid) continue;
+        if (!attByProject.has(pid)) attByProject.set(pid, []);
+        attByProject.get(pid).push({ att, contrib });
+      }
+    }
+ 
+    // 6. Hitung statistik per proyek
+    const projectStats = projects.map((project) => {
+      const pid      = project._id.toString();
+      const tasks    = tasksByProject.get(pid) ?? [];
+      const attRows  = attByProject.get(pid)   ?? [];
+ 
+      // ── Task breakdown by status ──
+      const taskBreakdown = {
+        planned:  0,
+        ongoing:  0,
+        done:     0,
+        approved: 0,
+        rejected: 0,
+        total:    tasks.length,
+      };
+      for (const t of tasks) taskBreakdown[t.status] = (taskBreakdown[t.status] ?? 0) + 1;
+ 
+      // ── Kalkulasi berbasis hour_weight (approved only) ──
+      const approvedTasks   = tasks.filter((t) => t.status === "approved");
+      const totalApprovedHw = approvedTasks.reduce((s, t) => s + (Number(t.hour_weight) || 0), 0);
+      const totalAllHw      = tasks.reduce((s, t) => s + (Number(t.hour_weight) || 0), 0);
+ 
+      // ── Contributor map (dari approved tasks) ──
+      const contribMap = new Map(); // uid → { user, hour_weight, task_count }
+      for (const task of approvedTasks) {
+        const userObj = task.user_id;
+        const uid     = userObj?._id?.toString() ?? task.user_id?.toString() ?? "unknown";
+        if (!contribMap.has(uid)) {
+          contribMap.set(uid, { user: userObj, total_hw: 0, task_count: 0 });
+        }
+        const e = contribMap.get(uid);
+        e.total_hw   += Number(task.hour_weight) || 0;
+        e.task_count += 1;
+      }
+ 
+      const contributors = Array.from(contribMap.entries())
+        .map(([uid, e]) => {
+          const pct =
+            totalApprovedHw > 0 ? (e.total_hw / totalApprovedHw) * 100 : 0;
+          return {
+            user_id: uid,
+            user_name: e.user?.full_name ?? "Unknown",
+            user_email: e.user?.email ?? "",
+            employee_code: e.user?.employee_code ?? "",
+            division: e.user?.division_id?.name ?? "",
+            contribution_pct: AnalyticsController.round(pct),
+            total_hour_weight: AnalyticsController.round(e.total_hw),
+            approved_task_count: e.task_count,
+          };
+        })
+        .sort((a, b) => b.contribution_pct - a.contribution_pct);
+ 
+      // ── Attendance summary (dari Attendance.projects) ──
+      const uniqueAttUsers = new Set(attRows.map((r) => r.att.user_id?._id?.toString()));
+      const totalDailyContrib = attRows.reduce((s, r) => s + (r.contrib.contribution_percentage ?? 0), 0);
+ 
+      // ── Health ──
+      const health = AnalyticsController.calcHealth(project);
+ 
+      // ── Estimasi selesai (linear projection) ──
+      let estimatedEndDate = null;
+      if (
+        project.start_date &&
+        totalApprovedHw > 0 &&
+        (project.percentage ?? 0) > 0 &&
+        (project.percentage ?? 0) < 100
+      ) {
+        const daysElapsed = AnalyticsController.daysDiff(project.start_date, new Date());
+        const daysNeeded  = Math.ceil(daysElapsed / ((project.percentage ?? 1) / 100));
+        const est         = new Date(project.start_date);
+        est.setDate(est.getDate() + daysNeeded);
+        estimatedEndDate = est.toISOString().split("T")[0];
+      }
+ 
+      return {
+        project: {
+          _id:        project._id,
+          code:       project.code,
+          name:       project.name,
+          work_type:  project.work_type,
+          percentage: project.percentage ?? 0,
+          status:     project.status,
+          start_date: project.start_date,
+          end_date:   project.end_date,
+          created_at: project.created_at,
+        },
+        health: {
+          label:             health.label,
+          time_elapsed_pct:  health.time_elapsed_pct,
+          progress_pct:      health.progress_pct,
+          estimated_end_date: estimatedEndDate,
+          days_remaining:    project.end_date
+            ? Math.max(0, AnalyticsController.daysDiff(new Date(), project.end_date))
+            : null,
+          days_overdue:      project.end_date && new Date() > new Date(project.end_date) && project.status !== "completed"
+            ? AnalyticsController.daysDiff(project.end_date, new Date())
+            : 0,
+        },
+        task_statistics: {
+          ...taskBreakdown,
+          total_hour_weight_all:      AnalyticsController.round(totalAllHw),
+          total_hour_weight_approved: AnalyticsController.round(totalApprovedHw),
+          completion_rate_by_count:
+            tasks.length > 0
+              ? AnalyticsController.round(
+                  (taskBreakdown.approved / tasks.length) * 100
+                )
+              : 0,
+          completion_rate_by_hours:
+            totalAllHw > 0
+              ? AnalyticsController.round((totalApprovedHw / totalAllHw) * 100)
+              : 0,
+        },
+        attendance_summary: {
+          total_daily_records:       attRows.length,
+          unique_active_users:       uniqueAttUsers.size,
+          total_daily_contribution:  AnalyticsController.round(totalDailyContrib),
+          avg_daily_contribution:
+            attRows.length > 0
+              ? AnalyticsController.round(totalDailyContrib / attRows.length)
+              : 0,
+        },
+        contributors, // top contributors sorted by contribution_pct
+      };
+    });
+ 
+    // 7. Overall statistics
+    const now = new Date();
+    const overallStats = {
+      total_projects: projects.length,
+      by_status: {
+        planned:   projects.filter((p) => p.status === "planned").length,
+        ongoing:   projects.filter((p) => p.status === "ongoing").length,
+        completed: projects.filter((p) => p.status === "completed").length,
+        cancelled: projects.filter((p) => p.status === "cancelled").length,
+      },
+      by_work_type: {
+        management: projects.filter((p) => p.work_type === "management").length,
+        technic:    projects.filter((p) => p.work_type === "technic").length,
+      },
+      by_health: {
+        on_track:    projectStats.filter((ps) => ps.health.label === "on_track").length,
+        at_risk:     projectStats.filter((ps) => ps.health.label === "at_risk").length,
+        behind:      projectStats.filter((ps) => ps.health.label === "behind").length,
+        no_timeline: projectStats.filter((ps) => ps.health.label === "no_timeline").length,
+        completed:   projectStats.filter((ps) => ps.health.label === "completed").length,
+        cancelled:   projectStats.filter((ps) => ps.health.label === "cancelled").length,
+      },
+      average_progress:
+        projects.length > 0
+          ? AnalyticsController.round(
+              projects.reduce((s, p) => s + (p.percentage ?? 0), 0) /
+                projects.length
+            )
+          : 0,
+      overdue_projects: projects.filter(
+        (p) => p.end_date && new Date(p.end_date) < now && p.status !== "completed"
+      ).length,
+      total_approved_tasks: allTasks.filter((t) => t.status === "approved").length,
+      total_tasks: allTasks.length,
+    };
+ 
+    return c.json({
+      data: {
+        overall: overallStats,
+        projects: projectStats,
+      },
+    });
+  } catch (err) {
+    console.error("getProjectOverview error:", err);
+    return c.json({ message: err.message ?? "Internal server error" }, 500);
   }
+}
+
+  // ─── getProjectDetails ───────────────────────────────────────
+ 
+/**
+ * GET /api/v1/analytics/project-details/:id
+ *
+ * Mengembalikan detail lengkap satu proyek:
+ *  - metadata proyek + health
+ *  - contributor breakdown (berbasis approved tasks)
+ *  - task list lengkap dengan status breakdown
+ *  - timeline harian (approved_at) untuk charting
+ *  - attendance timeline (dari Attendance.projects)
+ *  - pending tasks (done, belum approved)
+ */
+static async getProjectDetails(c) {
+  try {
+    const currentUser = c.get("user");
+    if (!currentUser) return c.json({ message: "Unauthorized" }, 401);
+ 
+    const projectId = c.req.param("id");
+ 
+    // 1. Proyek
+    const project = await Project.findById(projectId).lean();
+    if (!project) return c.json({ message: "Project not found" }, 404);
+ 
+    // 2. Semua task terkait proyek ini
+    const allTasks = await Task.find({ project_id: projectId })
+      .populate({
+        path: "user_id",
+        select: "full_name email employee_code division_id",
+        populate: { path: "division_id", select: "name" },
+      })
+      .populate({ path: "approved_by", select: "full_name email" })
+      .sort({ created_at: -1 })
+      .lean();
+ 
+    // 3. Data presensi harian untuk proyek ini
+    const attendances = await Attendance.find({
+      "projects.project_id": projectId,
+    })
+      .populate({
+        path: "user_id",
+        select: "full_name email employee_code division_id",
+        populate: { path: "division_id", select: "name" },
+      })
+      .sort({ date: -1 })
+      .lean();
+ 
+    // ── Task breakdown by status ──
+    const taskBreakdown = { planned: 0, ongoing: 0, done: 0, approved: 0, rejected: 0, total: allTasks.length };
+    for (const t of allTasks) taskBreakdown[t.status] = (taskBreakdown[t.status] ?? 0) + 1;
+ 
+    // ── Approved tasks → basis kalkulasi progress ──
+    const approvedTasks = allTasks.filter((t) => t.status === "approved");
+    const totalApprovedHw = approvedTasks.reduce((s, t) => s + (Number(t.hour_weight) || 0), 0);
+    const totalAllHw      = allTasks.reduce((s, t) => s + (Number(t.hour_weight) || 0), 0);
+ 
+    // ── Contributor map ──
+    const contribMap = new Map();
+    for (const task of approvedTasks) {
+      const userObj = task.user_id;
+      const uid     = userObj?._id?.toString() ?? task.user_id?.toString() ?? "unknown";
+      if (!contribMap.has(uid)) {
+        contribMap.set(uid, {
+          user: userObj,
+          total_hw:   0,
+          task_count: 0,
+          task_titles: [],
+        });
+      }
+      const e = contribMap.get(uid);
+      e.total_hw   += Number(task.hour_weight) || 0;
+      e.task_count += 1;
+      e.task_titles.push(task.title);
+    }
+ 
+    const contributors = Array.from(contribMap.entries())
+      .map(([uid, e]) => {
+        const pct =
+          totalApprovedHw > 0 ? (e.total_hw / totalApprovedHw) * 100 : 0;
+        return {
+          user_id:             uid,
+          user_name:           e.user?.full_name    ?? "Unknown",
+          user_email:          e.user?.email         ?? "",
+          employee_code:       e.user?.employee_code ?? "",
+          division:            e.user?.division_id?.name ?? "",
+          contribution_pct:    AnalyticsController.round(pct),
+          total_hour_weight:   AnalyticsController.round(e.total_hw),
+          approved_task_count: e.task_count,
+          task_titles:         e.task_titles,
+        };
+      })
+      .sort((a, b) => b.contribution_pct - a.contribution_pct);
+ 
+    // ── Timeline harian dari approved tasks ──
+    const timelineMap = new Map();
+    for (const task of approvedTasks) {
+      const dt      = task.approved_at ?? task.start_at ?? task.created_at;
+      const dateStr = dt ? new Date(dt).toISOString().split("T")[0] : "unknown";
+ 
+      if (!timelineMap.has(dateStr)) {
+        timelineMap.set(dateStr, {
+          date: dateStr,
+          total_hour_weight: 0,
+          total_contribution_pct: 0,
+          task_count: 0,
+          contributors: [],
+        });
+      }
+ 
+      const entry = timelineMap.get(dateStr);
+      const hw    = Number(task.hour_weight) || 0;
+      const pct   = totalApprovedHw > 0 ? (hw / totalApprovedHw) * 100 : 0;
+ 
+      entry.total_hour_weight    += hw;
+      entry.total_contribution_pct += pct;
+      entry.task_count           += 1;
+ 
+      const userObj = task.user_id;
+      const uid     = userObj?._id?.toString() ?? task.user_id?.toString() ?? "unknown";
+      const existing = entry.contributors.find((c) => c.user_id === uid);
+      if (existing) {
+        existing.contribution_pct  += pct;
+        existing.hour_weight       += hw;
+        existing.task_count        += 1;
+      } else {
+        entry.contributors.push({
+          user_id:          uid,
+          user_name:        userObj?.full_name ?? "Unknown",
+          user_email:       userObj?.email      ?? "",
+          contribution_pct: pct,
+          hour_weight:      hw,
+          task_count:       1,
+        });
+      }
+    }
+ 
+    const taskTimeline = Array.from(timelineMap.values())
+      .sort((a, b) => a.date.localeCompare(b.date)) // ascending → cocok untuk line chart
+      .map((entry) => ({
+        date:                   entry.date,
+        total_hour_weight:      AnalyticsController.round(entry.total_hour_weight),
+        total_contribution_pct: AnalyticsController.round(entry.total_contribution_pct),
+        task_count:             entry.task_count,
+        cumulative_pct:         0, // akan di-fill di bawah
+        contributors:           entry.contributors
+          .map((c) => ({
+            ...c,
+            contribution_pct: AnalyticsController.round(c.contribution_pct),
+            hour_weight:      AnalyticsController.round(c.hour_weight),
+          }))
+          .sort((a, b) => b.contribution_pct - a.contribution_pct),
+      }));
+ 
+    // Hitung cumulative_pct (running total → cocok untuk area chart progress)
+    let cumulative = 0;
+    for (const row of taskTimeline) {
+      cumulative += row.total_contribution_pct;
+      row.cumulative_pct = AnalyticsController.round(cumulative);
+    }
+ 
+    // ── Attendance timeline (snapshot harian dari Attendance.projects) ──
+    const attTimelineMap = new Map();
+    for (const att of attendances) {
+      const dateStr = att.date ? new Date(att.date).toISOString().split("T")[0] : "unknown";
+      const contrib = att.projects?.find(
+        (p) => p.project_id?.toString() === projectId
+      );
+      if (!contrib) continue;
+ 
+      if (!attTimelineMap.has(dateStr)) {
+        attTimelineMap.set(dateStr, {
+          date:                      dateStr,
+          total_daily_contribution:  0,
+          attendance_count:          0,
+          contributors:              [],
+        });
+      }
+ 
+      const entry = attTimelineMap.get(dateStr);
+      entry.total_daily_contribution += contrib.contribution_percentage ?? 0;
+      entry.attendance_count         += 1;
+ 
+      const userObj = att.user_id;
+      const uid     = userObj?._id?.toString() ?? att.user_id?.toString() ?? "unknown";
+      const existing = entry.contributors.find((c) => c.user_id === uid);
+      if (existing) {
+        existing.daily_contribution += contrib.contribution_percentage ?? 0;
+      } else {
+        entry.contributors.push({
+          user_id:             uid,
+          user_name:           userObj?.full_name    ?? "Unknown",
+          user_email:          userObj?.email         ?? "",
+          division:            userObj?.division_id?.name ?? "",
+          daily_contribution:  contrib.contribution_percentage ?? 0,
+        });
+      }
+    }
+ 
+    const attendanceTimeline = Array.from(attTimelineMap.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((entry) => ({
+        date:                     entry.date,
+        total_daily_contribution: AnalyticsController.round(entry.total_daily_contribution),
+        attendance_count:         entry.attendance_count,
+        avg_contribution:
+          entry.attendance_count > 0
+            ? AnalyticsController.round(
+                entry.total_daily_contribution / entry.attendance_count
+              )
+            : 0,
+        contributors: entry.contributors.map((c) => ({
+          ...c,
+          daily_contribution: AnalyticsController.round(c.daily_contribution),
+        })),
+      }));
+ 
+    // ── Pending tasks (status "done", menunggu approval) ──
+    const pendingTasks = allTasks
+      .filter((t) => t.status === "done")
+      .map((t) => ({
+        _id:         t._id,
+        title:       t.title,
+        description: t.description,
+        hour_weight: t.hour_weight,
+        start_at:    t.start_at,
+        created_at:  t.created_at,
+        user: {
+          user_id:       t.user_id?._id ?? t.user_id,
+          user_name:     t.user_id?.full_name    ?? "Unknown",
+          user_email:    t.user_id?.email         ?? "",
+          employee_code: t.user_id?.employee_code ?? "",
+          division:      t.user_id?.division_id?.name ?? "",
+        },
+      }));
+ 
+    // ── Health & estimasi ──
+    const health = AnalyticsController.calcHealth(project);
+    let estimatedEndDate = null;
+    if (
+      project.start_date &&
+      (project.percentage ?? 0) > 0 &&
+      (project.percentage ?? 0) < 100
+    ) {
+      const daysElapsed = AnalyticsController.daysDiff(project.start_date, new Date());
+      const daysNeeded  = Math.ceil(daysElapsed / ((project.percentage ?? 1) / 100));
+      const est         = new Date(project.start_date);
+      est.setDate(est.getDate() + daysNeeded);
+      estimatedEndDate = est.toISOString().split("T")[0];
+    }
+ 
+    // ── Raw task list (untuk tabel detail) ──
+    const taskList = allTasks.map((t) => ({
+      _id:         t._id,
+      title:       t.title,
+      description: t.description,
+      status:      t.status,
+      hour_weight: t.hour_weight,
+      start_at:    t.start_at,
+      approved_at: t.approved_at,
+      approved_by: t.approved_by
+        ? { user_id: t.approved_by._id, user_name: t.approved_by.full_name }
+        : null,
+      created_at:  t.created_at,
+      user: {
+        user_id:       t.user_id?._id ?? t.user_id,
+        user_name:     t.user_id?.full_name    ?? "Unknown",
+        user_email:    t.user_id?.email         ?? "",
+        employee_code: t.user_id?.employee_code ?? "",
+        division:      t.user_id?.division_id?.name ?? "",
+      },
+    }));
+ 
+    return c.json({
+      data: {
+        project: {
+          _id:        project._id,
+          code:       project.code,
+          name:       project.name,
+          work_type:  project.work_type,
+          percentage: project.percentage ?? 0,
+          status:     project.status,
+          start_date: project.start_date,
+          end_date:   project.end_date,
+          created_at: project.created_at,
+          updated_at: project.updated_at,
+        },
+ 
+        health: {
+          label:              health.label,
+          time_elapsed_pct:   health.time_elapsed_pct,
+          progress_pct:       health.progress_pct,
+          estimated_end_date: estimatedEndDate,
+          days_remaining:     project.end_date
+            ? Math.max(0, AnalyticsController.daysDiff(new Date(), project.end_date))
+            : null,
+          days_overdue:
+            project.end_date &&
+            new Date() > new Date(project.end_date) &&
+            project.status !== "completed"
+              ? AnalyticsController.daysDiff(project.end_date, new Date())
+              : 0,
+        },
+ 
+        task_statistics: {
+          ...taskBreakdown,
+          total_hour_weight_all:       AnalyticsController.round(totalAllHw),
+          total_hour_weight_approved:  AnalyticsController.round(totalApprovedHw),
+          total_hour_weight_pending:   AnalyticsController.round(
+            allTasks
+              .filter((t) => t.status === "done")
+              .reduce((s, t) => s + (Number(t.hour_weight) || 0), 0)
+          ),
+          completion_rate_by_count:
+            allTasks.length > 0
+              ? AnalyticsController.round(
+                  (taskBreakdown.approved / allTasks.length) * 100
+                )
+              : 0,
+          completion_rate_by_hours:
+            totalAllHw > 0
+              ? AnalyticsController.round((totalApprovedHw / totalAllHw) * 100)
+              : 0,
+        },
+ 
+        contributors,   // siapa yang berkontribusi & seberapa besar (%)
+ 
+        pending_tasks: pendingTasks,  // tasks "done" yang belum di-approve
+ 
+        task_timeline:       taskTimeline,       // daily breakdown dari approved tasks (+ cumulative)
+        attendance_timeline: attendanceTimeline, // daily snapshot dari Attendance.projects
+ 
+        // Seluruh task untuk tabel detail (frontend bisa filter/sort sendiri)
+        tasks: taskList,
+      },
+    });
+  } catch (err) {
+    console.error("getProjectDetails error:", err);
+    return c.json({ message: err.message ?? "Internal server error" }, 500);
+  }
+}
 }
 
 export default AnalyticsController;

@@ -49,8 +49,11 @@ const LATE_REQUEST_STATUS_COLORS = {
 };
 
 const TASK_STATUS_COLORS = {
+  planned: "bg-slate-500/20 text-slate-300 border-slate-500/30",
   ongoing: "bg-blue-500/20 text-blue-300 border-blue-500/30",
   done:    "bg-green-500/20 text-green-300 border-green-500/30",
+  approved:"bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  rejected:"bg-red-500/20 text-red-300 border-red-500/30",
 };
 
 const PROJECT_STATUS_COLORS = {
@@ -137,11 +140,9 @@ const AttendanceDetailModal = ({ attendance, onClose }) => {
   };
 
   const isLate = ["late", "late_checkin", "early_checkout"].includes(status);
-  const doneTasks = tasks_today.filter(t => t?.status === "done").length;
+  const doneTasks = tasks_today.filter((t) => t?.status === "done").length;
+  const approvedTasks = tasks_today.filter((t) => t?.status === "approved").length;
   const totalTasks = tasks_today.length;
-  const avgProgress = totalTasks > 0
-    ? Math.round(tasks_today.reduce((s, t) => s + (t?.progress || 0), 0) / totalTasks)
-    : 0;
 
   return (
     <AnimatePresence>
@@ -325,42 +326,50 @@ const AttendanceDetailModal = ({ attendance, onClose }) => {
                       <div className="text-[10px] text-green-400">Selesai</div>
                     </div>
                     <div className="bg-slate-800/60 rounded-lg p-2 text-center">
-                      <div className="text-lg font-bold text-white">{avgProgress}%</div>
-                      <div className="text-[10px] text-slate-400">Avg Progress</div>
+                      <div className="text-lg font-bold text-white">{approvedTasks}</div>
+                      <div className="text-[10px] text-slate-400">Approved</div>
                     </div>
                   </div>
-                  <ProgressBar
-                    value={avgProgress}
-                    colorClass={avgProgress >= 80 ? "bg-green-500" : avgProgress >= 50 ? "bg-blue-500" : "bg-orange-500"}
-                  />
                   <div className="mt-3 space-y-2">
                     {tasks_today.map((task, i) => (
                       <div key={task?._id || i} className="bg-slate-800/60 rounded-lg p-3 flex items-start gap-3">
                         <div className="mt-0.5">
-                          {task?.status === "done"
-                            ? <CheckCircle2 className="w-4 h-4 text-green-400" />
-                            : <Clock className="w-4 h-4 text-blue-400" />
-                          }
+                          {["done", "approved"].includes(task?.status) ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-400" />
+                          ) : task?.status === "rejected" ? (
+                            <XCircle className="w-4 h-4 text-red-400" />
+                          ) : (
+                            <Clock className="w-4 h-4 text-blue-400" />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-sm text-white font-medium truncate">{task?.title || "-"}</div>
                             <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${TASK_STATUS_COLORS[task?.status] || "bg-slate-600"}`}>
-                              {task?.status === "done" ? "Selesai" : "Ongoing"}
+                              {task?.status === "planned"
+                                ? "Planned"
+                                : task?.status === "ongoing"
+                                  ? "Ongoing"
+                                  : task?.status === "done"
+                                    ? "Done"
+                                    : task?.status === "approved"
+                                      ? "Approved"
+                                      : task?.status === "rejected"
+                                        ? "Rejected"
+                                        : task?.status || "-"}
                             </span>
                           </div>
+                          {typeof task?.hour_weight !== "undefined" && (
+                            <div className="text-[11px] text-slate-400 mt-1">
+                              Bobot jam: {Number(task?.hour_weight || 0).toFixed(1)}
+                            </div>
+                          )}
                           {task?.description && (
                             <div className="text-xs text-slate-400 mt-0.5 line-clamp-2">{task.description}</div>
                           )}
-                          <div className="mt-2">
-                            <ProgressBar
-                              value={task?.progress || 0}
-                              colorClass={task?.status === "done" ? "bg-green-500" : "bg-blue-500"}
-                            />
-                          </div>
-                          {task?.completed_at && (
+                          {task?.status === "approved" && task?.approved_at && (
                             <div className="text-[10px] text-green-400/70 mt-1">
-                              Selesai: {fmtDateTime(task.completed_at)}
+                              Di-approve: {fmtDateTime(task.approved_at)}
                             </div>
                           )}
                         </div>
