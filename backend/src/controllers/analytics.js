@@ -646,24 +646,24 @@ class AnalyticsController {
       }
 
       // Apply permission filters
-      if (userPerms.includes("user:read:own_division") && !userPerms.includes("user:read:any")) {
-        if (currentUser?.division_id) {
-          const usersInDivision = await User.find({ division_id: currentUser.division_id }).select("_id").lean();
-          filter.user_id = { $in: usersInDivision.map(u => u._id) };
-        } else {
-          return c.json({
-            data: {
-              total_attendances: 0,
-              by_status: {},
-              by_date: [],
-              late_requests: { total: 0, pending: 0, approved: 0, rejected: 0 },
-              attendance_rate: 0,
-            },
-          });
-        }
-      } else if (userPerms.includes("user:read:self") && !userPerms.includes("user:read:any") && !userPerms.includes("user:read:own_division")) {
-        filter.user_id = currentUser._id;
-      }
+      // if (userPerms.includes("user:read:own_division") && !userPerms.includes("user:read:any")) {
+      //   if (currentUser?.division_id) {
+      //     const usersInDivision = await User.find({ division_id: currentUser.division_id }).select("_id").lean();
+      //     filter.user_id = { $in: usersInDivision.map(u => u._id) };
+      //   } else {
+      //     return c.json({
+      //       data: {
+      //         total_attendances: 0,
+      //         by_status: {},
+      //         by_date: [],
+      //         late_requests: { total: 0, pending: 0, approved: 0, rejected: 0 },
+      //         attendance_rate: 0,
+      //       },
+      //     });
+      //   }
+      // } else if (userPerms.includes("user:read:self") && !userPerms.includes("user:read:any") && !userPerms.includes("user:read:own_division")) {
+      //   filter.user_id = currentUser._id;
+      // }
 
       // User filter
       if (user_id) {

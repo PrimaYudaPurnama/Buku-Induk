@@ -50,6 +50,18 @@ const ProjectSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // ===== TARGET SELESAI (MANUAL) =====
+    // Tanggal target selesai yang bisa diisi dan diupdate manual.
+    target_end_date: {
+      type: Date,
+      default: null,
+    },
+    // Riwayat perubahan target_end_date, berisi daftar target yang pernah diset (urutan kronologis).
+    target_end_history: {
+      type: [Date],
+      default: [],
+    },
   },
   { timestamps: {
     createdAt: "created_at",

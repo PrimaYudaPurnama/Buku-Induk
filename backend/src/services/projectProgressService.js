@@ -16,6 +16,8 @@ export async function recalculateProjectPercentage(projectId) {
 
   const project = await Project.findById(projectId);
   if (!project) return;
+  const prevStatus = project.status;
+  const prevPercentage = project.percentage;
 
   const tasks = await Task.find({
     project_id: projectId,
@@ -57,6 +59,10 @@ export async function recalculateProjectPercentage(projectId) {
         project.end_date = new Date();
       }
     } else {
+      // If previously completed and now drops below 100, clear end_date
+      if (prevStatus === "completed" && typeof project.end_date !== "undefined" && project.end_date) {
+        project.end_date = null;
+      }
       project.status = "ongoing";
     }
   }

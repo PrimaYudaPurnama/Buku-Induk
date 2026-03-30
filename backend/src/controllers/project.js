@@ -69,7 +69,7 @@ class ProjectController {
   async createProject(c) {
     const body = await c.req.json();
 
-    const { code, name, work_type, percentage, status, start_date, end_date } = body;
+    const { code, name, work_type, percentage, status, start_date, end_date, target_end_date } = body;
 
     if (!code || !name || !work_type) {
       return c.json({ message: "code, name, and work_type are required" }, 400);
@@ -98,6 +98,8 @@ class ProjectController {
         status: "planned", // Always "planned" on create, auto-changed by cron
         start_date: start_date || null,
         end_date: null, // Auto-filled by system when percentage = 100
+        target_end_date: target_end_date ? new Date(target_end_date) : null,
+        target_end_history: target_end_date ? [new Date(target_end_date)] : [],
       });
 
       // Log audit
@@ -163,10 +165,36 @@ class ProjectController {
       if (body.start_date !== undefined) updateData.start_date = body.start_date || null;
       // end_date is auto-filled by system when percentage = 100, don't allow manual update
 
-      const updated = await Project.findByIdAndUpdate(id, updateData, {
+      // Handle manual target_end_date update + history append
+      if (Object.prototype.hasOwnProperty.call(body, "target_end_date")) {
+        const incoming = body.target_end_date ? new Date(body.target_end_date) : null;
+        const prev = existingProject.target_end_date ? new Date(existingProject.target_end_date) : null;
+
+        // Update main field
+        updateData.target_end_date = incoming;
+
+        // Append to history if changed and incoming not null
+        if (incoming) {
+          const isDifferent =
+            !prev || prev.toISOString().slice(0, 10) !== incoming.toISOString().slice(0, 10);
+          if (isDifferent) {
+            updateData.$push = updateData.$push || {};
+            updateData.$push.target_end_history = incoming;
+          }
+        }
+      }
+
+      // If using $push, need to use updateOne then refetch for returning doc
+      let updated;
+      if (updateData.$push) {
+        await Project.updateOne({ _id: id }, updateData, { runValidators: true });
+        updated = await Project.findById(id);
+      } else {
+        updated = await Project.findByIdAndUpdate(id, updateData, {
         new: true,
         runValidators: true,
-      });
+        });
+      }
 
       if (!updated) return c.json({ message: "Not found" }, 404);
 

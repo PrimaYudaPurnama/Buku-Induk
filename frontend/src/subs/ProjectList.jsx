@@ -213,6 +213,7 @@ export default function ProjectList() {
     status: "planned", // Default, hidden from form
     start_date: "",
     end_date: "", // Hidden from form, auto-filled by system
+    target_end_date: "",
   });
 
   const activeFiltersCount = [search, workTypeFilter, statusFilter].filter(Boolean).length;
@@ -252,6 +253,7 @@ export default function ProjectList() {
       status: "planned", // Default, hidden from form
       start_date: "",
       end_date: "", // Hidden from form, auto-filled by system
+      target_end_date: "",
     });
     setInitialTasks([{ title: "", hour_weight: 1 }]);
   };
@@ -271,6 +273,7 @@ export default function ProjectList() {
       status: project.status || "planned", // Hidden from form
       start_date: project.start_date ? new Date(project.start_date).toISOString().split("T")[0] : "",
       end_date: "", // Hidden from form, auto-filled by system
+      target_end_date: project.target_end_date ? new Date(project.target_end_date).toISOString().split("T")[0] : "",
     });
     setShowEditModal(true);
   };
@@ -446,6 +449,7 @@ export default function ProjectList() {
         name: formData.name,
         work_type: formData.work_type,
         start_date: formData.start_date || null,
+        target_end_date: formData.target_end_date || null,
       };
 
       if (showAddModal) {
@@ -485,6 +489,7 @@ export default function ProjectList() {
           name: payload.name,
           work_type: payload.work_type,
           start_date: payload.start_date,
+          target_end_date: payload.target_end_date,
         };
         await updateProject(selectedProject._id, editPayload);
         toast.success("Proyek berhasil diperbarui");
@@ -773,9 +778,26 @@ export default function ProjectList() {
                               <span>{proj.start_date ? new Date(proj.start_date).toLocaleDateString("id-ID") : "-"}</span>
                             </div>
                             {proj.end_date && (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <Calendar className="w-4 h-4 text-slate-400" />
-                                <span>{new Date(proj.end_date).toLocaleDateString("id-ID")}</span>
+                                <span>Selesai: {new Date(proj.end_date).toLocaleDateString("id-ID")}</span>
+                              </div>
+                            )}
+                            {proj.target_end_date && (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-slate-500">Target: {new Date(proj.target_end_date).toLocaleDateString("id-ID")}</span>
+                                {(() => {
+                                  const tgt = new Date(proj.target_end_date);
+                                  const done = proj.end_date ? new Date(proj.end_date) : new Date();
+                                  tgt.setHours(0, 0, 0, 0);
+                                  done.setHours(0, 0, 0, 0);
+                                  const late = done > tgt;
+                                  return late ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                      Terlambat
+                                    </span>
+                                  ) : null;
+                                })()}
                               </div>
                             )}
                           </div>
@@ -909,6 +931,32 @@ export default function ProjectList() {
                       <p className="text-xs text-slate-400 mt-1">
                         Status akan otomatis berubah menjadi "Berjalan" saat tanggal mulai tercapai
                       </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Target Selesai (manual)</label>
+                      <input
+                        type="date"
+                        value={formData.target_end_date}
+                        onChange={(e) => setFormData({ ...formData, target_end_date: e.target.value })}
+                        className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Perubahan target akan terekam di riwayat target.
+                      </p>
+                      {showEditModal && (
+                        <div className="text-xs text-slate-500 mt-3">
+                          Riwayat target:{" "}
+                          {Array.isArray(selectedProject?.target_end_history) &&
+                          selectedProject.target_end_history.length > 0
+                            ? selectedProject.target_end_history
+                                .map((d) => new Date(d).toLocaleDateString("id-ID"))
+                                .join(" -> ")
+                            : "-"}
+                        </div>
+                      )}
                     </div>
                   </div>
 

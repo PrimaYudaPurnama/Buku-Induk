@@ -25,10 +25,9 @@ const STATUS_COLORS = {
 };
 
 const HEALTH_META = {
-  on_track:    { label: "On Track",     icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
-  at_risk:     { label: "Berisiko",     icon: AlertTriangle, color: "text-amber-400",  bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
+  // on_track:    { label: "On Track",     icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
   behind:      { label: "Terlambat",    icon: AlertTriangle, color: "text-rose-400",   bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
-  no_timeline: { label: "Tanpa Jadwal", icon: Minus,        color: "text-slate-400",  bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
+  // no_timeline: { label: "Tanpa Jadwal", icon: Minus,        color: "text-slate-400",  bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
   completed:   { label: "Selesai",      icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
   cancelled:   { label: "Dibatalkan",   icon: X,            color: "text-rose-400",   bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
 };
@@ -78,7 +77,7 @@ function StatCard({ icon: Icon, color, value, label, sub }) {
 }
 
 function HealthBadge({ label }) {
-  const meta = HEALTH_META[label] || HEALTH_META.no_timeline;
+  const meta = HEALTH_META[label] || HEALTH_META.behind;
   const Icon = meta.icon;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${meta.bg} ${meta.color} ${meta.border} border`}>
@@ -874,19 +873,18 @@ const ProjectAnalytics = () => {
         {!loading && overview && (
           <>
             {/* ── Overview stat cards ── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <StatCard icon={Target}       color="from-blue-600 to-blue-400"    value={ov?.total_projects ?? 0}         label="Total Proyek" />
               <StatCard icon={CheckCircle2} color="from-emerald-600 to-teal-400" value={ov?.by_status?.completed ?? 0}  label="Selesai" />
               <StatCard icon={Clock}        color="from-amber-600 to-yellow-400" value={ov?.by_status?.ongoing ?? 0}    label="Berjalan" />
-              <StatCard icon={TrendingUp}   color="from-violet-600 to-purple-400" value={`${ov?.average_progress ?? 0}%`} label="Rata-rata Progress" />
             </div>
 
             {/* Second row stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <StatCard icon={TrendingUp}   color="from-violet-600 to-purple-400" value={`${ov?.average_progress ?? 0}%`} label="Rata-rata Progress" />
               <StatCard icon={AlertTriangle} color="from-rose-600 to-rose-400"     value={ov?.overdue_projects ?? 0}            label="Proyek Terlambat" />
-              <StatCard icon={Zap}           color="from-sky-600 to-cyan-400"       value={ov?.by_health?.at_risk ?? 0}          label="Berisiko" />
               <StatCard icon={ListTodo}      color="from-indigo-600 to-blue-400"    value={ov?.total_approved_tasks ?? 0}        label="Task Approved" sub={`dari ${ov?.total_tasks ?? 0} total task`} />
-              <StatCard icon={Activity}      color="from-fuchsia-600 to-pink-400"   value={ov?.by_health?.on_track ?? 0}         label="On Track" />
+              {/* <StatCard icon={Activity}      color="from-fuchsia-600 to-pink-400"   value={ov?.by_health?.on_track ?? 0}         label="On Track" /> */}
             </div>
 
             {/* ── Status + Health breakdown ── */}
