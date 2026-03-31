@@ -256,21 +256,28 @@ const Attendance = () => {
   // Status lokal task saat checkout (done/ongoing)
   const [checkoutTaskStatuses, setCheckoutTaskStatuses] = useState({});
 
-  // Late attendance form state
+  // Late attendance form state (request pengajuan)
   const [showLateForm, setShowLateForm] = useState(false);
   const [lateDate, setLateDate] = useState("");
   const [lateReason, setLateReason] = useState("");
   const [submittingLate, setSubmittingLate] = useState(false);
 
-  // Late attendance creation form (for modal)
+  // ─── Late attendance MODAL state (aligned with regular attendance flow) ───
   const [lateCheckInTime, setLateCheckInTime] = useState("08:00");
   const [lateCheckOutTime, setLateCheckOutTime] = useState("17:00");
-  const [lateDailyDone, setLateDailyDone] = useState([""]);
-  const [lateTaskProgress, setLateTaskProgress] = useState([100]);
   const [lateSelectedActivities, setLateSelectedActivities] = useState([]);
-  const [lateSelectedProjects, setLateSelectedProjects] = useState([]);
-  const [lateProjectContributions, setLateProjectContributions] = useState({});
   const [lateNote, setLateNote] = useState("");
+
+  // Project + task picker untuk modal (sama persis dengan alur attendance biasa)
+  const [lateSelectedProjects, setLateSelectedProjects] = useState([]);   // array of projectId
+  const [lateProjectPickerValue, setLateProjectPickerValue] = useState("");
+  const [lateProjectTasksMap, setLateProjectTasksMap] = useState({});     // projectId -> tasks[]
+  const [lateSelectedTasks, setLateSelectedTasks] = useState([]);         // array of taskId
+  const [lateNewTaskTitleByProject, setLateNewTaskTitleByProject] = useState({});
+  const [lateNewTaskHourByProject, setLateNewTaskHourByProject] = useState({});
+  const [lateCreatingTaskProjectId, setLateCreatingTaskProjectId] = useState(null);
+  // Status task saat "checkout" late (done/ongoing) — sama dengan alur checkout biasa
+  const [lateTaskStatuses, setLateTaskStatuses] = useState({});
 
   // Master data
   const [activities, setActivities] = useState([]);
@@ -327,7 +334,6 @@ const Attendance = () => {
       setSelectedProjectsForToday(projIds);
       setSelectedTasksToday(taskIds);
       projIds.forEach((pid) => {
-        // Load full task list per project (planned/rejected + ongoing milik sendiri) for add/selection UI
         loadProjectTasksFor(pid);
       });
     } else {
@@ -361,7 +367,6 @@ const Attendance = () => {
       const res = await fetchProjectTasks(projectId);
       const tasks = res.data || [];
       setProjectTasksMap((prev) => ({ ...prev, [projectId]: tasks }));
-      // Auto-select ongoing tasks (owned by current user) and keep rejected/planned selectable.
       const ongoingOwned = tasks
         .filter(
           (t) =>
@@ -375,6 +380,30 @@ const Attendance = () => {
       }
     } catch (error) {
       console.error("Failed to load project tasks:", error);
+      toast.error("Gagal memuat task proyek");
+    }
+  };
+
+  // ─── Late modal: load tasks per proyek (sama seperti attendance biasa) ───
+  const loadLateProjectTasksFor = async (projectId) => {
+    if (!projectId) return;
+    try {
+      const res = await fetchProjectTasks(projectId);
+      const tasks = res.data || [];
+      setLateProjectTasksMap((prev) => ({ ...prev, [projectId]: tasks }));
+      // Auto-select ongoing tasks milik sendiri
+      const ongoingOwned = tasks
+        .filter(
+          (t) =>
+            t.status === "ongoing" &&
+            String(t.user_id?._id || t.user_id || "") === String(currentUserId)
+        )
+        .map((t) => t._id);
+      if (ongoingOwned.length > 0) {
+        setLateSelectedTasks((prev) => Array.from(new Set([...prev, ...ongoingOwned])));
+      }
+    } catch (error) {
+      console.error("Failed to load late project tasks:", error);
       toast.error("Gagal memuat task proyek");
     }
   };
@@ -417,7 +446,7 @@ const Attendance = () => {
       const todayWIB = getWIBDate(new Date());
       const end = new Date(todayWIB);
       const start = new Date(todayWIB);
-      start.setDate(start.getDate() - 29); // 30 hari ke belakang termasuk hari ini
+      start.setDate(start.getDate() - 29);
 
       const toStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(
         end.getDate()
@@ -430,7 +459,6 @@ const Attendance = () => {
       const res = await getAttendanceHistory({ from: fromStr, to: toStr });
       const history = res.data || res || [];
 
-      // Map attendance by date (WIB) -> record
       const mapByDate = new Map();
       (history || []).forEach((att) => {
         if (!att?.date) return;
@@ -439,13 +467,11 @@ const Attendance = () => {
         const month = String(d.getMonth() + 1).padStart(2, "0");
         const day = String(d.getDate()).padStart(2, "0");
         const key = `${year}-${month}-${day}`;
-        // Unique index harusnya menjamin satu per hari, tapi kita jaga saja
         if (!mapByDate.has(key)) {
           mapByDate.set(key, att);
         }
       });
 
-      // Build 30-day list
       const days = [];
       const cursor = new Date(start);
       while (cursor <= end) {
@@ -513,12 +539,10 @@ const Attendance = () => {
   const handleUpdateWork = async () => {
     try {
       setUpdating(true);
-
       const payload = {
         activities: selectedActivities,
         note: note,
       };
-
       await updateDailyWork(payload);
       toast.success("Pekerjaan harian berhasil diupdate!");
       await loadTodayAttendance();
@@ -534,7 +558,6 @@ const Attendance = () => {
     setCheckoutTaskStatuses((prev) => {
       const current = prev[taskId] || "ongoing";
       const nextStatus = current === "done" ? "ongoing" : "done";
-      // Persist ke backend supaya tersimpan saat reload
       updateTask(taskId, { status: nextStatus }).catch((e) => {
         console.error("Gagal update status task:", e);
         toast.error("Gagal menyimpan status task");
@@ -591,9 +614,7 @@ const Attendance = () => {
       const res = await createTask({
         title,
         project_id: projectId,
-        hour_weight: Number(
-          (newTaskHourByProject[projectId] ?? 1)
-        ) || 1,
+        hour_weight: Number((newTaskHourByProject[projectId] ?? 1)) || 1,
       });
       const newTask = res.data;
       setProjectTasksMap((prev) => {
@@ -602,7 +623,6 @@ const Attendance = () => {
       });
       setSelectedTasksToday((prev) => [...prev, newTask._id]);
       setNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: "" }));
-      // Jika sudah check-in, tambahkan task ke attendance hari ini juga
       if (attendance && !attendance.checkOut_at) {
         try {
           await updateDailyWork({ tasks_today: [newTask._id] });
@@ -644,7 +664,6 @@ const Attendance = () => {
       toast.error("Tanggal dan alasan (min 10 karakter) wajib diisi");
       return;
     }
-
     try {
       setSubmittingLate(true);
       await requestLateAttendance({
@@ -658,7 +677,6 @@ const Attendance = () => {
       await loadMyLateRequests();
     } catch (error) {
       console.error("Late attendance request error:", error);
-      // Pesan detail sudah dilempar dari handleResponse, tapi kita pastikan tetap ada fallback
       if (error?.message) {
         toast.error(error.message);
       } else {
@@ -669,45 +687,127 @@ const Attendance = () => {
     }
   };
 
+  // ─── Late modal: open → reset semua state modal ───
   const handleOpenLateModal = (request) => {
     setEditingLateRequest(request);
-    
-    // Reset form
+
+    // Reset semua state modal
     setLateCheckInTime("08:00");
     setLateCheckOutTime("17:00");
-    setLateDailyDone([""]);
     setLateSelectedActivities([]);
-    setLateSelectedProjects([]);
-    setLateProjectContributions({});
     setLateNote("");
-    
+    setLateSelectedProjects([]);
+    setLateProjectPickerValue("");
+    setLateProjectTasksMap({});
+    setLateSelectedTasks([]);
+    setLateNewTaskTitleByProject({});
+    setLateNewTaskHourByProject({});
+    setLateCreatingTaskProjectId(null);
+    setLateTaskStatuses({});
+
     setShowLateModal(true);
   };
 
+  // ─── Late modal: tambah proyek (sama alur dengan attendance biasa) ───
+  const handleLateSelectProject = async (projectId) => {
+    if (!projectId) return;
+    if (lateSelectedProjects.includes(projectId)) return;
+    setLateSelectedProjects((prev) => [...prev, projectId]);
+    await loadLateProjectTasksFor(projectId);
+  };
+
+  const handleLateRemoveProject = (projectId) => {
+    setLateSelectedProjects((prev) => prev.filter((id) => id !== projectId));
+    setLateSelectedTasks((prev) => {
+      const tasks = lateProjectTasksMap[projectId] || [];
+      return prev.filter((tid) => !tasks.some((t) => t._id === tid));
+    });
+    setLateProjectTasksMap((prev) => {
+      const next = { ...prev };
+      delete next[projectId];
+      return next;
+    });
+  };
+
+  const handleLateToggleTask = (taskId) => {
+    setLateSelectedTasks((prev) =>
+      prev.includes(taskId)
+        ? prev.filter((id) => id !== taskId)
+        : [...prev, taskId]
+    );
+  };
+
+  const handleLateNewTaskTitleChange = (projectId, value) => {
+    setLateNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
+  const handleLateNewTaskHourChange = (projectId, value) => {
+    setLateNewTaskHourByProject((prev) => ({
+      ...prev,
+      [projectId]: Number(value) || 1,
+    }));
+  };
+
+  const handleLateAddProjectTask = async (projectId) => {
+    const title = (lateNewTaskTitleByProject[projectId] || "").trim();
+    if (!title) {
+      toast.error("Judul task tidak boleh kosong");
+      return;
+    }
+    try {
+      setLateCreatingTaskProjectId(projectId);
+      const res = await createTask({
+        title,
+        project_id: projectId,
+        hour_weight: Number(lateNewTaskHourByProject[projectId] ?? 1) || 1,
+      });
+      const newTask = res.data;
+      setLateProjectTasksMap((prev) => ({
+        ...prev,
+        [projectId]: [...(prev[projectId] || []), newTask],
+      }));
+      setLateSelectedTasks((prev) => [...prev, newTask._id]);
+      setLateTaskStatuses((prev) => ({ ...prev, [newTask._id]: "done" }));
+      setLateNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: "" }));
+      toast.success("Task berhasil ditambahkan");
+    } catch (e) {
+      console.error("Create late task error:", e);
+      toast.error("Gagal menambah task");
+    } finally {
+      setLateCreatingTaskProjectId(null);
+    }
+  };
+
+  // ─── Late modal: toggle status task done/ongoing (sama dengan checkout biasa) ───
+  const handleLateToggleTaskStatus = (taskId) => {
+    setLateTaskStatuses((prev) => {
+      const current = prev[taskId] ?? "done";
+      return { ...prev, [taskId]: current === "done" ? "ongoing" : "done" };
+    });
+  };
+
+  // ─── Late modal: submit (aligned with regular attendance flow) ───
   const handleSubmitLateAttendanceFromModal = async () => {
     if (!editingLateRequest) return;
 
-    const taskDefinitions = lateDailyDone
-      .map((title, index) => ({
-        title,
-        progress: lateTaskProgress[index] ?? 0,
-      }))
-      .filter((item) => item.title.trim().length > 0);
-
-    if (taskDefinitions.length === 0) {
-      toast.error("Minimal 1 pekerjaan yang diselesaikan harus diisi");
+    const selectedTaskIds = lateSelectedTasks.filter(Boolean);
+    if (selectedTaskIds.length === 0) {
+      toast.error("Pilih minimal satu task sebelum submit presensi");
       return;
     }
 
-    const hasCompleted = taskDefinitions.some((t) => t.progress >= 100);
-    if (!hasCompleted) {
-      toast.error("Minimal 1 pekerjaan harus 100% agar presensi terlambat valid");
+    const hasDoneTask = selectedTaskIds.some(
+      (id) => (lateTaskStatuses[id] ?? "done") === "done"
+    );
+    if (!hasDoneTask) {
+      toast.error("Minimal 1 task harus ditandai selesai (done) agar presensi terlambat valid");
       return;
     }
 
     try {
       setSubmittingLateAttendance(true);
 
+      // Parse tanggal request (WIB-safe)
       const requestDateRaw = editingLateRequest.date;
       let requestDate;
       if (typeof requestDateRaw === "string") {
@@ -749,41 +849,46 @@ const Attendance = () => {
         return;
       }
 
-      // Create tasks for each "pekerjaan" and get IDs + set progress sesuai slider
-      const taskIds = [];
-      for (const def of taskDefinitions) {
-        const res = await createTask({ title: def.title.trim() });
-        if (res?.data?._id) {
-          const taskId = res.data._id;
-          taskIds.push(taskId);
-          const p = Number(def.progress ?? 0);
+      // Update status masing-masing task sesuai pilihan user (done/ongoing)
+      await Promise.all(
+        selectedTaskIds.map(async (taskId) => {
+          const status = lateTaskStatuses[taskId] ?? "done";
           try {
-            await updateTask(taskId, { progress: Math.max(0, Math.min(100, p)) });
+            await updateTask(taskId, { status });
           } catch (err) {
-            console.error("Failed to set task progress for late attendance:", err);
+            console.error(`Gagal update status task ${taskId}:`, err);
           }
-        }
-      }
-      if (taskIds.length === 0) {
-        toast.error("Gagal membuat task");
-        setSubmittingLateAttendance(false);
-        return;
-      }
-      // Set first task to 100% so checkout is valid
-      await updateTask(taskIds[0], { progress: 100 });
+        })
+      );
+
+      // Derive projects dari task yang dipilih (otomatis, tidak perlu input manual)
+      const involvedProjectIds = Array.from(
+        new Set(
+          selectedTaskIds
+            .map((tid) => {
+              for (const [pid, tasks] of Object.entries(lateProjectTasksMap)) {
+                if (tasks.some((t) => t._id === tid)) return pid;
+              }
+              return null;
+            })
+            .filter(Boolean)
+        )
+      );
 
       const payload = {
         checkIn_at: checkInDateTime.toISOString(),
         checkOut_at: checkOutDateTime.toISOString(),
-        tasks_today: taskIds,
+        tasks_today: selectedTaskIds,
       };
 
       if (lateNote.trim()) payload.note = lateNote.trim();
       if (lateSelectedActivities.length > 0) payload.activities = lateSelectedActivities;
-      if (lateSelectedProjects.length > 0) {
-        payload.projects = lateSelectedProjects.map((id) => ({
+
+      // Projects dikirim tanpa kontribusi manual (sama seperti attendance biasa)
+      if (involvedProjectIds.length > 0) {
+        payload.projects = involvedProjectIds.map((id) => ({
           project_id: id,
-          contribution_percentage: Number(lateProjectContributions[id] ?? 0),
+          contribution_percentage: 0, // dihitung otomatis dari backend
         }));
       }
 
@@ -793,69 +898,33 @@ const Attendance = () => {
         throw new Error("Failed to create late attendance");
       }
 
-      toast.success("Presensi terlambat berhasil dibuat dan disubmit!");
+      toast.success("Presensi terlambat berhasil dibuat!");
       setShowLateModal(false);
       setEditingLateRequest(null);
-
-      setLateCheckInTime("08:00");
-      setLateCheckOutTime("17:00");
-      setLateDailyDone([""]);
-      setLateSelectedActivities([]);
-      setLateSelectedProjects([]);
-      setLateProjectContributions({});
-      setLateNote("");
-
       await loadMyLateRequests();
     } catch (e) {
       console.error("Submit late attendance error:", e);
-      toast.error("Gagal membuat presensi terlambat");
+      toast.error(e?.message || "Gagal membuat presensi terlambat");
     } finally {
       setSubmittingLateAttendance(false);
     }
   };
 
-  const addLateDailyDone = () => {
-    setLateDailyDone([...lateDailyDone, ""]);
-    setLateTaskProgress((prev) => [...prev, 100]);
-  };
-
-  const removeLateDailyDone = (index) => {
-    if (lateDailyDone.length > 1) {
-      setLateDailyDone(lateDailyDone.filter((_, i) => i !== index));
-      setLateTaskProgress((prev) => prev.filter((_, i) => i !== index));
-    } else {
-      toast.error("Minimal harus ada 1 pekerjaan");
-    }
-  };
-
-  const updateLateDailyDone = (index, value) => {
-    const updated = [...lateDailyDone];
-    updated[index] = value;
-    setLateDailyDone(updated);
-  };
-
-  const updateLateTaskProgress = (index, value) => {
-    const num = Math.max(0, Math.min(100, Number(value)));
-    const updated = [...lateTaskProgress];
-    updated[index] = num;
-    setLateTaskProgress(updated);
-  };
-
-  // Enhanced status helpers with new 'late' status
+  // Enhanced status helpers
   const getAttendanceStatus = (checkInTime, checkOutTime) => {
     const checkInHour = new Date(checkInTime).getHours();
     const checkInMinute = new Date(checkInTime).getMinutes();
     const checkInTotalMinutes = checkInHour * 60 + checkInMinute;
     const eightAM = 8 * 60;
-    
+
     const checkOutHour = new Date(checkOutTime).getHours();
     const checkOutMinute = new Date(checkOutTime).getMinutes();
     const checkOutTotalMinutes = checkOutHour * 60 + checkOutMinute;
     const fourPM = 16 * 60;
-    
+
     const isLateCheckIn = checkInTotalMinutes > eightAM;
     const isEarlyCheckOut = checkOutTotalMinutes < fourPM;
-    
+
     if (isLateCheckIn && isEarlyCheckOut) {
       return {
         status: "late",
@@ -896,7 +965,7 @@ const Attendance = () => {
     const minute = new Date(checkInTime).getMinutes();
     const totalMinutes = hour * 60 + minute;
     const eightAM = 8 * 60;
-    
+
     if (totalMinutes <= eightAM) {
       return {
         status: "ontime",
@@ -922,7 +991,7 @@ const Attendance = () => {
     const totalMinutes = hour * 60 + minute;
     const fourPM = 16 * 60;
     const ninePM = 21 * 60;
-    
+
     if (totalMinutes >= fourPM && totalMinutes <= ninePM) {
       return {
         status: "normal",
@@ -962,33 +1031,22 @@ const Attendance = () => {
     attendance &&
     !attendance.checkOut_at &&
     tasksToday.length > 0 &&
-    // atLeastOneTaskDone &&
     canCheckOutNow();
   const hasAttendance = attendance !== null;
 
-  // Calculate max date for late attendance (yesterday in WIB)
-  // IMPORTANT: We must derive the date string from the WIB Date object's own
-  // getFullYear/getMonth/getDate — NOT from .toISOString(), which converts to
-  // UTC and would shift the date back for WIB (UTC+7).
-  // FIX: Allow selecting past dates up to 90 days ago, not just yesterday
-  // This fixes the bug where user can't select date 29 after selecting date 30
   const wibToday = getWIBDate(new Date());
   const wibYesterday = new Date(wibToday);
   wibYesterday.setDate(wibYesterday.getDate() - 1);
   const maxLateDate = `${wibYesterday.getFullYear()}-${String(wibYesterday.getMonth() + 1).padStart(2, '0')}-${String(wibYesterday.getDate()).padStart(2, '0')}`;
-  
-  // Calculate min date for late attendance (90 days ago, to prevent selecting too old dates)
+
   const wibMinDate = new Date(wibToday);
   wibMinDate.setDate(wibMinDate.getDate() - 90);
   const minLateDate = `${wibMinDate.getFullYear()}-${String(wibMinDate.getMonth() + 1).padStart(2, '0')}-${String(wibMinDate.getDate()).padStart(2, '0')}`;
 
-  // Check if late request already exists for a date (using WIB, same as backend)
   const hasLateRequestForDate = (date) => {
     if (!date) return false;
     return lateRequests.some((req) => {
       if (!req?.date) return false;
-      // Backend menyimpan tanggal sudah dinormalisasi ke WIB (normalizeToDateOnly + getWIBDate)
-      // Di frontend kita juga harus konversi ke WIB, JANGAN pakai toISOString (UTC) karena bisa geser 1 hari.
       const wibReqDate = getWIBDate(new Date(req.date));
       const year = wibReqDate.getFullYear();
       const month = String(wibReqDate.getMonth() + 1).padStart(2, "0");
@@ -1003,7 +1061,6 @@ const Attendance = () => {
   const getCalendarDayStyle = (day) => {
     const attendanceRecord = day.attendance;
     if (!attendanceRecord) {
-      // Tidak ada presensi: jika Minggu, tandai libur khusus, selain itu abu-abu
       if (day.isSunday) {
         return {
           bg: "bg-slate-950/60",
@@ -1062,7 +1119,6 @@ const Attendance = () => {
       };
     }
 
-    // Fallback
     return {
       bg: "bg-slate-800/60",
       border: "border-slate-700",
@@ -1070,6 +1126,160 @@ const Attendance = () => {
       label: status || "Presensi",
     };
   };
+
+  // ─── Reusable: Late Attendance Request Form (dipakai di 2 tempat) ───
+  const LateRequestForm = () => (
+    <div className="p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-yellow-500/30">
+      <p className="text-sm text-slate-300 mb-4">
+        Lupa melakukan presensi hari sebelumnya? Ajukan presensi terlambat.
+      </p>
+      {!showLateForm ? (
+        <motion.button
+          onClick={() => setShowLateForm(true)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="text-sm text-yellow-400 hover:text-yellow-300 font-medium underline transition-colors"
+        >
+          Ajukan Presensi Terlambat
+        </motion.button>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal</label>
+            <input
+              type="date"
+              value={lateDate}
+              onChange={(e) => setLateDate(e.target.value)}
+              max={maxLateDate}
+              min={minLateDate}
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
+            />
+            {shouldHideLateForm && (
+              <p className="text-xs text-red-400 mt-2">Pengajuan untuk tanggal ini sudah ada</p>
+            )}
+          </div>
+
+          {!shouldHideLateForm && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Alasan (min 10 karakter)
+                </label>
+                <textarea
+                  value={lateReason}
+                  onChange={(e) => setLateReason(e.target.value)}
+                  rows={3}
+                  placeholder="Jelaskan alasan terlambat melakukan presensi..."
+                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
+                />
+                {lateReason.length > 0 && lateReason.length < 10 && (
+                  <p className="text-xs text-red-400 mt-2">
+                    Minimal 10 karakter ({lateReason.length}/10)
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <motion.button
+                  onClick={handleSubmitLateAttendance}
+                  disabled={submittingLate || !lateDate || lateReason.trim().length < 10}
+                  whileHover={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 1.05 }}
+                  whileTap={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 0.95 }}
+                  className="flex-1 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-700 hover:to-yellow-800 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-3 px-4 rounded-2xl transition-all text-sm shadow-lg"
+                >
+                  {submittingLate ? "Mengirim..." : "Ajukan"}
+                </motion.button>
+                <motion.button
+                  onClick={() => { setShowLateForm(false); setLateDate(""); setLateReason(""); }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
+                >
+                  Batal
+                </motion.button>
+              </div>
+            </>
+          )}
+
+          {shouldHideLateForm && (
+            <motion.button
+              onClick={() => { setShowLateForm(false); setLateDate(""); setLateReason(""); }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
+            >
+              Batal
+            </motion.button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ─── Reusable: My Late Requests List ───
+  const LateRequestsList = () => (
+    <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6">
+      <h3 className="font-semibold text-white mb-4 text-lg">Pengajuan Presensi Terlambat Saya</h3>
+      {loadingLateRequests ? (
+        <div className="text-sm text-slate-400">Memuat...</div>
+      ) : lateRequests.length === 0 ? (
+        <div className="text-sm text-slate-400">Belum ada pengajuan.</div>
+      ) : (
+        <div className="space-y-3">
+          {lateRequests.map((r) => (
+            <motion.div
+              key={r._id}
+              whileHover={{ x: 5 }}
+              className="flex items-center justify-between gap-3 p-4 bg-slate-800/50 border border-slate-700 rounded-xl"
+            >
+              <div className="flex-1">
+                <div className="text-sm font-medium text-white">
+                  {new Date(r.date).toLocaleDateString("id-ID")}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">Alasan: {r.late_reason}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-xs px-3 py-1 rounded-full whitespace-nowrap font-medium ${
+                    r.status === "filled"
+                      ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                      : r.status === "approved"
+                      ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                      : r.status === "rejected"
+                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                      : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                  }`}
+                >
+                  {r.status === "filled"
+                    ? "Filled"
+                    : r.status === "approved"
+                    ? "Approved"
+                    : r.status === "rejected"
+                    ? "Rejected"
+                    : "Pending"}
+                </span>
+
+                {r.status === "approved" && (
+                  <motion.button
+                    onClick={() => handleOpenLateModal(r)}
+                    disabled={submittingLateAttendance}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg transition-all"
+                  >
+                    Buat Presensi
+                  </motion.button>
+                )}
+
+                {r.status === "filled" && (
+                  <span className="text-xs text-green-400 font-medium">✓ Selesai</span>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -1119,7 +1329,7 @@ const Attendance = () => {
           )}
         </motion.div>
 
-        {/* Monthly attendance overview (last 30 days) */}
+        {/* Monthly attendance overview */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1148,13 +1358,9 @@ const Attendance = () => {
           )}
         </motion.div>
 
-        {/* Back to Main View Button (if in checked-in view) */}
+        {/* Back button (checked-in view) */}
         {hasAttendance && viewMode === 'checked-in' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <button
               onClick={() => setViewMode('main')}
               className="flex items-center gap-2 text-blue-400 hover:text-blue-300 font-medium transition-colors"
@@ -1165,7 +1371,7 @@ const Attendance = () => {
           </motion.div>
         )}
 
-        {/* Status Card - shown in checked-in view */}
+        {/* Status Card */}
         {hasAttendance && viewMode === 'checked-in' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -1191,25 +1397,18 @@ const Attendance = () => {
                         ? getAttendanceStatus(attendance.checkIn_at, attendance.checkOut_at).bgColor + ' ' + getAttendanceStatus(attendance.checkIn_at, attendance.checkOut_at).color
                         : getCheckInStatus(attendance.checkIn_at).bgColor + ' ' + getCheckInStatus(attendance.checkIn_at).color
                     }`}>
-                      {attendance.checkOut_at 
-                        ? getAttendanceStatus(attendance.checkIn_at, attendance.checkOut_at).label 
+                      {attendance.checkOut_at
+                        ? getAttendanceStatus(attendance.checkIn_at, attendance.checkOut_at).label
                         : getCheckInStatus(attendance.checkIn_at).label}
                     </span>
                   </h3>
                   <p className="text-sm text-slate-300 mt-1">
                     Check-in: {formatWIBTime(attendance.checkIn_at)}
-                    {attendance.checkOut_at &&
-                      ` • Check-out: ${formatWIBTime(attendance.checkOut_at)}`}
+                    {attendance.checkOut_at && ` • Check-out: ${formatWIBTime(attendance.checkOut_at)}`}
                   </p>
                   {attendance.status === "forget" && (
                     <div className="mt-2">
-                      <span
-                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                          attendance.approved_at
-                            ? "bg-green-100 text-green-800"
-                            : "bg-yellow-100 text-yellow-800"
-                        }`}
-                      >
+                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${attendance.approved_at ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
                         <AlertCircle className="w-4 h-4" />
                         {attendance.approved_at ? "Disetujui" : "Menunggu Persetujuan"}
                       </span>
@@ -1226,8 +1425,6 @@ const Attendance = () => {
                 </div>
               )}
             </div>
-
-            {/* Working hours info */}
             <div className="mt-4 pt-4 border-t border-slate-700/50">
               <div className="flex flex-wrap gap-4 text-sm">
                 <div className="flex items-center gap-2">
@@ -1245,13 +1442,9 @@ const Attendance = () => {
           </motion.div>
         )}
 
-        {/* Check-in Section - shown in main view when not checked in */}
+        {/* Check-in Section */}
         {!hasAttendance && viewMode === 'main' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             {/* Working hours info banner */}
             <div className="mb-6 p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50">
               <div className="flex items-start gap-3">
@@ -1281,11 +1474,9 @@ const Attendance = () => {
               </div>
             )}
 
-      {/* Daily Task (Rencana Hari Ini) — pilih proyek dan task per proyek sebelum check-in */}
+            {/* Daily Task Planner */}
             <div className="mb-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6">
-              <h3 className="font-semibold text-white mb-2 text-lg">
-                Daily Task (Rencana Hari Ini)
-              </h3>
+              <h3 className="font-semibold text-white mb-2 text-lg">Daily Task (Rencana Hari Ini)</h3>
               <p className="text-xs text-slate-400 mb-4">
                 Pilih proyek yang akan dikerjakan hari ini, kemudian pilih atau tambah task
                 per proyek. Minimal satu task harus dipilih sebelum check-in.
@@ -1296,25 +1487,15 @@ const Attendance = () => {
               ) : (
                 <>
                   <div className="mb-4">
-                    <label className="block text-xs font-medium text-slate-300 mb-2">
-                      Pilih Proyek
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300 mb-2">Pilih Proyek</label>
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <SearchSelect
                           value={projectPickerValue}
                           onChange={(v) => setProjectPickerValue(v)}
                           options={projects
-                            .filter(
-                              (p) =>
-                                !selectedProjectsForToday.includes(p._id) &&
-                                p.status === "ongoing"
-                            )
-                            .map((p) => ({
-                              value: p._id,
-                              label: p.name,
-                              subLabel: `${p.code} • ${p.percentage}%`,
-                            }))}
+                            .filter((p) => !selectedProjectsForToday.includes(p._id) && p.status === "ongoing")
+                            .map((p) => ({ value: p._id, label: p.name, subLabel: `${p.code} • ${p.percentage}%` }))}
                           placeholder="Cari proyek..."
                           allLabel="Pilih proyek..."
                         />
@@ -1337,10 +1518,7 @@ const Attendance = () => {
                   </div>
 
                   {selectedProjectsForToday.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                      Belum ada proyek yang dipilih. Pilih minimal satu proyek untuk mulai
-                      mengatur task hari ini.
-                    </p>
+                    <p className="text-xs text-slate-500">Belum ada proyek yang dipilih.</p>
                   ) : (
                     <div className="space-y-4">
                       {selectedProjectsForToday.map((projectId) => {
@@ -1348,41 +1526,24 @@ const Attendance = () => {
                         const tasks = projectTasksMap[projectId] || [];
                         const newTitle = newTaskTitleByProject[projectId] || "";
                         return (
-                          <div
-                            key={projectId}
-                            className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60"
-                          >
+                          <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
                             <div className="flex items-center justify-between mb-2">
                               <div>
-                                <div className="text-sm font-semibold text-white">
-                                  {proj?.name || "Proyek"}
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  {proj?.code} • Progress: {proj?.percentage ?? 0}%
-                                </div>
+                                <div className="text-sm font-semibold text-white">{proj?.name || "Proyek"}</div>
+                                <div className="text-[11px] text-slate-400">{proj?.code} • Progress: {proj?.percentage ?? 0}%</div>
                               </div>
-                              <button
-                                onClick={() => handleRemoveProjectForToday(projectId)}
-                                className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1"
-                              >
-                                <X className="w-3 h-3" />
-                                Hapus
+                              <button onClick={() => handleRemoveProjectForToday(projectId)} className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1">
+                                <X className="w-3 h-3" /> Hapus
                               </button>
                             </div>
-
                             <div className="space-y-2 mb-3">
                               {tasks.length === 0 ? (
-                                <p className="text-xs text-slate-500">
-                                  Belum ada task untuk proyek ini.
-                                </p>
+                                <p className="text-xs text-slate-500">Belum ada task untuk proyek ini.</p>
                               ) : (
                                 tasks.map((task) => {
                                   const checked = selectedTasksToday.includes(task._id);
                                   const status = task.status;
-                                  const workerName =
-                                    task.user_id?.full_name ||
-                                    task.user_id?.email ||
-                                    "";
+                                  const workerName = task.user_id?.full_name || task.user_id?.email || "";
                                   const isSelectable = status === "planned" || status === "rejected";
                                   const isAuto = status === "ongoing";
                                   const isRejected = status === "rejected";
@@ -1390,13 +1551,10 @@ const Attendance = () => {
                                     <label
                                       key={task._id}
                                       className={`flex items-center justify-between gap-2 p-2 rounded-xl border cursor-pointer ${
-                                        status === "planned"
-                                          ? "bg-slate-800/60 border-slate-700"
-                                          : status === "ongoing"
-                                          ? "bg-yellow-500/10 border-yellow-500/30"
-                                          : status === "rejected"
-                                          ? "bg-red-500/10 border-red-500/30"
-                                          : "bg-slate-800/60 border-slate-700"
+                                        status === "planned" ? "bg-slate-800/60 border-slate-700"
+                                        : status === "ongoing" ? "bg-yellow-500/10 border-yellow-500/30"
+                                        : status === "rejected" ? "bg-red-500/10 border-red-500/30"
+                                        : "bg-slate-800/60 border-slate-700"
                                       }`}
                                     >
                                       <div className="flex items-center gap-2">
@@ -1404,16 +1562,11 @@ const Attendance = () => {
                                           type="checkbox"
                                           checked={checked}
                                           disabled={!isSelectable && !isAuto}
-                                          onChange={() => {
-                                            if (!isSelectable) return;
-                                            handleToggleTaskForToday(task._id);
-                                          }}
+                                          onChange={() => { if (!isSelectable) return; handleToggleTaskForToday(task._id); }}
                                           className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                                         />
                                         <div>
-                                          <div className="text-xs text-slate-200 font-medium">
-                                            {task.title}
-                                          </div>
+                                          <div className="text-xs text-slate-200 font-medium">{task.title}</div>
                                           <div className="text-[10px] text-slate-500">
                                             Bobot jam: {task.hour_weight} • Status: {status}
                                             {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
@@ -1426,36 +1579,24 @@ const Attendance = () => {
                                 })
                               )}
                             </div>
-
                             <div className="flex gap-2">
                               <input
                                 type="text"
                                 value={newTitle}
-                                onChange={(e) =>
-                                  handleNewTaskTitleChange(projectId, e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleAddProjectTask(projectId);
-                                }}
+                                onChange={(e) => handleNewTaskTitleChange(projectId, e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleAddProjectTask(projectId); }}
                                 placeholder="Tambah task baru untuk proyek ini..."
                                 className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <input
-                                type="number"
-                                min={0.25}
-                                step={0.25}
+                                type="number" min={0.25} step={0.25}
                                 value={newTaskHourByProject[projectId] ?? 1}
-                                onChange={(e) =>
-                                  handleNewTaskHourChange(projectId, e.target.value)
-                                }
+                                onChange={(e) => handleNewTaskHourChange(projectId, e.target.value)}
                                 className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
                               />
                               <motion.button
                                 onClick={() => handleAddProjectTask(projectId)}
-                                disabled={
-                                  creatingTaskProjectId === projectId ||
-                                  !newTitle.trim()
-                                }
+                                disabled={creatingTaskProjectId === projectId || !newTitle.trim()}
                                 whileHover={{ scale: 1.02 }}
                                 whileTap={{ scale: 0.98 }}
                                 className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-xs flex items-center gap-1"
@@ -1475,217 +1616,27 @@ const Attendance = () => {
 
             <motion.button
               onClick={handleCheckIn}
-              disabled={
-                checkingIn ||
-                selectedTasksToday.length === 0 ||
-                isSunday(new Date()) ||
-                isPastCheckInDeadline()
-              }
-              whileHover={{
-                scale:
-                  checkingIn ||
-                  selectedTasksToday.length === 0 ||
-                  isSunday(new Date()) ||
-                  isPastCheckInDeadline()
-                    ? 1
-                    : 1.02,
-              }}
-              whileTap={{
-                scale:
-                  checkingIn ||
-                  selectedTasksToday.length === 0 ||
-                  isSunday(new Date()) ||
-                  isPastCheckInDeadline()
-                    ? 1
-                    : 0.98,
-              }}
+              disabled={checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline()}
+              whileHover={{ scale: checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 1.02 }}
+              whileTap={{ scale: checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 0.98 }}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
             >
               <Clock className="w-5 h-5" />
-              {isSunday(new Date())
-                ? "Hari Minggu (Libur)"
-                : isPastCheckInDeadline()
-                ? "Check-in Tidak Tersedia (Lewat Jam 16:00)"
-                : checkingIn
-                ? "Memproses..."
-                : selectedTasksToday.length === 0
-                ? "Pilih minimal 1 task untuk check-in"
+              {isSunday(new Date()) ? "Hari Minggu (Libur)"
+                : isPastCheckInDeadline() ? "Check-in Tidak Tersedia (Lewat Jam 16:00)"
+                : checkingIn ? "Memproses..."
+                : selectedTasksToday.length === 0 ? "Pilih minimal 1 task untuk check-in"
                 : "Check-in"}
             </motion.button>
 
-            {/* Late Attendance Request Form */}
-            <div className="mt-6 p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-yellow-500/30">
-              <p className="text-sm text-slate-300 mb-4">
-                Lupa melakukan presensi hari sebelumnya? Ajukan presensi terlambat.
-              </p>
-              {!showLateForm ? (
-                <motion.button
-                  onClick={() => setShowLateForm(true)}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="text-sm text-yellow-400 hover:text-yellow-300 font-medium underline transition-colors"
-                >
-                  Ajukan Presensi Terlambat
-                </motion.button>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Tanggal
-                    </label>
-                    <input
-                      type="date"
-                      value={lateDate}
-                      onChange={(e) => setLateDate(e.target.value)}
-                      max={maxLateDate}
-                      min={minLateDate}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
-                    />
-                    {shouldHideLateForm && (
-                      <p className="text-xs text-red-400 mt-2">
-                        Pengajuan untuk tanggal ini sudah ada
-                      </p>
-                    )}
-                  </div>
-                  
-                  {!shouldHideLateForm && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Alasan (min 10 karakter)
-                        </label>
-                        <textarea
-                          value={lateReason}
-                          onChange={(e) => setLateReason(e.target.value)}
-                          rows={3}
-                          placeholder="Jelaskan alasan terlambat melakukan presensi..."
-                          className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
-                        />
-                        {lateReason.length > 0 && lateReason.length < 10 && (
-                          <p className="text-xs text-red-400 mt-2">
-                            Minimal 10 karakter ({lateReason.length}/10)
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-3">
-                        <motion.button
-                          onClick={handleSubmitLateAttendance}
-                          disabled={submittingLate || !lateDate || lateReason.trim().length < 10}
-                          whileHover={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 1.05 }}
-                          whileTap={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 0.95 }}
-                          className="flex-1 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-700 hover:to-yellow-800 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-3 px-4 rounded-2xl transition-all text-sm shadow-lg"
-                        >
-                          {submittingLate ? "Mengirim..." : "Ajukan"}
-                        </motion.button>
-                        <motion.button
-                          onClick={() => {
-                            setShowLateForm(false);
-                            setLateDate("");
-                            setLateReason("");
-                          }}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          className="px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
-                        >
-                          Batal
-                        </motion.button>
-                      </div>
-                    </>
-                  )}
-                  
-                  {shouldHideLateForm && (
-                    <motion.button
-                      onClick={() => {
-                        setShowLateForm(false);
-                        setLateDate("");
-                        setLateReason("");
-                      }}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
-                    >
-                      Batal
-                    </motion.button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* My Late Requests List */}
-            <div className="mt-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6">
-              <h3 className="font-semibold text-white mb-4 text-lg">Pengajuan Presensi Terlambat Saya</h3>
-              {loadingLateRequests ? (
-                <div className="text-sm text-slate-400">Memuat...</div>
-              ) : lateRequests.length === 0 ? (
-                <div className="text-sm text-slate-400">Belum ada pengajuan.</div>
-              ) : (
-                <div className="space-y-3">
-                  {lateRequests.map((r) => (
-                    <motion.div
-                      key={r._id}
-                      whileHover={{ x: 5 }}
-                      className="flex items-center justify-between gap-3 p-4 bg-slate-800/50 border border-slate-700 rounded-xl"
-                    >
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-white">
-                          {new Date(r.date).toLocaleDateString("id-ID")}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1">Alasan: {r.late_reason}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-xs px-3 py-1 rounded-full whitespace-nowrap font-medium ${
-                            r.status === "filled"
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              : r.status === "approved"
-                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                              : r.status === "rejected"
-                              ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                              : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                          }`}
-                        >
-                          {r.status === "filled"
-                            ? "Filled"
-                            : r.status === "approved"
-                            ? "Approved"
-                            : r.status === "rejected"
-                            ? "Rejected"
-                            : "Pending"}
-                        </span>
-
-                        {r.status === "approved" && (
-                          <motion.button
-                            onClick={() => handleOpenLateModal(r)}
-                            disabled={submittingLateAttendance}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg transition-all"
-                          >
-                            Buat Presensi
-                          </motion.button>
-                        )}
-                        
-                        {r.status === "filled" && (
-                          <span className="text-xs text-green-400 font-medium">
-                            ✓ Selesai
-                          </span>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <div className="mt-6"><LateRequestForm /></div>
+            <div className="mt-6"><LateRequestsList /></div>
           </motion.div>
         )}
 
-        {/* Main view when already checked in (shows late requests + button to see today's attendance) */}
+        {/* Main view when already checked in */}
         {hasAttendance && viewMode === 'main' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <motion.button
               onClick={() => setViewMode('checked-in')}
               whileHover={{ scale: 1.02 }}
@@ -1694,174 +1645,12 @@ const Attendance = () => {
             >
               Lihat Presensi Hari Ini
             </motion.button>
-            {/* Late Attendance Request Form */}
-            <div className="mb-6 p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-yellow-500/30">
-              <p className="text-sm text-slate-300 mb-4">
-                Lupa melakukan presensi hari sebelumnya? Ajukan presensi terlambat.
-              </p>
-              {!showLateForm ? (
-                <motion.button
-                  onClick={() => setShowLateForm(true)}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="text-sm text-yellow-400 hover:text-yellow-300 font-medium underline transition-colors"
-                >
-                  Ajukan Presensi Terlambat
-                </motion.button>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Tanggal
-                    </label>
-                    <input
-                      type="date"
-                      value={lateDate}
-                      onChange={(e) => setLateDate(e.target.value)}
-                      max={maxLateDate}
-                      min={minLateDate}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
-                    />
-                    {shouldHideLateForm && (
-                      <p className="text-xs text-red-400 mt-2">
-                        Pengajuan untuk tanggal ini sudah ada
-                      </p>
-                    )}
-                  </div>
-                  
-                  {!shouldHideLateForm && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Alasan (min 10 karakter)
-                        </label>
-                        <textarea
-                          value={lateReason}
-                          onChange={(e) => setLateReason(e.target.value)}
-                          rows={3}
-                          placeholder="Jelaskan alasan terlambat melakukan presensi..."
-                          className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
-                        />
-                        {lateReason.length > 0 && lateReason.length < 10 && (
-                          <p className="text-xs text-red-400 mt-2">
-                            Minimal 10 karakter ({lateReason.length}/10)
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-3">
-                        <motion.button
-                          onClick={handleSubmitLateAttendance}
-                          disabled={submittingLate || !lateDate || lateReason.trim().length < 10}
-                          whileHover={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 1.05 }}
-                          whileTap={{ scale: submittingLate || !lateDate || lateReason.trim().length < 10 ? 1 : 0.95 }}
-                          className="flex-1 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-700 hover:to-yellow-800 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-3 px-4 rounded-2xl transition-all text-sm shadow-lg"
-                        >
-                          {submittingLate ? "Mengirim..." : "Ajukan"}
-                        </motion.button>
-                        <motion.button
-                          onClick={() => {
-                            setShowLateForm(false);
-                            setLateDate("");
-                            setLateReason("");
-                          }}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          className="px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
-                        >
-                          Batal
-                        </motion.button>
-                      </div>
-                    </>
-                  )}
-                  
-                  {shouldHideLateForm && (
-                    <motion.button
-                      onClick={() => {
-                        setShowLateForm(false);
-                        setLateDate("");
-                        setLateReason("");
-                      }}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
-                    >
-                      Batal
-                    </motion.button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* My Late Requests List */}
-            <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-blue-900/50 p-6 mb-6">
-              <h3 className="font-semibold text-white mb-4 text-lg">Pengajuan Presensi Terlambat Saya</h3>
-              {loadingLateRequests ? (
-                <div className="text-sm text-slate-400">Memuat...</div>
-              ) : lateRequests.length === 0 ? (
-                <div className="text-sm text-slate-400">Belum ada pengajuan.</div>
-              ) : (
-                <div className="space-y-3">
-                  {lateRequests.map((r) => (
-                    <motion.div
-                      key={r._id}
-                      whileHover={{ x: 5 }}
-                      className="flex items-center justify-between gap-3 p-4 bg-slate-800/50 border border-slate-700 rounded-xl"
-                    >
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-white">
-                          {new Date(r.date).toLocaleDateString("id-ID")}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1">Alasan: {r.late_reason}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-xs px-3 py-1 rounded-full whitespace-nowrap font-medium ${
-                            r.status === "filled"
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              : r.status === "approved"
-                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                              : r.status === "rejected"
-                              ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                              : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                          }`}
-                        >
-                          {r.status === "filled"
-                            ? "Filled"
-                            : r.status === "approved"
-                            ? "Approved"
-                            : r.status === "rejected"
-                            ? "Rejected"
-                            : "Pending"}
-                        </span>
-
-                        {r.status === "approved" && (
-                          <motion.button
-                            onClick={() => handleOpenLateModal(r)}
-                            disabled={submittingLateAttendance}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg transition-all"
-                          >
-                            Buat Presensi
-                          </motion.button>
-                        )}
-                        
-                        {r.status === "filled" && (
-                          <span className="text-xs text-green-400 font-medium">
-                            ✓ Selesai
-                          </span>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-
+            <div className="mb-6"><LateRequestForm /></div>
+            <LateRequestsList />
           </motion.div>
         )}
 
-        {/* Work Log Form - ONLY for today's attendance when checked in and not locked */}
+        {/* Work Log Form (checked-in, not locked) */}
         {hasAttendance && viewMode === 'checked-in' && !isLocked && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -1873,50 +1662,32 @@ const Attendance = () => {
               Catatan Pekerjaan Harian
             </h2>
 
-            {/* Dynamic planner after check-in: project & task can still be adjusted */}
+            {/* Atur Ulang Project & Task */}
             <div className="mb-6 border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
-              <h3 className="font-semibold text-white mb-2">
-                Atur Ulang Project & Task Hari Ini
-              </h3>
+              <h3 className="font-semibold text-white mb-2">Atur Ulang Project & Task Hari Ini</h3>
               <p className="text-xs text-slate-400 mb-4">
                 Setelah check-in, Anda tetap bisa menambah/mengurangi project dan task untuk hari ini.
               </p>
-
               {loadingMasterData ? (
                 <div className="text-sm text-slate-400 py-2">Memuat proyek...</div>
               ) : (
                 <>
                   <div className="mb-4">
-                    <label className="block text-xs font-medium text-slate-300 mb-2">
-                      Tambah Proyek
-                    </label>
+                    <label className="block text-xs font-medium text-slate-300 mb-2">Tambah Proyek</label>
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <SearchSelect
                           value={projectPickerValue}
                           onChange={(v) => setProjectPickerValue(v)}
                           options={projects
-                            .filter(
-                              (p) =>
-                                !selectedProjectsForToday.includes(p._id) &&
-                                p.status === "ongoing"
-                            )
-                            .map((p) => ({
-                              value: p._id,
-                              label: p.name,
-                              subLabel: `${p.code} • ${p.percentage}%`,
-                            }))}
+                            .filter((p) => !selectedProjectsForToday.includes(p._id) && p.status === "ongoing")
+                            .map((p) => ({ value: p._id, label: p.name, subLabel: `${p.code} • ${p.percentage}%` }))}
                           placeholder="Cari proyek..."
                           allLabel="Pilih proyek..."
                         />
                       </div>
                       <button
-                        onClick={() => {
-                          if (projectPickerValue) {
-                            handleSelectProjectForToday(projectPickerValue);
-                            setProjectPickerValue("");
-                          }
-                        }}
+                        onClick={() => { if (projectPickerValue) { handleSelectProjectForToday(projectPickerValue); setProjectPickerValue(""); } }}
                         className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl transition-all text-sm"
                       >
                         Tambah
@@ -1925,9 +1696,7 @@ const Attendance = () => {
                   </div>
 
                   {selectedProjectsForToday.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                      Belum ada proyek dipilih.
-                    </p>
+                    <p className="text-xs text-slate-500">Belum ada proyek dipilih.</p>
                   ) : (
                     <div className="space-y-4">
                       {selectedProjectsForToday.map((projectId) => {
@@ -1935,53 +1704,35 @@ const Attendance = () => {
                         const tasks = projectTasksMap[projectId] || [];
                         const newTitle = newTaskTitleByProject[projectId] || "";
                         return (
-                          <div
-                            key={projectId}
-                            className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60"
-                          >
+                          <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
                             <div className="flex items-center justify-between mb-2">
                               <div>
-                                <div className="text-sm font-semibold text-white">
-                                  {proj?.name || "Proyek"}
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  {proj?.code} • Progress: {proj?.percentage ?? 0}%
-                                </div>
+                                <div className="text-sm font-semibold text-white">{proj?.name || "Proyek"}</div>
+                                <div className="text-[11px] text-slate-400">{proj?.code} • Progress: {proj?.percentage ?? 0}%</div>
                               </div>
-                              <button
-                                onClick={() => handleRemoveProjectForToday(projectId)}
-                                className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1"
-                              >
-                                <X className="w-3 h-3" />
-                                Hapus
+                              <button onClick={() => handleRemoveProjectForToday(projectId)} className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1">
+                                <X className="w-3 h-3" /> Hapus
                               </button>
                             </div>
-
                             <div className="space-y-2 mb-3">
                               {tasks.length === 0 ? (
-                                <p className="text-xs text-slate-500">Belum ada task untuk proyek ini.</p>
+                                <p className="text-xs text-slate-500">Belum ada task.</p>
                               ) : (
                                 tasks.map((task) => {
                                   const checked = selectedTasksToday.includes(task._id);
                                   const status = task.status;
                                   const workerName = task.user_id?.full_name || task.user_id?.email || "";
                                   const isRejected = status === "rejected";
-                                  const isOngoingOwned =
-                                    status === "ongoing" &&
-                                    String(task.user_id?._id || task.user_id || "") === String(currentUserId);
-                                  const isSelectable =
-                                    status === "planned" || status === "rejected" || isOngoingOwned;
+                                  const isOngoingOwned = status === "ongoing" && String(task.user_id?._id || task.user_id || "") === String(currentUserId);
+                                  const isSelectable = status === "planned" || status === "rejected" || isOngoingOwned;
                                   return (
                                     <label
                                       key={task._id}
                                       className={`flex items-center justify-between gap-2 p-2 rounded-xl border ${
-                                        status === "planned"
-                                          ? "bg-slate-800/60 border-slate-700"
-                                          : status === "ongoing"
-                                          ? "bg-yellow-500/10 border-yellow-500/30"
-                                          : status === "rejected"
-                                          ? "bg-red-500/10 border-red-500/30"
-                                          : "bg-slate-800/60 border-slate-700"
+                                        status === "planned" ? "bg-slate-800/60 border-slate-700"
+                                        : status === "ongoing" ? "bg-yellow-500/10 border-yellow-500/30"
+                                        : status === "rejected" ? "bg-red-500/10 border-red-500/30"
+                                        : "bg-slate-800/60 border-slate-700"
                                       }`}
                                     >
                                       <div className="flex items-center gap-2">
@@ -1989,10 +1740,7 @@ const Attendance = () => {
                                           type="checkbox"
                                           checked={checked}
                                           disabled={!isSelectable}
-                                          onChange={() => {
-                                            if (!isSelectable) return;
-                                            handleToggleTaskForToday(task._id);
-                                          }}
+                                          onChange={() => { if (!isSelectable) return; handleToggleTaskForToday(task._id); }}
                                           className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                                         />
                                         <div>
@@ -2008,22 +1756,16 @@ const Attendance = () => {
                                 })
                               )}
                             </div>
-
                             <div className="flex gap-2">
                               <input
-                                type="text"
-                                value={newTitle}
+                                type="text" value={newTitle}
                                 onChange={(e) => handleNewTaskTitleChange(projectId, e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleAddProjectTask(projectId);
-                                }}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleAddProjectTask(projectId); }}
                                 placeholder="Tambah task baru..."
                                 className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <input
-                                type="number"
-                                min={0.25}
-                                step={0.25}
+                                type="number" min={0.25} step={0.25}
                                 value={newTaskHourByProject[projectId] ?? 1}
                                 onChange={(e) => handleNewTaskHourChange(projectId, e.target.value)}
                                 className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
@@ -2053,7 +1795,7 @@ const Attendance = () => {
               )}
             </div>
 
-            {/* Tasks Today — tandai selesai (done) atau lanjut (ongoing) */}
+            {/* Tasks Today - centang done/ongoing */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-300 mb-3">
                 Task Hari Ini (centang jika sudah selesai)
@@ -2063,46 +1805,36 @@ const Attendance = () => {
                   const status = checkoutTaskStatuses[task._id] || task.status || "ongoing";
                   const done = status === "done";
                   return (
-                  <div
-                    key={task._id}
-                    className="p-4 bg-slate-800/50 rounded-xl border border-slate-700"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={done}
-                          onChange={() => handleToggleTaskStatusForCheckout(task._id)}
-                          className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-slate-200">
-                          {task.title}
+                    <div key={task._id} className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            onChange={() => handleToggleTaskStatusForCheckout(task._id)}
+                            className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-slate-200">{task.title}</span>
+                        </div>
+                        <span className="text-xs text-slate-400 tabular-nums">
+                          {done ? "Done" : "On-going"}
                         </span>
                       </div>
-                      <span className="text-xs text-slate-400 tabular-nums">
-                        {done ? "Done" : "On-going"}
-                      </span>
                     </div>
-                  </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Activities Multi-select */}
+            {/* Activities */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-3">
-                Aktivitas
-              </label>
+              <label className="block text-sm font-medium text-slate-300 mb-3">Aktivitas</label>
               {loadingMasterData ? (
                 <div className="text-sm text-slate-400">Memuat aktivitas...</div>
               ) : (
                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-slate-700 rounded-xl p-3 bg-slate-800/30">
                   {activities.map((activity) => (
-                    <label
-                      key={activity._id}
-                      className="flex items-center gap-2 p-2 hover:bg-slate-700/50 rounded-lg cursor-pointer transition-colors"
-                    >
+                    <label key={activity._id} className="flex items-center gap-2 p-2 hover:bg-slate-700/50 rounded-lg cursor-pointer transition-colors">
                       <input
                         type="checkbox"
                         checked={selectedActivities.includes(activity._id)}
@@ -2110,9 +1842,7 @@ const Attendance = () => {
                           if (e.target.checked) {
                             setSelectedActivities([...selectedActivities, activity._id]);
                           } else {
-                            setSelectedActivities(
-                              selectedActivities.filter((id) => id !== activity._id)
-                            );
+                            setSelectedActivities(selectedActivities.filter((id) => id !== activity._id));
                           }
                         }}
                         className="rounded border-slate-600 bg-slate-800/50 text-blue-600 focus:ring-blue-500"
@@ -2124,11 +1854,9 @@ const Attendance = () => {
               )}
             </div>
 
-            {/* Proyek Hari Ini (otomatis dari task, tanpa input kontribusi %) */}
+            {/* Proyek (otomatis dari task) */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-3">
-                Proyek Hari Ini
-              </label>
+              <label className="block text-sm font-medium text-slate-300 mb-3">Proyek Hari Ini</label>
               <div className="border border-slate-700 rounded-xl p-4 space-y-2 bg-slate-800/30">
                 {selectedProjectsForToday.length === 0 ? (
                   <p className="text-sm text-slate-400">Belum ada proyek terpilih</p>
@@ -2138,10 +1866,7 @@ const Attendance = () => {
                       const proj = projects.find((p) => p._id === id);
                       if (!proj) return null;
                       return (
-                        <span
-                          key={id}
-                          className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-sm font-medium"
-                        >
+                        <span key={id} className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-sm font-medium">
                           {proj.name} ({proj.percentage}%)
                         </span>
                       );
@@ -2156,9 +1881,7 @@ const Attendance = () => {
 
             {/* Note */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-3">
-                Catatan
-              </label>
+              <label className="block text-sm font-medium text-slate-300 mb-3">Catatan</label>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -2168,7 +1891,6 @@ const Attendance = () => {
               />
             </div>
 
-            {/* Update Button */}
             <motion.button
               onClick={handleUpdateWork}
               disabled={updating}
@@ -2194,19 +1916,12 @@ const Attendance = () => {
             </h2>
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-3">
-                  Task Hari Ini
-                </label>
+                <label className="block text-sm font-medium text-slate-300 mb-3">Task Hari Ini</label>
                 {attendance.tasks_today?.length > 0 ? (
                   <ul className="space-y-2">
                     {attendance.tasks_today.map((task) => (
-                      <li
-                        key={task._id || task}
-                        className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700"
-                      >
-                        <span className="text-slate-200">
-                          {typeof task === "object" ? task.title : task}
-                        </span>
+                      <li key={task._id || task} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700">
+                        <span className="text-slate-200">{typeof task === "object" ? task.title : task}</span>
                         <span className="text-slate-400 text-sm tabular-nums">
                           {typeof task === "object" ? (task.progress ?? 0) : 0}%
                         </span>
@@ -2222,10 +1937,7 @@ const Attendance = () => {
                   <label className="block text-sm font-medium text-slate-300 mb-3">Aktivitas</label>
                   <div className="flex flex-wrap gap-2">
                     {attendance.activities.map((activity) => (
-                      <span
-                        key={activity._id || activity}
-                        className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full text-sm font-medium"
-                      >
+                      <span key={activity._id || activity} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full text-sm font-medium">
                         {activity.name_activity || activity}
                       </span>
                     ))}
@@ -2239,14 +1951,8 @@ const Attendance = () => {
                     {attendance.projects.map((p) => {
                       const proj = p.project_id || p;
                       return (
-                        <span
-                          key={proj._id || proj}
-                          className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-sm font-medium"
-                        >
-                          {(proj.name || proj) +
-                            (typeof p.contribution_percentage === "number"
-                              ? ` (+${p.contribution_percentage}%)`
-                              : "")}
+                        <span key={proj._id || proj} className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-sm font-medium">
+                          {(proj.name || proj) + (typeof p.contribution_percentage === "number" ? ` (+${p.contribution_percentage}%)` : "")}
                         </span>
                       );
                     })}
@@ -2265,11 +1971,7 @@ const Attendance = () => {
 
         {/* Check-out Button */}
         {hasAttendance && !attendance.checkOut_at && viewMode === 'checked-in' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             {!canCheckOutNow() && (
               <div className="mb-4 p-4 bg-red-500/20 backdrop-blur-xl border border-red-500/30 rounded-3xl flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5" />
@@ -2290,19 +1992,20 @@ const Attendance = () => {
               }`}
             >
               <XCircle className="w-5 h-5" />
-              {checkingOut
-                ? "Memproses..."
-                : !canCheckOutNow()
-                ? "Check-out Tidak Tersedia (Lewat Jam 21:00)"
-                : canCheckOut
-                ? "Check-out"
-                : "Check-out (selesaikan minimal 1 task 100% untuk bisa check-out)"}
+              {checkingOut ? "Memproses..."
+                : !canCheckOutNow() ? "Check-out Tidak Tersedia (Lewat Jam 21:00)"
+                : canCheckOut ? "Check-out"
+                : "Check-out (selesaikan minimal 1 task untuk bisa check-out)"}
             </motion.button>
           </motion.div>
         )}
       </div>
 
-      {/* Late Attendance Creation Modal */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          Late Attendance Creation Modal — ALIGNED WITH REGULAR ATTENDANCE
+          Alur: Pilih proyek → load task per proyek → pilih/tambah task →
+                tandai done/ongoing → isi aktivitas → catatan → submit
+      ═══════════════════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {showLateModal && editingLateRequest && (
           <motion.div
@@ -2310,12 +2013,7 @@ const Attendance = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-            onClick={() => {
-              if (!submittingLateAttendance) {
-                setShowLateModal(false);
-                setEditingLateRequest(null);
-              }
-            }}
+            onClick={() => { if (!submittingLateAttendance) { setShowLateModal(false); setEditingLateRequest(null); } }}
           >
             <motion.div
               initial={{ scale: 0.9, y: 20 }}
@@ -2333,12 +2031,7 @@ const Attendance = () => {
                   </p>
                 </div>
                 <button
-                  onClick={() => {
-                    if (!submittingLateAttendance) {
-                      setShowLateModal(false);
-                      setEditingLateRequest(null);
-                    }
-                  }}
+                  onClick={() => { if (!submittingLateAttendance) { setShowLateModal(false); setEditingLateRequest(null); } }}
                   disabled={submittingLateAttendance}
                   className="p-2 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 text-slate-400 hover:text-white"
                 >
@@ -2351,99 +2044,233 @@ const Attendance = () => {
                 {/* Check-in & Check-out Time */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Waktu Check-in *
-                    </label>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Waktu Check-in *</label>
                     <input
                       type="time"
                       value={lateCheckInTime}
                       onChange={(e) => setLateCheckInTime(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 backdrop-blur-sm"
+                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Waktu Check-out *
-                    </label>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Waktu Check-out *</label>
                     <input
                       type="time"
                       value={lateCheckOutTime}
                       onChange={(e) => setLateCheckOutTime(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 backdrop-blur-sm"
+                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
 
                 {/* Working hours reminder */}
-                <div className="p-4 bg-blue-500/20 border border-blue-500/30 rounded-xl">
+                <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
                     <div className="text-xs text-slate-300">
                       <p className="font-medium text-blue-400 mb-1">Jam Kerja:</p>
                       {isSaturday(new Date(editingLateRequest.date)) ? (
                         <p>Sabtu (Setengah Hari): Check-in: 08:00 | Check-out: 12:00 - 21:00</p>
                       ) : (
-                        <p>Senin-Jumat: Check-in: 08:00 | Check-out: 16:00 - 21:00</p>
+                        <p>Senin–Jumat: Check-in: 08:00 | Check-out: 16:00 - 21:00</p>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Daily Done Items */}
+                {/* ── Project & Task Picker (sama dengan attendance biasa) ── */}
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Pekerjaan yang Diselesaikan * (akan otomatis tercentang)
+                    Project & Task yang Dikerjakan *
                   </label>
-                  <div className="space-y-2 mb-3">
-                    {lateDailyDone.map((item, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={true}
-                          disabled
-                          className="w-5 h-5 rounded border-gray-300 text-blue-600"
-                        />
-                        <input
-                          type="text"
-                          value={item}
-                          onChange={(e) => updateLateDailyDone(index, e.target.value)}
-                          placeholder={`Pekerjaan ${index + 1}...`}
-                          className="flex-1 px-3 py-2 border border-gray-300 text-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        {lateDailyDone.length > 1 && (
-                          <button
-                            onClick={() => removeLateDailyDone(index)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                  <p className="text-xs text-slate-400 mb-3">
+                    Pilih proyek lalu pilih atau tambah task yang dikerjakan pada hari tersebut.
+                    Minimal satu task harus ditandai selesai (done).
+                  </p>
+
+                  {/* Picker proyek */}
+                  <div className="flex gap-2 mb-3">
+                    <div className="flex-1">
+                      <SearchSelect
+                        value={lateProjectPickerValue}
+                        onChange={(v) => setLateProjectPickerValue(v)}
+                        options={projects
+                          .filter((p) => !lateSelectedProjects.includes(p._id) && p.status === "ongoing")
+                          .map((p) => ({ value: p._id, label: p.name, subLabel: `${p.code} • ${p.percentage}%` }))}
+                        placeholder="Cari proyek..."
+                        allLabel="Pilih proyek..."
+                      />
+                    </div>
+                    <motion.button
+                      onClick={() => {
+                        if (lateProjectPickerValue) {
+                          handleLateSelectProject(lateProjectPickerValue);
+                          setLateProjectPickerValue("");
+                        }
+                      }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl transition-all flex items-center gap-1 text-sm shadow-lg"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Tambah
+                    </motion.button>
                   </div>
-                  <button
-                    onClick={addLateDailyDone}
-                    className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Tambah Pekerjaan
-                  </button>
+
+                  {lateSelectedProjects.length === 0 ? (
+                    <p className="text-xs text-slate-500 py-2">
+                      Belum ada proyek dipilih. Pilih minimal satu proyek untuk mulai mengatur task.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {lateSelectedProjects.map((projectId) => {
+                        const proj = projects.find((p) => p._id === projectId);
+                        const tasks = lateProjectTasksMap[projectId] || [];
+                        const newTitle = lateNewTaskTitleByProject[projectId] || "";
+                        return (
+                          <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="text-sm font-semibold text-white">{proj?.name || "Proyek"}</div>
+                                <div className="text-[11px] text-slate-400">{proj?.code} • Progress: {proj?.percentage ?? 0}%</div>
+                              </div>
+                              <button onClick={() => handleLateRemoveProject(projectId)} className="text-slate-400 hover:text-red-400 text-xs flex items-center gap-1">
+                                <X className="w-3 h-3" /> Hapus
+                              </button>
+                            </div>
+
+                            {/* Task list dengan toggle done/ongoing */}
+                            <div className="space-y-2 mb-3">
+                              {tasks.length === 0 ? (
+                                <p className="text-xs text-slate-500">Belum ada task untuk proyek ini.</p>
+                              ) : (
+                                tasks.map((task) => {
+                                  const selected = lateSelectedTasks.includes(task._id);
+                                  const status = task.status;
+                                  const workerName = task.user_id?.full_name || task.user_id?.email || "";
+                                  const isRejected = status === "rejected";
+                                  const isOngoingOwned = status === "ongoing" && String(task.user_id?._id || task.user_id || "") === String(currentUserId);
+                                  const isSelectable = status === "planned" || status === "rejected" || isOngoingOwned;
+                                  const taskDone = (lateTaskStatuses[task._id] ?? "done") === "done";
+
+                                  return (
+                                    <div
+                                      key={task._id}
+                                      className={`p-3 rounded-xl border ${
+                                        status === "planned" ? "bg-slate-800/60 border-slate-700"
+                                        : status === "ongoing" ? "bg-yellow-500/10 border-yellow-500/30"
+                                        : status === "rejected" ? "bg-red-500/10 border-red-500/30"
+                                        : "bg-slate-800/60 border-slate-700"
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        {/* Checkbox pilih task */}
+                                        <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={selected}
+                                            disabled={!isSelectable}
+                                            onChange={() => { if (isSelectable) handleLateToggleTask(task._id); }}
+                                            className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                                          />
+                                          <div>
+                                            <div className="text-xs text-slate-200 font-medium">{task.title}</div>
+                                            <div className="text-[10px] text-slate-500">
+                                              Bobot jam: {task.hour_weight} • Status: {status}
+                                              {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
+                                              {isOngoingOwned ? " • (Milikmu)" : ""}
+                                            </div>
+                                          </div>
+                                        </label>
+
+                                        {/* Toggle done/ongoing — hanya tampil jika task dipilih */}
+                                        {selected && (
+                                          <button
+                                            onClick={() => handleLateToggleTaskStatus(task._id)}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                                              taskDone
+                                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                                                : "bg-slate-700/60 text-slate-400 border border-slate-600 hover:bg-slate-700"
+                                            }`}
+                                          >
+                                            {taskDone ? (
+                                              <><CheckCircle2 className="w-3 h-3" /> Done</>
+                                            ) : (
+                                              <><Clock className="w-3 h-3" /> On-going</>
+                                            )}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            {/* Tambah task baru */}
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newTitle}
+                                onChange={(e) => handleLateNewTaskTitleChange(projectId, e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleLateAddProjectTask(projectId); }}
+                                placeholder="Tambah task baru untuk proyek ini..."
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
+                              />
+                              <input
+                                type="number" min={0.25} step={0.25}
+                                value={lateNewTaskHourByProject[projectId] ?? 1}
+                                onChange={(e) => handleLateNewTaskHourChange(projectId, e.target.value)}
+                                className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <motion.button
+                                onClick={() => handleLateAddProjectTask(projectId)}
+                                disabled={lateCreatingTaskProjectId === projectId || !newTitle.trim()}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-xl text-xs flex items-center gap-1"
+                              >
+                                <Plus className="w-3 h-3" />
+                                {lateCreatingTaskProjectId === projectId ? "..." : "Tambah"}
+                              </motion.button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Summary: proyek yang terlibat (otomatis) */}
+                  {lateSelectedProjects.length > 0 && (
+                    <div className="mt-3 p-3 bg-slate-800/40 border border-slate-700 rounded-xl">
+                      <p className="text-[11px] text-slate-400 mb-2 font-medium">Proyek yang terlibat (otomatis dari task):</p>
+                      <div className="flex flex-wrap gap-2">
+                        {lateSelectedProjects.map((id) => {
+                          const proj = projects.find((p) => p._id === id);
+                          if (!proj) return null;
+                          return (
+                            <span key={id} className="px-3 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-xs font-medium">
+                              {proj.name} ({proj.percentage}%)
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-2">
+                        Progress dihitung otomatis dari bobot jam task yang disetujui.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Activities Multi-select */}
+                {/* Aktivitas */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Aktivitas (Opsional)
-                  </label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Aktivitas (Opsional)</label>
                   {loadingMasterData ? (
-                    <div className="text-sm text-slate-300">Memuat aktivitas...</div>
+                    <div className="text-sm text-slate-400">Memuat aktivitas...</div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-slate-700 rounded-xl p-3 bg-slate-800/30">
                       {activities.map((activity) => (
-                        <label
-                          key={activity._id}
-                          className="flex items-center gap-2 p-2 hover:bg-gray-700 rounded cursor-pointer"
-                        >
+                        <label key={activity._id} className="flex items-center gap-2 p-2 hover:bg-slate-700/50 rounded-lg cursor-pointer transition-colors">
                           <input
                             type="checkbox"
                             checked={lateSelectedActivities.includes(activity._id)}
@@ -2451,163 +2278,60 @@ const Attendance = () => {
                               if (e.target.checked) {
                                 setLateSelectedActivities([...lateSelectedActivities, activity._id]);
                               } else {
-                                setLateSelectedActivities(
-                                  lateSelectedActivities.filter((id) => id !== activity._id)
-                                );
+                                setLateSelectedActivities(lateSelectedActivities.filter((id) => id !== activity._id));
                               }
                             }}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="rounded border-slate-600 bg-slate-800/50 text-blue-600 focus:ring-blue-500"
                           />
-                          <span className="text-sm text-slate-300">{activity.name_activity}</span>
+                          <span className="text-sm text-slate-200">{activity.name_activity}</span>
                         </label>
                       ))}
                     </div>
                   )}
                 </div>
 
-                {/* Projects with contribution - select + chips UI (late modal) */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Proyek & Kontribusi (%) (Opsional)
-                  </label>
-                  {loadingMasterData ? (
-                    <div className="text-sm text-gray-500">Memuat proyek...</div>
-                  ) : (
-                    <div className="border border-gray-200 rounded-lg p-3 space-y-3">
-                      {/* Selected project chips */}
-                      {lateSelectedProjects.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {lateSelectedProjects.map((id) => {
-                            const proj = projects.find((p) => p._id === id);
-                            if (!proj) return null;
-                            return (
-                              <div
-                                key={id}
-                                className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5"
-                              >
-                                <span className="text-sm text-green-800 font-medium">
-                                  {proj.name} ({proj.percentage}%)
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={lateProjectContributions[id] ?? ""}
-                                    onChange={(e) => {
-                                      const raw = e.target.value;
-                                      const num = raw === "" ? "" : Math.max(0, Math.min(100, Number(raw)));
-                                      setLateProjectContributions((prev) => ({ ...prev, [id]: num }));
-                                    }}
-                                    className="w-16 px-2 py-0.5 border border-green-300 rounded text-xs text-right focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                    placeholder="%"
-                                  />
-                                  <span className="text-xs text-green-600">%</span>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    setLateSelectedProjects(lateSelectedProjects.filter((pid) => pid !== id));
-                                    setLateProjectContributions((prev) => {
-                                      const next = { ...prev };
-                                      delete next[id];
-                                      return next;
-                                    });
-                                  }}
-                                  className="ml-1 p-0.5 text-green-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Add-project row: dropdown + button */}
-                      {lateSelectedProjects.length < projects.length && (
-                        <div className="flex gap-2">
-                          <select
-                            id="late-project-select"
-                            defaultValue=""
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                            onChange={() => {}}
-                          >
-                            <option value="" disabled>Pilih proyek...</option>
-                            {projects
-                              .filter((p) => !lateSelectedProjects.includes(p._id) && p.status === "ongoing")
-                              .map((p) => (
-                                <option key={p._id} value={p._id}>
-                                  {p.name} ({p.percentage}%)
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => {
-                              const sel = document.getElementById("late-project-select");
-                              if (sel && sel.value) {
-                                setLateSelectedProjects([...lateSelectedProjects, sel.value]);
-                                setLateProjectContributions((prev) => ({ ...prev, [sel.value]: 0 }));
-                                sel.value = "";
-                              }
-                            }}
-                            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all flex items-center gap-1 text-sm"
-                          >
-                            <Plus className="w-4 h-4" />
-                            Tambah
-                          </button>
-                        </div>
-                      )}
-
-                      {projects.length === 0 && (
-                        <p className="text-sm text-gray-500">Tidak ada proyek tersedia</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 {/* Note */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Catatan (Opsional)
-                  </label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Catatan (Opsional)</label>
                   <textarea
                     value={lateNote}
                     onChange={(e) => setLateNote(e.target.value)}
                     rows={3}
                     placeholder="Catatan tambahan..."
-                    className="w-full px-3 py-2 border text-slate-300 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
 
-                {/* Info Note */}
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">Catatan:</span> Data akan langsung tersimpan dan terkunci setelah submit. Pastikan semua informasi sudah benar.
-                  </p>
+                {/* Info note */}
+                <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-slate-300">
+                      Data akan langsung tersimpan dan terkunci setelah submit. Pastikan semua informasi sudah benar.
+                      Minimal 1 task harus ditandai <span className="text-emerald-400 font-medium">Done</span>.
+                    </p>
+                  </div>
                 </div>
               </div>
 
               {/* Modal Footer */}
-              <div className="sticky bottom-0 bg-slate-900/95 border-t border-gray-200 px-6 py-4 flex gap-3 z-10">
+              <div className="sticky bottom-0 bg-slate-900/95 backdrop-blur-xl border-t border-slate-700 px-6 py-4 flex gap-3 z-10">
                 <button
-                  onClick={() => {
-                    if (!submittingLateAttendance) {
-                      setShowLateModal(false);
-                      setEditingLateRequest(null);
-                    }
-                  }}
+                  onClick={() => { if (!submittingLateAttendance) { setShowLateModal(false); setEditingLateRequest(null); } }}
                   disabled={submittingLateAttendance}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-slate-300 hover:bg-slate-800 transition-all disabled:opacity-50"
+                  className="flex-1 px-4 py-3 border border-slate-700 rounded-2xl text-slate-300 hover:bg-slate-800 transition-all disabled:opacity-50 text-sm"
                 >
                   Batal
                 </button>
-                <button
+                <motion.button
                   onClick={handleSubmitLateAttendanceFromModal}
-                  disabled={submittingLateAttendance}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-all"
+                  disabled={submittingLateAttendance || lateSelectedTasks.length === 0}
+                  whileHover={{ scale: submittingLateAttendance || lateSelectedTasks.length === 0 ? 1 : 1.02 }}
+                  whileTap={{ scale: submittingLateAttendance || lateSelectedTasks.length === 0 ? 1 : 0.98 }}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold rounded-2xl transition-all text-sm shadow-lg"
                 >
-                  {submittingLateAttendance ? "Memproses..." : "Submit Presensi"}
-                </button>
+                  {submittingLateAttendance ? "Memproses..." : lateSelectedTasks.length === 0 ? "Pilih minimal 1 task" : "Submit Presensi"}
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>

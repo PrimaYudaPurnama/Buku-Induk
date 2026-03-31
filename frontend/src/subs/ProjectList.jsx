@@ -444,6 +444,15 @@ export default function ProjectList() {
     setProcessing(true);
 
     try {
+      if (
+        formData.start_date &&
+        formData.target_end_date &&
+        new Date(formData.target_end_date) < new Date(formData.start_date)
+      ) {
+        toast.error("Target selesai tidak boleh lebih awal dari tanggal mulai");
+        return;
+      }
+
       const payload = {
         code: formData.code,
         name: formData.name,
@@ -925,7 +934,20 @@ export default function ProjectList() {
                       <input 
                         type="date" 
                         value={formData.start_date} 
-                        onChange={(e) => setFormData({...formData, start_date: e.target.value})} 
+                        onChange={(e) => {
+                          const nextStartDate = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            start_date: nextStartDate,
+                            // Jaga konsistensi: target tidak boleh sebelum start.
+                            target_end_date:
+                              prev.target_end_date &&
+                              nextStartDate &&
+                              new Date(prev.target_end_date) < new Date(nextStartDate)
+                                ? nextStartDate
+                                : prev.target_end_date,
+                          }));
+                        }} 
                         className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm" 
                       />
                       <p className="text-xs text-slate-400 mt-1">
@@ -940,6 +962,7 @@ export default function ProjectList() {
                       <input
                         type="date"
                         value={formData.target_end_date}
+                        min={formData.start_date || undefined}
                         onChange={(e) => setFormData({ ...formData, target_end_date: e.target.value })}
                         className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all backdrop-blur-sm"
                       />

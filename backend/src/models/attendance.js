@@ -87,12 +87,12 @@ const AttendanceSchema = new mongoose.Schema(
           required: true,
         },
         // How much progress was added TODAY for this project (0–100, typically small).
-        contribution_percentage: {
-          type: Number,
-          required: true,
-          min: 0,
-          max: 100,
-        },
+        // contribution_percentage: {
+        //   type: Number,
+        //   required: true,
+        //   min: 0,
+        //   max: 100,
+        // },
       },
     ],
 
