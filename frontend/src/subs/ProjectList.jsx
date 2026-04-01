@@ -783,12 +783,10 @@ export default function ProjectList() {
                         <td className="px-8 py-6 text-slate-300">
                           <div className="flex flex-col gap-1 text-sm">
                             <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-slate-400" />
-                              <span>{proj.start_date ? new Date(proj.start_date).toLocaleDateString("id-ID") : "-"}</span>
+                              <span>Start: {proj.start_date ? new Date(proj.start_date).toLocaleDateString("id-ID") : "-"}</span>
                             </div>
                             {proj.end_date && (
                               <div className="flex items-center gap-2 flex-wrap">
-                                <Calendar className="w-4 h-4 text-slate-400" />
                                 <span>Selesai: {new Date(proj.end_date).toLocaleDateString("id-ID")}</span>
                               </div>
                             )}
