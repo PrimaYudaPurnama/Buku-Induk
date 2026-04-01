@@ -49,10 +49,13 @@ Seeder akan:
 8. **Manager** (hierarchy_level: 5)
    - Division Manager - hanya divisi sendiri
 
-9. **Team Lead** (hierarchy_level: 6)
+9. **Manager Project** (hierarchy_level: 5)
+   - Manager Project dengan akses project
+
+10. **Team Lead** (hierarchy_level: 6)
    - Team Leader - hanya data diri sendiri
 
-10. **Staff** (hierarchy_level: 7)
+11. **Staff** (hierarchy_level: 7)
     - Regular employee - hanya data diri sendiri
 
 ### Catatan

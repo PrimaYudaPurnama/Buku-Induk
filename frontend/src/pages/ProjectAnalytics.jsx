@@ -27,7 +27,7 @@ const STATUS_COLORS = {
 
 const HEALTH_META = {
   on_track:    { label: "On Track",     icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
-  at_risk:     { label: "Berisiko",     icon: AlertTriangle, color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
+  // at_risk:     { label: "Berisiko",     icon: AlertTriangle, color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
   behind:      { label: "Terlambat",    icon: AlertTriangle, color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
   no_deadline: { label: "Tanpa Deadline", icon: Minus,       color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
   completed:   { label: "Selesai",      icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
@@ -1271,7 +1271,7 @@ const ProjectAnalytics = () => {
                   <Activity className="w-4 h-4" /> Kesehatan Proyek
                 </h2>
                 <div className="space-y-3">
-                  {(["on_track","at_risk","behind","no_deadline","completed"] ).map((key) => {
+                  {(["on_track","behind","no_deadline","completed"] ).map((key) => {
                     const meta  = HEALTH_META[key];
                     const count = ov?.by_health?.[key] ?? 0;
                     const total = ov?.total_projects || 1;
@@ -1279,7 +1279,6 @@ const ProjectAnalytics = () => {
                     const Icon  = meta.icon;
                     const barColor = {
                       on_track:    "#10b981",
-                      at_risk:     "#f59e0b",
                       behind:      "#f43f5e",
                       no_deadline: "#64748b",
                       completed:   "#10b981",

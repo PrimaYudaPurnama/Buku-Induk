@@ -796,13 +796,13 @@ const Attendance = () => {
       return;
     }
 
-    const hasDoneTask = selectedTaskIds.some(
-      (id) => (lateTaskStatuses[id] ?? "done") === "done"
-    );
-    if (!hasDoneTask) {
-      toast.error("Minimal 1 task harus ditandai selesai (done) agar presensi terlambat valid");
-      return;
-    }
+    // const hasDoneTask = selectedTaskIds.some(
+    //   (id) => (lateTaskStatuses[id] ?? "done") === "done"
+    // );
+    // if (!hasDoneTask) {
+    //   toast.error("Minimal 1 task harus ditandai selesai (done) agar presensi terlambat valid");
+    //   return;
+    // }
 
     try {
       setSubmittingLateAttendance(true);
@@ -1128,7 +1128,9 @@ const Attendance = () => {
   };
 
   // ─── Reusable: Late Attendance Request Form (dipakai di 2 tempat) ───
-  const LateRequestForm = () => (
+  // Penting: dibuat sebagai helper render function (bukan React component terpisah)
+  // supaya tidak di-remount setiap kali state berubah (yang bisa membuat textarea kehilangan fokus).
+  const renderLateRequestForm = () => (
     <div className="p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-yellow-500/30">
       <p className="text-sm text-slate-300 mb-4">
         Lupa melakukan presensi hari sebelumnya? Ajukan presensi terlambat.
@@ -1629,7 +1631,7 @@ const Attendance = () => {
                 : "Check-in"}
             </motion.button>
 
-            <div className="mt-6"><LateRequestForm /></div>
+            <div className="mt-6">{renderLateRequestForm()}</div>
             <div className="mt-6"><LateRequestsList /></div>
           </motion.div>
         )}
@@ -1645,7 +1647,7 @@ const Attendance = () => {
             >
               Lihat Presensi Hari Ini
             </motion.button>
-            <div className="mb-6"><LateRequestForm /></div>
+            <div className="mb-6">{renderLateRequestForm()}</div>
             <LateRequestsList />
           </motion.div>
         )}
@@ -2325,7 +2327,7 @@ const Attendance = () => {
                 </button>
                 <motion.button
                   onClick={handleSubmitLateAttendanceFromModal}
-                  disabled={submittingLateAttendance || lateSelectedTasks.length === 0}
+                  // disabled={submittingLateAttendance || lateSelectedTasks.length === 0}
                   whileHover={{ scale: submittingLateAttendance || lateSelectedTasks.length === 0 ? 1 : 1.02 }}
                   whileTap={{ scale: submittingLateAttendance || lateSelectedTasks.length === 0 ? 1 : 0.98 }}
                   className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold rounded-2xl transition-all text-sm shadow-lg"

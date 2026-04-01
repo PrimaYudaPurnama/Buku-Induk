@@ -153,6 +153,17 @@ const roles = [
     hierarchy_level: 5,
   },
   {
+    _id: new mongoose.Types.ObjectId("69c62b7f3b1d6aa5731fb98f"),
+    name: "Manager Project",
+    description: "Mengatur project",
+    permissions: [
+      "system:manage_projects",
+      "system:manage_analytics",
+      "user:read:any",
+    ],
+    hierarchy_level: 5,
+  },
+  {
     _id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbba"),
     name: "Team Lead",
     description: "Team Leader - hanya data diri sendiri",
