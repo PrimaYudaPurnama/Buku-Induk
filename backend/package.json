@@ -3,8 +3,9 @@
   "scripts": {
     "dev": "bun run --hot src/index.js",
     "start": "bun src/index.js",
-    "seed:roles": "bun run src/seeders/roleSeeder.js",
-    "seed:user": "bun run src/seeders/userSeeder.js"
+    "migrate:fresh": "bun run src/scripts/migrateFresh.js",
+    "migrate:fresh:seed": "bun run src/scripts/migrateFreshAndSeed.js",
+    "seed": "bun run src/scripts/seed.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",
