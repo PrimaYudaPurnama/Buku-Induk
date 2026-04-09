@@ -1,5 +1,6 @@
 import Attendance from "../models/attendance.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
+import AbsenceRequest from "../models/absenceRequest.js";
 
 /**
  * Get current time in WIB (Waktu Indonesia Barat, UTC+7)
@@ -131,6 +132,22 @@ class LateAttendanceRequestService {
     if (existingAttendance) {
       const err = new Error("Attendance already exists for that date");
       err.code = "ATTENDANCE_ALREADY_EXISTS";
+      err.status = 409;
+      throw err;
+    }
+
+    // Strict: cannot request if absence request already exists for this date
+    const absenceConflict = await AbsenceRequest.findOne({
+      user_id: user._id,
+      status: { $in: ["pending", "approved"] },
+      start_date: { $lte: targetDate },
+      end_date: { $gte: targetDate },
+    }).lean();
+    if (absenceConflict) {
+      const err = new Error(
+        "Tanggal sudah dipakai pada pengajuan izin/cuti/sakit. Tidak bisa membuat late attendance request."
+      );
+      err.code = "ABSENCE_REQUEST_CONFLICT";
       err.status = 409;
       throw err;
     }

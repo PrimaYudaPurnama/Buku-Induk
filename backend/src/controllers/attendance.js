@@ -1,4 +1,6 @@
 import AttendanceService from "../services/attendanceService.js";
+import Activity from "../models/activity.js";
+import Project from "../models/project.js";
 
 class AttendanceController {
   async checkIn(c) {
@@ -45,6 +47,26 @@ class AttendanceController {
           error: {
             message: error.message || "Failed to check in",
             code: error.code || "CHECKIN_ERROR",
+          },
+        },
+        status
+      );
+    }
+  }
+
+  async getWorkingConfig(c) {
+    try {
+      const date = c.req.query("date") || null;
+      const config = await AttendanceService.getWorkingConfig({ date });
+      return c.json({ success: true, data: config });
+    } catch (error) {
+      const status = error.status || 500;
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: error.message || "Failed to fetch working config",
+            code: error.code || "GET_WORKING_CONFIG_ERROR",
           },
         },
         status
@@ -208,7 +230,6 @@ class AttendanceController {
 
   async getActivities(c) {
     try {
-      const Activity = (await import("../models/activity.js")).default;
       const activities = await Activity.find({}).sort({ name_activity: 1 }).lean();
       return c.json({
         success: true,
@@ -230,7 +251,6 @@ class AttendanceController {
 
   async getProjects(c) {
     try {
-      const Project = (await import("../models/project.js")).default;
       const projects = await Project.find({}).sort({ name: 1 }).lean();
       return c.json({
         success: true,

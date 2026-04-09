@@ -25,6 +25,8 @@ const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage 
     { id: 'DivisionList', label: 'Division Settings', icon: Settings, permission: ["system:manage_divisions", "dashboard:read"] },
     { id: 'ActivityList', label: 'Activity Management', icon: Activity, permission: ["system:manage_activities", "dashboard:read"] },
     { id: 'ProjectList', label: 'Project Management', icon: FolderKanban, permission: ["system:manage_projects", "dashboard:read"] },
+    { id: 'WeeklyScheduleAdmin', label: 'Weekly Schedule Admin', icon: Calendar, permission: ["system:manage_weeklyschedule", "dashboard:read"] },
+    { id: 'WorkDayAdmin', label: 'Work Day Admin', icon: Calendar, permission: ["system:manage_workday", "dashboard:read"] },
     { id: 'RoleSettings', label: 'Role Settings', icon: Shield, permission: ["system:manage_roles"] },
     { id: 'AuditLogs', label: 'Audit Logs', icon: FileText, permission: ["system:view_audit_logs", "dashboard:read"] },
   ];

@@ -88,14 +88,24 @@ class ProjectController {
     }
 
     try {
-      // Always set status to "planned" on create (will auto-change to "ongoing" via cron if start_date passed)
+      // If start_date is already in the past/today, start project as ongoing.
+      let computedStatus = "planned";
+      if (start_date) {
+        const start = new Date(start_date);
+        const today = new Date();
+        start.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        if (!Number.isNaN(start.getTime()) && start <= today) {
+          computedStatus = "ongoing";
+        }
+      }
       // end_date is auto-filled by system when percentage = 100
       const created = await Project.create({
         code: code.toUpperCase().trim(),
         name: name.trim(),
         work_type,
         percentage: percentage || 0,
-        status: "planned", // Always "planned" on create, auto-changed by cron
+        status: computedStatus,
         start_date: start_date || null,
         end_date: null, // Auto-filled by system when percentage = 100
         target_end_date: target_end_date ? new Date(target_end_date) : null,

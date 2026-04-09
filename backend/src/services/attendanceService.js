@@ -3,6 +3,9 @@ import Task from "../models/task.js";
 import Activity from "../models/activity.js";
 import Project from "../models/project.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
+import AbsenceRequest from "../models/absenceRequest.js";
+import WeeklySchedule from "../models/weeklySchedule.js";
+import WorkDay from "../models/workDay.js";
 
 /**
  * Get current time in WIB (Waktu Indonesia Barat, UTC+7)
@@ -32,52 +35,215 @@ const getWIBDayOfWeek = (date = new Date()) => {
   return wib.getDay();
 };
 
-/**
- * Check if date is a working day (Monday-Saturday, Sunday is off)
- */
-const isWorkingDay = (date = new Date()) => {
-  const dayOfWeek = getWIBDayOfWeek(date);
-  return dayOfWeek >= 1 && dayOfWeek <= 6; // Monday (1) to Saturday (6)
-};
-
-/**
- * Check if date is Sunday (libur)
- */
 const isSunday = (date = new Date()) => {
   return getWIBDayOfWeek(date) === 0;
 };
 
-/**
- * Check if date is Saturday
- */
-const isSaturday = (date = new Date()) => {
-  return getWIBDayOfWeek(date) === 6;
+// ===== ENV DEFAULTS (for seeding + fallback) =====
+const parseTimeToMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== "string") return null;
+  const [h, m] = hhmm.split(":").map((v) => Number(v));
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+const DEFAULT_WEEKDAY_IN = process.env.DEFAULT_WEEKDAY_CHECKIN || "08:00";
+const DEFAULT_WEEKDAY_OUT = process.env.DEFAULT_WEEKDAY_CHECKOUT || "16:00";
+const DEFAULT_SATURDAY_IN = process.env.DEFAULT_SATURDAY_CHECKIN || "08:00";
+const DEFAULT_SATURDAY_OUT = process.env.DEFAULT_SATURDAY_CHECKOUT || "12:00";
+const DEFAULT_MAX_CHECKOUT = process.env.MAX_CHECKOUT || "21:00";
+
+const defaultTimeByDOW = (dayOfWeek) => {
+  // 0=Sun ... 6=Sat
+  if (dayOfWeek === 0) {
+    return { isWorking: false, checkIn: null, checkOut: null };
+  }
+  if (dayOfWeek === 6) {
+    return {
+      isWorking: true,
+      checkIn: DEFAULT_SATURDAY_IN,
+      checkOut: DEFAULT_SATURDAY_OUT,
+    };
+  }
+  return {
+    isWorking: true,
+    checkIn: DEFAULT_WEEKDAY_IN,
+    checkOut: DEFAULT_WEEKDAY_OUT,
+  };
+};
+
+// Ensure 7 docs exist in WeeklySchedule with sane defaults
+const ensureWeeklyScheduleDefaults = async () => {
+  const count = await WeeklySchedule.estimatedDocumentCount();
+  if (count >= 7) return;
+  // Upsert 0..6
+  const bulk = [];
+  for (let dow = 0; dow <= 6; dow++) {
+    const def = defaultTimeByDOW(dow);
+    bulk.push({
+      updateOne: {
+        filter: { day_of_week: dow },
+        update: {
+          $setOnInsert: {
+            day_of_week: dow,
+            check_in: def.checkIn,
+            check_out: def.checkOut,
+            is_working_day: def.isWorking,
+          },
+        },
+        upsert: true,
+      },
+    });
+  }
+  if (bulk.length) {
+    await WeeklySchedule.bulkWrite(bulk);
+  }
+};
+
+// Ensure WorkDay for the next 30 days is generated (idempotent)
+const ensureRollingWorkDays = async () => {
+  await ensureWeeklyScheduleDefaults();
+  const start = normalizeToDateOnly(new Date());
+  const end = normalizeToDateOnly(new Date(Date.now() + 30 * 24 * 3600 * 1000));
+  // Build a set of keys we need
+  const toCreate = [];
+  const existing = await WorkDay.find({
+    date: { $gte: start, $lte: end },
+  })
+    .select({ date: 1 })
+    .lean();
+  const have = new Set((existing || []).map((d) => normalizeDateKey(d.date)));
+  const weekly = await WeeklySchedule.find({}).lean();
+  const weeklyMap = new Map(weekly.map((w) => [w.day_of_week, w]));
+
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const key = normalizeDateKey(cursor);
+    if (!have.has(key)) {
+      const dow = getWIBDayOfWeek(cursor);
+      const rule = weeklyMap.get(dow);
+      const working = !!(rule?.is_working_day && rule?.check_in && rule?.check_out);
+      toCreate.push({
+        date: normalizeToDateOnly(cursor),
+        is_working_day: working,
+        is_holiday: !working && dow === 0 ? true : false, // default Sunday as holiday
+        holiday_name: !working && dow === 0 ? "Minggu" : "",
+        is_override: false,
+      });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (toCreate.length > 0) {
+    await WorkDay.insertMany(toCreate, { ordered: false }).catch(() => {});
+  }
 };
 
 /**
- * Get working hours for a specific date
- * Returns: { startHour: number, startMinute: number, endHour: number, endMinute: number }
+ * Resolve working config for a specific date:
+ * Returns:
+ * {
+ *   isWorkingDay: boolean,
+ *   checkInTotalMinutes: number|null,
+ *   checkOutTotalMinutes: number|null,
+ *   maxCheckOutTotalMinutes: number  // from env
+ * }
  */
-const getWorkingHours = (date = new Date()) => {
-  if (isSaturday(date)) {
-    // Sabtu: 08:00 - 12:00
-    return { startHour: 8, startMinute: 0, endHour: 12, endMinute: 0 };
-  } else {
-    // Senin-Jumat: 08:00 - 16:00
-    return { startHour: 8, startMinute: 0, endHour: 16, endMinute: 0 };
+const getResolvedWorkingConfig = async (date = new Date()) => {
+  const norm = normalizeToDateOnly(date);
+  const workDay = await WorkDay.findOne({ date: norm }).lean();
+  const dow = getWIBDayOfWeek(date);
+  const weekly = await WeeklySchedule.findOne({ day_of_week: dow }).lean();
+
+  const maxCheckOutTotalMinutes = parseTimeToMinutes(DEFAULT_MAX_CHECKOUT) ?? (21 * 60);
+
+  // Strict mode: if WorkDay for this date doesn't exist, attendance is unavailable.
+  if (!workDay) {
+    return {
+      isWorkingDay: false,
+      checkInTotalMinutes: null,
+      checkOutTotalMinutes: null,
+      maxCheckOutTotalMinutes,
+      holidayName: "Tanggal belum tersedia. Hubungi HR untuk seed jadwal.",
+      hasWorkDayConfig: false,
+    };
   }
+
+  // If HR override exists
+  if (workDay?.is_override) {
+    if (!workDay.is_working_day || workDay.is_holiday) {
+      return {
+        isWorkingDay: false,
+        checkInTotalMinutes: null,
+        checkOutTotalMinutes: null,
+        maxCheckOutTotalMinutes,
+        holidayName: workDay.holiday_name || "",
+        hasWorkDayConfig: true,
+      };
+    }
+    // use weekly hours (if provided), otherwise fallback to defaults for this DOW
+    const schedule = weekly || { check_in: defaultTimeByDOW(dow).checkIn, check_out: defaultTimeByDOW(dow).checkOut, is_working_day: true };
+    const inMin = parseTimeToMinutes(schedule.check_in);
+    const outMin = parseTimeToMinutes(schedule.check_out);
+    return {
+      isWorkingDay: true,
+      checkInTotalMinutes: inMin,
+      checkOutTotalMinutes: outMin,
+      maxCheckOutTotalMinutes,
+      holidayName: "",
+      hasWorkDayConfig: true,
+    };
+  }
+
+  // No override:
+  // If day flagged holiday or non-working
+  if (workDay && (!workDay.is_working_day || workDay.is_holiday)) {
+    return {
+      isWorkingDay: false,
+      checkInTotalMinutes: null,
+      checkOutTotalMinutes: null,
+      maxCheckOutTotalMinutes,
+      holidayName: workDay.holiday_name || "",
+      hasWorkDayConfig: true,
+    };
+  }
+
+  // Use weekly rule
+  const isWorkingWeekly = !!(weekly?.is_working_day && weekly?.check_in && weekly?.check_out);
+  if (!isWorkingWeekly) {
+    return {
+      isWorkingDay: false,
+      checkInTotalMinutes: null,
+      checkOutTotalMinutes: null,
+      maxCheckOutTotalMinutes,
+      holidayName: "",
+      hasWorkDayConfig: true,
+    };
+  }
+  return {
+    isWorkingDay: true,
+    checkInTotalMinutes: parseTimeToMinutes(weekly.check_in),
+    checkOutTotalMinutes: parseTimeToMinutes(weekly.check_out),
+    maxCheckOutTotalMinutes,
+    holidayName: "",
+    hasWorkDayConfig: true,
+  };
+};
+
+const isWorkingDay = async (date = new Date()) => {
+  const cfg = await getResolvedWorkingConfig(date);
+  return cfg.isWorkingDay;
 };
 
 /**
  * Validate check-in time based on working hours
  */
-const validateCheckInTime = (date = new Date()) => {
+const validateCheckInTime = async (date = new Date()) => {
   const wib = getWIBDate(date);
   const hour = wib.getHours();
   const minute = wib.getMinutes();
   const totalMinutes = hour * 60 + minute;
-  const { startHour, startMinute } = getWorkingHours(wib);
-  const startTotalMinutes = startHour * 60 + startMinute;
+  const cfg = await getResolvedWorkingConfig(wib);
+  const startTotalMinutes = cfg.checkInTotalMinutes ?? 0;
   
   return {
     isValid: totalMinutes >= startTotalMinutes,
@@ -92,13 +258,13 @@ const validateCheckInTime = (date = new Date()) => {
 /**
  * Validate check-out time based on working hours
  */
-const validateCheckOutTime = (date = new Date()) => {
+const validateCheckOutTime = async (date = new Date()) => {
   const wib = getWIBDate(date);
   const hour = wib.getHours();
   const minute = wib.getMinutes();
   const totalMinutes = hour * 60 + minute;
-  const { endHour, endMinute } = getWorkingHours(wib);
-  const endTotalMinutes = endHour * 60 + endMinute;
+  const cfg = await getResolvedWorkingConfig(wib);
+  const endTotalMinutes = cfg.checkOutTotalMinutes ?? (16 * 60);
   
   return {
     isValid: totalMinutes >= endTotalMinutes,
@@ -278,6 +444,33 @@ const normalizeDateKey = (date) => {
   return `${y}-${m}-${day}`;
 };
 
+const deriveProjectsFromTaskIds = async (taskIds = []) => {
+  const normalizedTaskIds = Array.isArray(taskIds)
+    ? taskIds
+        .filter((id) => id && id.toString?.())
+        .map((id) => id.toString())
+    : [];
+  if (normalizedTaskIds.length === 0) return [];
+
+  const tasks = await Task.find({ _id: { $in: normalizedTaskIds } })
+    .select({ _id: 1, project_id: 1 })
+    .lean();
+  const taskMap = new Map(tasks.map((t) => [t._id.toString(), t]));
+
+  const seenProjectIds = new Set();
+  const derivedProjects = [];
+  for (const taskId of normalizedTaskIds) {
+    const task = taskMap.get(taskId);
+    const projectId = task?.project_id?.toString?.() || task?.project_id;
+    if (!projectId) continue;
+    if (seenProjectIds.has(projectId)) continue;
+    seenProjectIds.add(projectId);
+    derivedProjects.push({ project_id: projectId });
+  }
+
+  return derivedProjects;
+};
+
 class AttendanceService {
   /**
    * Check-in: create new attendance for today.
@@ -303,15 +496,8 @@ class AttendanceService {
     const nowWIB = getWIBDate(now); // hanya untuk validasi jam/hari
     const today = normalizeToDateOnly(now);
 
-    // Validate working day (Monday-Saturday, Sunday is off)
-    if (isSunday(nowWIB)) {
-      const err = new Error("Attendance tidak dapat dilakukan pada hari Minggu (libur)");
-      err.code = "SUNDAY_NOT_ALLOWED";
-      err.status = 400;
-      throw err;
-    }
-
-    if (!isWorkingDay(nowWIB)) {
+    // Validate working day via WorkDay/WeeklySchedule
+    if (!(await isWorkingDay(nowWIB))) {
       const err = new Error("Hari ini bukan hari kerja");
       err.code = "NOT_WORKING_DAY";
       err.status = 400;
@@ -331,11 +517,13 @@ class AttendanceService {
     }
 
     // Validate check-in time based on working hours
-    const checkInValidation = validateCheckInTime(nowWIB);
+    const checkInValidation = await validateCheckInTime(nowWIB);
     if (!checkInValidation.isValid) {
-      const { startHour, startMinute } = getWorkingHours(nowWIB);
+      const cfg = await getResolvedWorkingConfig(nowWIB);
+      const startHour = Math.floor((cfg.checkInTotalMinutes ?? 480) / 60);
+      const startMinute = (cfg.checkInTotalMinutes ?? 480) % 60;
       const err = new Error(
-        `Check-in belum dibuka. Jam kerja ${isSaturday(nowWIB) ? 'Sabtu' : 'hari kerja'}: ${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
+        `Check-in belum dibuka. Jam kerja dimulai: ${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
       );
       err.code = "CHECKIN_TOO_EARLY";
       err.status = 400;
@@ -421,12 +609,33 @@ class AttendanceService {
         checkOut: false,
       },
       tasks_today: normalizedTaskIds,
-      projects: [],
+      projects: await deriveProjectsFromTaskIds(normalizedTaskIds),
       activities: [],
       note: "",
     });
 
     return attendance;
+  }
+
+  /**
+   * Expose resolved working config for a given date (default today).
+   * Useful for frontend to render rules.
+   */
+  async getWorkingConfig({ date } = {}) {
+    const target = date ? new Date(date) : new Date();
+    const cfg = await getResolvedWorkingConfig(target);
+    return {
+      is_working_day: cfg.isWorkingDay,
+      has_workday_config: !!cfg.hasWorkDayConfig,
+      holiday_name: cfg.holidayName || "",
+      check_in: cfg.checkInTotalMinutes !== null
+        ? `${String(Math.floor(cfg.checkInTotalMinutes / 60)).padStart(2, "0")}:${String(cfg.checkInTotalMinutes % 60).padStart(2, "0")}`
+        : null,
+      check_out: cfg.checkOutTotalMinutes !== null
+        ? `${String(Math.floor(cfg.checkOutTotalMinutes / 60)).padStart(2, "0")}:${String(cfg.checkOutTotalMinutes % 60).padStart(2, "0")}`
+        : null,
+      max_checkout: `${String(Math.floor((cfg.maxCheckOutTotalMinutes ?? 1260) / 60)).padStart(2, "0")}:${String((cfg.maxCheckOutTotalMinutes ?? 1260) % 60).padStart(2, "0")}`,
+    };
   }
 
   /**
@@ -566,6 +775,12 @@ class AttendanceService {
       }
     }
 
+    if (updateOps.$set?.tasks_today !== undefined) {
+      updateOps.$set.projects = await deriveProjectsFromTaskIds(
+        updateOps.$set.tasks_today
+      );
+    }
+
     // note - simple overwrite
     if (typeof payload.note === "string") {
       updateOps.$set = {
@@ -674,15 +889,15 @@ class AttendanceService {
     }
 
     // Validate check-out time based on working hours
-    const checkOutValidation = validateCheckOutTime(nowWIB);
-    const { endHour, endMinute } = getWorkingHours(nowWIB);
-    const endTotalMinutes = endHour * 60 + endMinute;
+    const checkOutValidation = await validateCheckOutTime(nowWIB);
+    const cfg = await getResolvedWorkingConfig(nowWIB);
+    const endTotalMinutes = cfg.checkOutTotalMinutes ?? (16 * 60);
     
-    // Allow check-out until 21:00 (grace period for late checkout)
-    const maxCheckOutMinutes = 21 * 60; // 21:00
+    // Allow check-out until MAX_CHECKOUT (grace period for late checkout)
+    const maxCheckOutMinutes = cfg.maxCheckOutTotalMinutes ?? (21 * 60);
     if (checkOutValidation.totalMinutes > maxCheckOutMinutes) {
       const err = new Error(
-        `Check-out sudah lewat dari jam maksimal (21:00). Silakan hubungi HR untuk penanganan lebih lanjut.`
+        `Check-out sudah lewat dari jam maksimal (${DEFAULT_MAX_CHECKOUT}). Silakan hubungi HR untuk penanganan lebih lanjut.`
       );
       err.code = "CHECKOUT_TOO_LATE";
       err.status = 400;
@@ -745,7 +960,10 @@ class AttendanceService {
       user_id: user._id,
       date: today,
     })
-      .populate("tasks_today")
+      .populate({
+        path: "tasks_today",
+        populate: { path: "project_id", model: "Project" },
+      })
       .populate("projects.project_id")
       .populate("activities");
 
@@ -782,7 +1000,10 @@ class AttendanceService {
 
     const history = await Attendance.find(filters)
       .sort({ date: -1 })
-      .populate("tasks_today")
+      .populate({
+        path: "tasks_today",
+        populate: { path: "project_id", model: "Project" },
+      })
       .populate("projects.project_id")
       .populate("activities");
 
@@ -847,10 +1068,25 @@ class AttendanceService {
       throw err;
     }
 
-    if (!isWorkingDay(targetDate)) {
+    if (!(await isWorkingDay(targetDate))) {
       const err = new Error("Tanggal yang dipilih bukan hari kerja");
       err.code = "NOT_WORKING_DAY";
       err.status = 400;
+      throw err;
+    }
+
+    const absenceConflict = await AbsenceRequest.findOne({
+      user_id: user._id,
+      status: { $in: ["pending", "approved"] },
+      start_date: { $lte: targetDate },
+      end_date: { $gte: targetDate },
+    }).lean();
+    if (absenceConflict) {
+      const err = new Error(
+        "Tanggal ini memiliki konflik dengan pengajuan izin/cuti/sakit. Hubungi HR."
+      );
+      err.code = "ABSENCE_REQUEST_CONFLICT";
+      err.status = 409;
       throw err;
     }
 
@@ -918,15 +1154,6 @@ class AttendanceService {
       }
     }
 
-    // Validate projects structure
-    const projects = Array.isArray(payload.projects)
-      ? payload.projects
-      : [];
-    
-    if (projects.length > 0) {
-      await validateReferences({ projectItems: projects, activityIds: [] });
-    }
-
     // Validate activities
     const activities = Array.isArray(payload.activities)
       ? payload.activities
@@ -951,7 +1178,7 @@ class AttendanceService {
         checkOut: !!checkOut_at,
       },
       tasks_today: tasksToday,
-      projects: projects,
+      projects: await deriveProjectsFromTaskIds(tasksToday),
       activities: activities,
       note: typeof payload.note === "string" ? payload.note.trim() : "",
     });
@@ -1066,7 +1293,10 @@ class AttendanceService {
       user_id: user._id,
       date: targetDate,
     })
-      .populate("tasks_today")
+      .populate({
+        path: "tasks_today",
+        populate: { path: "project_id", model: "Project" },
+      })
       .populate("projects.project_id")
       .populate("activities");
 
@@ -1201,6 +1431,12 @@ class AttendanceService {
       }
     }
 
+    if (updateOps.$set?.tasks_today !== undefined) {
+      updateOps.$set.projects = await deriveProjectsFromTaskIds(
+        updateOps.$set.tasks_today
+      );
+    }
+
     if (typeof payload.note === "string") {
       updateOps.$set = {
         ...(updateOps.$set || {}),
@@ -1259,6 +1495,14 @@ class AttendanceService {
       .populate("projects.project_id")
       .populate("activities");
 
+    const workDays = await WorkDay.find({
+      date: { $gte: start, $lte: end },
+    }).lean();
+    const workDayMap = new Map((workDays || []).map((wd) => [normalizeDateKey(wd.date), wd]));
+
+    const weekly = await WeeklySchedule.find({}).lean();
+    const weeklyMap = new Map((weekly || []).map((w) => [w.day_of_week, w]));
+
     const map = new Map();
     for (const rec of records) {
       map.set(normalizeDateKey(rec.date), rec);
@@ -1270,11 +1514,46 @@ class AttendanceService {
     while (cursor <= endLocal) {
       const key = normalizeDateKey(cursor);
       const rec = map.get(key);
+      const dow = getWIBDayOfWeek(cursor);
+      const wd = workDayMap.get(key);
+      const ws = weeklyMap.get(dow);
+
+      let hasWorkDayConfig = !!wd;
+      let isWorkingDay = false;
+      let holidayName = "";
+
+      if (!wd) {
+        isWorkingDay = false;
+        holidayName = "Tanggal belum diset HR";
+      } else if (wd.is_override) {
+        if (!wd.is_working_day || wd.is_holiday) {
+          isWorkingDay = false;
+          holidayName = wd.holiday_name || "";
+        } else {
+          isWorkingDay = !!(ws?.is_working_day && ws?.check_in && ws?.check_out);
+          if (!isWorkingDay) {
+            holidayName = "Jadwal mingguan belum diset";
+          }
+        }
+      } else if (!wd.is_working_day || wd.is_holiday) {
+        isWorkingDay = false;
+        holidayName = wd.holiday_name || "";
+      } else {
+        isWorkingDay = !!(ws?.is_working_day && ws?.check_in && ws?.check_out);
+        if (!isWorkingDay) {
+          holidayName = "Jadwal mingguan belum diset";
+        }
+      }
+
       days.push({
         date: key,
         dayOfWeek: getWIBDayOfWeek(cursor),
         isSunday: isSunday(cursor),
         isToday: key === todayKey,
+        has_workday_config: hasWorkDayConfig,
+        is_working_day: isWorkingDay,
+        is_holiday: !isWorkingDay && !!holidayName,
+        holiday_name: holidayName,
         hasAttendance: !!rec,
         status: rec?.status || null,
         checkIn_at: rec?.checkIn_at || null,

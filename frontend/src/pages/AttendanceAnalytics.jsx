@@ -174,7 +174,7 @@ const WorkloadUserModal = ({
             </div>
 
             {/* Granularity + Close */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* <div className="flex items-center gap-2 shrink-0">
               <select
                 value={granularity}
                 onChange={(e) => setGranularity(e.target.value)}
@@ -191,7 +191,7 @@ const WorkloadUserModal = ({
               >
                 <X className="w-4 h-4" />
               </button>
-            </div>
+            </div> */}
           </div>
 
           {/* Internal Tab Navigation */}
@@ -678,6 +678,14 @@ const WorkloadUserModal = ({
 // Main Component
 // ─────────────────────────────────────────────────────────────
 const AttendanceAnalytics = () => {
+  const todayStr = (() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  })();
+
   const [activeTab, setActiveTab] = useState("overview");
   const [overview, setOverview] = useState(null);
   const [details, setDetails] = useState(null);
@@ -690,14 +698,15 @@ const AttendanceAnalytics = () => {
   const [drillRows, setDrillRows] = useState([]);
   const [drillPagination, setDrillPagination] = useState(null);
   const [filters, setFilters] = useState({
-    start_date: "",
-    end_date: "",
+    start_date: todayStr,
+    end_date: todayStr,
     user_id: "",
     division_id: "",
     status: "",
     page: 1,
     limit: 20,
   });
+  const [specificDate, setSpecificDate] = useState(todayStr);
   const [users, setUsers] = useState([]);
   const [divisions, setDivisions] = useState([]);
   const [workloadLoading, setWorkloadLoading] = useState(false);
@@ -817,7 +826,6 @@ const AttendanceAnalytics = () => {
   };
 
   useEffect(() => {
-    loadOverview();
     loadUsers();
     loadDivisions();
   }, []);
@@ -825,6 +833,7 @@ const AttendanceAnalytics = () => {
   useEffect(() => {
     if (activeTab === "details") loadDetails();
     if (activeTab === "workload") loadWorkload();
+    if (activeTab === "overview") loadOverview();
   }, [activeTab, filters]);
 
   useEffect(() => {
@@ -1007,6 +1016,20 @@ const AttendanceAnalytics = () => {
       const projects = Array.isArray(row.projects) ? row.projects : [];
       const activities = Array.isArray(row.activities) ? row.activities : [];
       const tasksApproved = tasks.filter((t) => t?.status === "approved");
+      const totalApprovedTaskHw = tasksApproved.reduce(
+        (sum, t) => sum + (Number(t?.hour_weight) || 0),
+        0
+      );
+      const approvedHwByProject = new Map();
+      tasksApproved.forEach((t) => {
+        const pid = t?.project_id?._id || t?.project_id;
+        if (!pid) return;
+        const key = String(pid);
+        approvedHwByProject.set(
+          key,
+          (approvedHwByProject.get(key) || 0) + (Number(t?.hour_weight) || 0)
+        );
+      });
 
       target.attendances += 1;
       target.total_worked_hours += worked;
@@ -1062,7 +1085,14 @@ const AttendanceAnalytics = () => {
       projectsToCount.forEach((p) => {
         const pid = p?.project_id?._id || p?.project_id || "unknown_project";
         const pname = p?.project_id?.name || p?.project_id?.code || p?.project_name || "Proyek";
-        const contribution = Number(p?.contribution_percentage) || 0;
+        const explicitContribution = Number(p?.contribution_percentage);
+        const taskBasedContribution =
+          totalApprovedTaskHw > 0
+            ? (((approvedHwByProject.get(String(pid)) || 0) / totalApprovedTaskHw) * 100)
+            : 0;
+        const contribution = Number.isFinite(explicitContribution)
+          ? explicitContribution
+          : taskBasedContribution;
         if (!target.projects[pid]) {
           target.projects[pid] = { project_id: pid, project_name: pname, contribution_sum: 0, records: 0 };
         }
@@ -1219,6 +1249,60 @@ const AttendanceAnalytics = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-xl p-4 border border-slate-700/50"
         >
+          <div className="flex flex-wrap items-end gap-2 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Cari Rekap Hari Spesifik</label>
+              <input
+                type="date"
+                value={specificDate}
+                onChange={(e) => setSpecificDate(e.target.value)}
+                className="px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!specificDate) return;
+                setFilters((prev) => ({ ...prev, start_date: specificDate, end_date: specificDate, page: 1 }));
+              }}
+              className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm"
+            >
+              Tampilkan Hari Spesifik
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSpecificDate(todayStr);
+                setFilters((prev) => ({ ...prev, start_date: todayStr, end_date: todayStr, page: 1 }));
+              }}
+              className="px-3 py-2 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-100 text-sm"
+            >
+              Reset ke Hari Ini
+            </button>
+          </div>
+
+          {/* Shortcut range tanggal (lebih user friendly) */}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {[
+              { preset: "today", label: "Hari Ini" },
+              { preset: "week", label: "Minggu Ini" },
+              { preset: "month", label: "Bulan Ini" },
+            ].map(({ preset, label }) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => applyWorkloadPreset(preset)}
+                className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                  workloadPreset === preset
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-700/50 text-slate-200 hover:bg-slate-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
@@ -1279,7 +1363,7 @@ const AttendanceAnalytics = () => {
         </motion.div>
 
         {/* Import Excel */}
-        <motion.div
+        {/* <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-xl p-4 border border-slate-700/50"
@@ -1392,7 +1476,7 @@ const AttendanceAnalytics = () => {
               )}
             </div>
           )}
-        </motion.div>
+        </motion.div> */}
 
         {/* Content */}
         {loading && <div className="text-center py-12 text-slate-400">Memuat data...</div>}
@@ -1402,12 +1486,45 @@ const AttendanceAnalytics = () => {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { icon: CalendarCheck, bg: "bg-blue-500/20", color: "text-blue-400", value: overview.total_attendances, label: "Total Presensi" },
-                { icon: CheckCircle2, bg: "bg-green-500/20", color: "text-green-400", value: overview.by_status?.normal || 0, label: "Presensi Normal" },
-                { icon: AlertCircle, bg: "bg-red-500/20", color: "text-red-400", value: (overview.by_status?.late || 0) + (overview.by_status?.late_checkin || 0), label: "Terlambat" },
-                { icon: Timer, bg: "bg-purple-500/20", color: "text-purple-400", value: `${overview.attendance_rate?.toFixed(1) || 0}%`, label: "Tingkat Kehadiran" },
-              ].map(({ icon: Icon, bg, color, value, label }) => (
-                <motion.div key={label} whileHover={{ scale: 1.02 }} className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
+                {
+                  icon: Users,
+                  bg: "bg-blue-500/20",
+                  color: "text-blue-400",
+                  value: overview.employee_summary?.total_employees || 0,
+                  label: "Total Karyawan",
+                  onClick: () => openDrilldown({ title: "Drilldown: Total Karyawan", metric: "employee_state", value: "total" }),
+                },
+                {
+                  icon: CalendarCheck,
+                  bg: "bg-green-500/20",
+                  color: "text-green-400",
+                  value: overview.employee_summary?.present_employees || 0,
+                  label: "Karyawan Berangkat",
+                  onClick: () => openDrilldown({ title: "Drilldown: Karyawan Berangkat", metric: "employee_state", value: "present" }),
+                },
+                {
+                  icon: AlertCircle,
+                  bg: "bg-amber-500/20",
+                  color: "text-amber-400",
+                  value: overview.employee_summary?.absent_employees || 0,
+                  label: "Karyawan Absen (Izin/Cuti/Sakit)",
+                  onClick: () => openDrilldown({ title: "Drilldown: Karyawan Absen", metric: "employee_state", value: "absent" }),
+                },
+                {
+                  icon: XCircle,
+                  bg: "bg-red-500/20",
+                  color: "text-red-400",
+                  value: overview.employee_summary?.unexcused_employees || 0,
+                  label: "Tidak Berangkat Tanpa Ket",
+                  onClick: () => openDrilldown({ title: "Drilldown: Tanpa Keterangan", metric: "employee_state", value: "unexcused" }),
+                },
+              ].map(({ icon: Icon, bg, color, value, label, onClick }) => (
+                <motion.button
+                  key={label}
+                  whileHover={{ scale: 1.02 }}
+                  onClick={onClick}
+                  className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50 text-left hover:border-slate-500/60 transition-all"
+                >
                   <div className="flex items-center justify-between mb-4">
                     <div className={`p-3 ${bg} rounded-lg`}>
                       <Icon className={`w-6 h-6 ${color}`} />
@@ -1415,9 +1532,27 @@ const AttendanceAnalytics = () => {
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-1">{value}</h3>
                   <p className="text-slate-400 text-sm">{label}</p>
-                </motion.div>
+                </motion.button>
               ))}
             </div>
+
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => openDrilldown({ title: "Drilldown: Tingkat Kehadiran (Berangkat)", metric: "employee_state", value: "present" })}
+              className="w-full text-left bg-slate-800/50 backdrop-blur-xl rounded-xl p-5 border border-slate-700/50 hover:border-slate-500/60 transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <Timer className="w-5 h-5 text-purple-400" />
+                  <span className="font-semibold">Tingkat Kehadiran</span>
+                </div>
+                <div className="text-2xl font-bold text-purple-300">
+                  {overview.employee_summary?.attendance_rate?.toFixed(1) || "0.0"}%
+                </div>
+              </div>
+            </motion.button>
 
             <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
               <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
@@ -1467,6 +1602,64 @@ const AttendanceAnalytics = () => {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Pengajuan Ketidakhadiran
+                </h2>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {[
+                    ["Total", overview.absence_requests?.total || 0, "text-white"],
+                    ["Pending", overview.absence_requests?.pending || 0, "text-amber-300"],
+                    ["Approved", overview.absence_requests?.approved || 0, "text-emerald-300"],
+                    ["Rejected", overview.absence_requests?.rejected || 0, "text-rose-300"],
+                  ].map(([label, val, color]) => (
+                    <div key={label} className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2">
+                      <div className="text-xs text-slate-400">{label}</div>
+                      <div className={`text-lg font-bold ${color}`}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="px-2 py-1 rounded bg-red-500/15 text-red-300">
+                    Sakit: {overview.absence_requests?.by_type?.sick || 0}
+                  </span>
+                  <span className="px-2 py-1 rounded bg-blue-500/15 text-blue-300">
+                    Izin: {overview.absence_requests?.by_type?.permission || 0}
+                  </span>
+                  <span className="px-2 py-1 rounded bg-indigo-500/15 text-indigo-300">
+                    Cuti: {overview.absence_requests?.by_type?.leave || 0}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <Calendar className="w-5 h-5" />
+                  Kalender Kerja
+                </h2>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+                    <span className="text-slate-400">Hari rentang filter</span>
+                    <span className="text-white font-semibold">{overview.work_calendar?.total_days_in_range ?? "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+                    <span className="text-slate-400">Hari kerja efektif</span>
+                    <span className="text-emerald-300 font-semibold">{overview.work_calendar?.working_days_in_range ?? "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+                    <span className="text-slate-400">Ekspektasi presensi</span>
+                    <span className="text-indigo-300 font-semibold">{overview.work_calendar?.expected_attendance_records ?? "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">User aktif di data</span>
+                    <span className="text-sky-300 font-semibold">{overview.work_calendar?.active_users ?? "-"}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1607,14 +1800,9 @@ const AttendanceAnalytics = () => {
         {/* ── Workload Tab ── */}
         {activeTab === "workload" && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
+            {/* <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-white mb-1">Rekap Bobot Jam Kerja per User</h2>
-                  <p className="text-sm text-slate-400">
-                    Klik baris user untuk membuka rekap lengkap (attendance, project, task, aktivitas).
-                  </p>
-                </div>
+                
                 <div className="flex flex-wrap gap-2">
                   {["today", "week", "month"].map((preset) => (
                     <button
@@ -1630,11 +1818,17 @@ const AttendanceAnalytics = () => {
                   ))}
                 </div>
               </div>
-            </div>
+            </div> */}
 
             <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl p-6 border border-slate-700/50">
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-4">
                 <div className="w-full lg:max-w-md">
+                <div className="mb-4">
+                  <h2 className="text-xl font-bold text-white mb-1">Rekap Bobot Jam Kerja per User</h2>
+                  <p className="text-sm text-slate-400">
+                    Klik baris user untuk membuka rekap lengkap (attendance, project, task, aktivitas).
+                  </p>
+                </div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Cari user rekap</label>
                   <input
                     type="text"

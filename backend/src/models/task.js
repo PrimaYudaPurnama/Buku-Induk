@@ -43,12 +43,25 @@ const TaskSchema = new mongoose.Schema(
       required: true,
       min: 0.25,
     },
+    // Prioritas task untuk membantu urutan pengerjaan.
+    tier: {
+      type: String,
+      enum: ["low", "normal", "high", "critical"],
+      default: "normal",
+      index: true,
+    },
 
     status: {
       type: String,
       enum: ["planned", "ongoing", "done", "approved", "rejected"],
       default: "planned",
       index: true,
+    },
+    
+    note: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     approved_by: {

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import AttendanceController from "../controllers/attendance.js";
 import TaskController from "../controllers/task.js";
 import LateAttendanceRequestController from "../controllers/lateAttendanceRequest.js";
+import AbsenceRequestController from "../controllers/absenceRequest.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const attendanceRouter = new Hono();
@@ -205,6 +206,54 @@ attendanceRouter.get(
 );
 
 // =========================
+// Absence requests (sick/leave/permission)
+// =========================
+attendanceRouter.post(
+  "/absence-request",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => AbsenceRequestController.requestAbsence(c)
+);
+
+attendanceRouter.get(
+  "/absence-requests/mine",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => AbsenceRequestController.myRequests(c)
+);
+
+attendanceRouter.get(
+  "/absence-requests/pending",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any"],
+  }),
+  (c) => AbsenceRequestController.pendingRequests(c)
+);
+
+attendanceRouter.post(
+  "/absence-approve/:id",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any"],
+  }),
+  (c) => AbsenceRequestController.approveAbsence(c)
+);
+
+attendanceRouter.post(
+  "/absence-reject/:id",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any"],
+  }),
+  (c) => AbsenceRequestController.rejectAbsence(c)
+);
+
+// =========================
 // Late attendance creation & submission
 // =========================
 attendanceRouter.post(
@@ -242,6 +291,16 @@ attendanceRouter.get(
     permissions: ["dashboard:read", "user:read:any", "user:read:self"],
   }),
   (c) => AttendanceController.getProjects(c)
+);
+
+// Working config for today (or ?date=YYYY-MM-DD)
+attendanceRouter.get(
+  "/working-config",
+  authenticate(),
+  authorize({
+    permissions: ["dashboard:read", "user:read:any", "user:read:self"],
+  }),
+  (c) => AttendanceController.getWorkingConfig(c)
 );
 
 export default attendanceRouter;

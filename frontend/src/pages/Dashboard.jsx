@@ -21,6 +21,8 @@ import LateAttendanceApprovals from './LateAttendanceApprovals.jsx'
 import AttendanceAnalytics from './AttendanceAnalytics.jsx'
 import ProjectAnalytics from './ProjectAnalytics.jsx'
 import MyAttendanceHistory from './MyAttendanceHistory.jsx'
+import WeeklyScheduleAdmin from './WeeklyScheduleAdmin.jsx'
+import WorkDayAdmin from './WorkDayAdmin.jsx'
 import { useAuthStore } from '../stores/useAuthStore' 
 import { useNavigate } from 'react-router-dom';
 import { fetchCurrentUser } from '../utils/api.jsx';
@@ -110,6 +112,10 @@ export default function Dashboard() {
         return <ProjectAnalytics />
       case 'OrgChart':
         return <OrgChart />
+      case 'WeeklyScheduleAdmin':
+        return <WeeklyScheduleAdmin />
+      case 'WorkDayAdmin':
+        return <WorkDayAdmin />
       default:
         return <Home />
     }

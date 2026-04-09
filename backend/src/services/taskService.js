@@ -49,20 +49,8 @@ async function getTasksByProject({ user, projectId }) {
     // Manager sees all tasks of this project (including approved).
     query = { project_id: projectId };
   } else {
-    // Attendance needs:
-    // - planned: visible & selectable
-    // - rejected: visible & selectable
-    // - ongoing: only if belongs to current user (auto-selected)
-    // - approved: hidden
-    // - done: hidden from planning list (handled on attendance after check-in)
-    query = {
-      project_id: projectId,
-      $or: [
-        { status: { $in: ["planned", "rejected"] } },
-        { status: "ongoing", user_id: user._id },
-      ],
-      status: { $ne: "approved" },
-    };
+    // User view needs full visibility to understand whether task can be taken.
+    query = { project_id: projectId };
   }
 
   const tasks = await Task.find(query)
@@ -114,6 +102,13 @@ async function createTask({ user, payload }) {
     )
       ? payload.status
       : "planned";
+  const tier =
+    typeof payload?.tier === "string" &&
+    ["low", "normal", "high", "critical"].includes(payload.tier)
+      ? payload.tier
+      : "normal";
+  const note =
+    typeof payload?.note === "string" ? payload.note.trim() : "";
 
   const permissions = user?.role_id?.permissions || [];
   const canManageProjects = Array.isArray(permissions)
@@ -133,7 +128,9 @@ async function createTask({ user, payload }) {
         : "",
     start_at: new Date(),
     hour_weight: hourWeight,
+    tier,
     status: initialStatus,
+    note,
   });
 
   // Recalculate project percentage if this task is linked to a project.
@@ -170,7 +167,8 @@ async function updateTask({ user, taskId, payload }) {
   //   throw err;
   // }
 
-  const { title, description, hour_weight, status, project_id } = payload || {};
+  const { title, description, hour_weight, status, project_id, tier, note } =
+    payload || {};
 
   const previousProjectId = task.project_id ? task.project_id.toString() : null;
 
@@ -222,6 +220,24 @@ async function updateTask({ user, taskId, payload }) {
       throw err;
     }
     task.status = status;
+  }
+  if (tier !== undefined) {
+    if (!["low", "normal", "high", "critical"].includes(tier)) {
+      const err = new Error("tier must be one of: low, normal, high, critical");
+      err.code = "INVALID_TIER";
+      err.status = 400;
+      throw err;
+    }
+    task.tier = tier;
+  }
+  if (note !== undefined) {
+    if (typeof note !== "string") {
+      const err = new Error("note must be a string");
+      err.code = "INVALID_NOTE";
+      err.status = 400;
+      throw err;
+    }
+    task.note = note.trim();
   }
 
   await task.save();

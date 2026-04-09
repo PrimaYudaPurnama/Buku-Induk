@@ -60,6 +60,55 @@ class cloudinary_metaData {
     }
   }
 
+  // Upload absence attachment (image/pdf/raw) without changing profile picture
+  async uploadAbsenceAttachment(c) {
+    try {
+      const userId = c.req.param("id");
+      const uploaded_by = c.req.param("by") || userId;
+      const user = await User.findById(userId);
+      if (!user) return c.json({ success: false, message: "User not found" }, 404);
+
+      const file = await c.req.formData().then((fd) => fd.get("file"));
+      if (!file) return c.json({ success: false, message: "No file uploaded" }, 400);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64String = `data:${file.type};base64,${buffer.toString("base64")}`;
+
+      const uploadResult = await cloudinary.uploader.upload(base64String, {
+        folder: `absence/${userId}`,
+        resource_type: "auto",
+        public_id: `absence_${Date.now()}`,
+        overwrite: false,
+      });
+
+      const attachment = new file_metaData({
+        user_id: userId,
+        uploaded_by: uploaded_by || userId,
+        cloudinary_public_id: uploadResult.public_id,
+        url: uploadResult.secure_url,
+        original_filename: file.name || uploadResult.original_filename,
+        size: uploadResult.bytes,
+        mime_type: file.type || uploadResult.format,
+      });
+      await attachment.save();
+
+      return c.json({
+        success: true,
+        data: {
+          url: uploadResult.secure_url,
+          file_id: attachment._id,
+          mime_type: attachment.mime_type,
+          original_filename: attachment.original_filename,
+          size: attachment.size,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      return c.json({ success: false, message: err.message }, 500);
+    }
+  }
+
   // Get user's current profile photo
   async getProfilePhoto(c) {
     try {

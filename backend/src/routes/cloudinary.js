@@ -10,6 +10,7 @@ cloudinaryRouter.post("/upload", (c) => cloudinary_metaData.uploadProfilePhotoFo
 
 // Upload profile picture
 cloudinaryRouter.post("/:id/upload", (c) => cloudinary_metaData.uploadProfilePhoto(c));
+cloudinaryRouter.post("/:id/upload-absence", (c) => cloudinary_metaData.uploadAbsenceAttachment(c));
 
 // Get profile picture
 cloudinaryRouter.get("/:id", (c) => cloudinary_metaData.getProfilePhoto(c));

@@ -17,6 +17,7 @@ import analyticsRouter from './routes/analytics.js';
 import orgChartRouter from './routes/orgChart.js';
 import publicRouter from './routes/public.js';
 import attendanceRouter from "./routes/attendance.js";
+import scheduleRouter from "./routes/schedule.js";
 
 import Role from "./models/role.js";
 import divisionRouter from './routes/division.js';
@@ -27,10 +28,20 @@ import importRouter from './routes/importRoutes.js';
 
 const app = new Hono();
 
-connectDB();
+try {
+  await connectDB();
+  console.log("DB ready");
+} catch (err) {
+  console.error("DB FAILED:", err);
+  process.exit(1); // stop daripada zombie server
+}
 
 // Initialize cron jobs
-startProjectCronJob();
+try {
+  startProjectCronJob();
+} catch (err) {
+  console.error("CRON INIT FAILED:", err);
+}
 
 // Middlewares
 app.use("*", logger());
@@ -59,6 +70,7 @@ app.route("/api/v1/analytics", analyticsRouter);
 app.route("/api/v1/org-chart", orgChartRouter);
 app.route("/api/v1/public", publicRouter);
 app.route("/api/v1/attendance", attendanceRouter);
+app.route("/api/v1/admin/schedule", scheduleRouter);
 app.route("/api/v1/import", importRouter);
 
 
@@ -114,6 +126,10 @@ app.onError((err, c) => {
     },
     500
   );
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED:", err.stack);
 });
 
 export default app;

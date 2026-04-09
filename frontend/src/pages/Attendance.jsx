@@ -8,12 +8,16 @@ import {
   updateDailyWork,
   requestLateAttendance,
   listMyLateAttendanceRequests,
+  requestAbsence,
+  listMyAbsenceRequests,
+  uploadAbsenceAttachment,
   createLateAttendance,
   submitLateAttendance,
   fetchActivities,
   fetchProjects,
-  getAttendanceHistory,
+  getMyAttendanceCalendar,
   fetchProjectTasks,
+  getWorkingConfig as getWorkingConfigApi,
 } from "../utils/api.jsx";
 import toast from "react-hot-toast";
 import { 
@@ -26,7 +30,8 @@ import {
   AlertCircle,
   ArrowLeft,
   X,
-  AlertTriangle
+  AlertTriangle,
+  ClipboardCopy
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchSelect from "../components/SearchSelect.jsx";
@@ -186,7 +191,7 @@ const isSaturday = (date = new Date()) => {
 /**
  * Check if date is a working day (Monday-Saturday, Sunday is off)
  */
-const isWorkingDay = (date = new Date()) => {
+const isWorkingDayDefault = (date = new Date()) => {
   const dayOfWeek = getWIBDayOfWeek(date);
   return dayOfWeek >= 1 && dayOfWeek <= 6; // Monday (1) to Saturday (6)
 };
@@ -194,31 +199,55 @@ const isWorkingDay = (date = new Date()) => {
 /**
  * Get working hours for a specific date
  */
-const getWorkingHours = (date = new Date()) => {
+const getWorkingHoursDefault = (date = new Date()) => {
   if (isSaturday(date)) {
-    // Sabtu: 08:00 - 12:00
     return { startHour: 8, startMinute: 0, endHour: 12, endMinute: 0 };
-  } else {
-    // Senin-Jumat: 08:00 - 16:00
-    return { startHour: 8, startMinute: 0, endHour: 16, endMinute: 0 };
   }
+  return { startHour: 8, startMinute: 0, endHour: 16, endMinute: 0 };
 };
 
 /**
  * Check if current time is past check-in deadline (16:00)
  */
-const isPastCheckInDeadline = () => {
-  const now = getWIBDate();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const totalMinutes = hour * 60 + minute;
-  const checkInDeadline = 16 * 60; // 16:00
-  return totalMinutes >= checkInDeadline;
+const toMinutes = (hhmm) => {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map((v) => Number(v));
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
 };
 
 const Attendance = () => {
   const { user } = useAuthStore();
   const currentUserId = user?._id || null;
+
+  // ===== Task tier helpers (sorting + badge) =====
+  const tierOrder = { critical: 0, high: 1, normal: 2, low: 3 };
+  const tierLabel = (tier) => {
+    if (tier === "critical") return "CRITICAL";
+    if (tier === "high") return "HIGH";
+    if (tier === "low") return "LOW";
+    return "NORMAL";
+  };
+  const tierBadgeClass = (tier) => {
+    if (tier === "critical") return "bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30";
+    if (tier === "high") return "bg-red-500/20 text-red-300 border border-red-500/30";
+    if (tier === "low") return "bg-slate-700/60 text-slate-300 border border-slate-600/60";
+    return "bg-blue-500/15 text-blue-300 border border-blue-500/25";
+  };
+  const sortTasksByTier = (tasks = []) => {
+    const copy = Array.isArray(tasks) ? [...tasks] : [];
+    copy.sort((a, b) => {
+      const ta = tierOrder[a?.tier] ?? tierOrder.normal;
+      const tb = tierOrder[b?.tier] ?? tierOrder.normal;
+      if (ta !== tb) return ta - tb;
+      // secondary: ongoing first, then title
+      const sa = a?.status === "ongoing" ? 0 : 1;
+      const sb = b?.status === "ongoing" ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      return String(a?.title || "").localeCompare(String(b?.title || ""));
+    });
+    return copy;
+  };
   const [attendance, setAttendance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -231,6 +260,8 @@ const Attendance = () => {
   // Late attendance requests
   const [lateRequests, setLateRequests] = useState([]);
   const [loadingLateRequests, setLoadingLateRequests] = useState(true);
+  const [absenceRequests, setAbsenceRequests] = useState([]);
+  const [loadingAbsenceRequests, setLoadingAbsenceRequests] = useState(true);
 
   // Modal state for late attendance form
   const [showLateModal, setShowLateModal] = useState(false);
@@ -252,6 +283,8 @@ const Attendance = () => {
   const [newTaskHourByProject, setNewTaskHourByProject] = useState({});
   const [creatingTaskProjectId, setCreatingTaskProjectId] = useState(null);
   const [savingPlanAfterCheckIn, setSavingPlanAfterCheckIn] = useState(false);
+  const [showCheckoutSummaryModal, setShowCheckoutSummaryModal] = useState(false);
+  const [checkoutSummaryText, setCheckoutSummaryText] = useState("");
 
   // Status lokal task saat checkout (done/ongoing)
   const [checkoutTaskStatuses, setCheckoutTaskStatuses] = useState({});
@@ -261,6 +294,23 @@ const Attendance = () => {
   const [lateDate, setLateDate] = useState("");
   const [lateReason, setLateReason] = useState("");
   const [submittingLate, setSubmittingLate] = useState(false);
+  const [showAbsenceForm, setShowAbsenceForm] = useState(false);
+  const [absenceType, setAbsenceType] = useState("permission");
+  const [absenceStartDate, setAbsenceStartDate] = useState("");
+  const [absenceEndDate, setAbsenceEndDate] = useState("");
+  const [absenceReason, setAbsenceReason] = useState("");
+  const [absenceAttachmentFile, setAbsenceAttachmentFile] = useState(null);
+  const [absenceAttachmentPreview, setAbsenceAttachmentPreview] = useState("");
+  const [uploadingAbsenceAttachment, setUploadingAbsenceAttachment] = useState(false);
+  const [submittingAbsence, setSubmittingAbsence] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (absenceAttachmentPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(absenceAttachmentPreview);
+      }
+    };
+  }, [absenceAttachmentPreview]);
 
   // ─── Late attendance MODAL state (aligned with regular attendance flow) ───
   const [lateCheckInTime, setLateCheckInTime] = useState("08:00");
@@ -287,14 +337,43 @@ const Attendance = () => {
   // Monthly attendance overview (last 30 days)
   const [monthlyDays, setMonthlyDays] = useState([]);
   const [loadingMonthlyDays, setLoadingMonthlyDays] = useState(false);
+  const [lateEligibleDates, setLateEligibleDates] = useState(new Set());
+
+  // Dynamic working config (from backend)
+  const [workingConfig, setWorkingConfig] = useState(null);
+
+  // Helper: check if now is past check-in deadline based on workingConfig
+  const isPastCheckInDeadline = () => {
+    const now = getWIBDate();
+    const minsNow = now.getHours() * 60 + now.getMinutes();
+    const deadline = workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00");
+    const minsDeadline = toMinutes(deadline) ?? (16 * 60);
+    return minsNow >= minsDeadline;
+  };
 
   // Load today's attendance, master data, dan overview
   useEffect(() => {
     loadTodayAttendance();
     loadMasterData();
     loadMyLateRequests();
+    loadMyAbsenceRequests();
     loadMonthlyOverview();
+    loadWorkingConfig();
+    loadLateEligibleDates();
   }, []);
+
+  const loadWorkingConfig = async () => {
+    try {
+      const payload = await getWorkingConfigApi();
+      if (payload?.success && payload?.data) {
+        setWorkingConfig(payload.data);
+      } else {
+        setWorkingConfig(null);
+      }
+    } catch (_e) {
+      setWorkingConfig(null);
+    }
+  };
 
   // Sync form state with attendance data (TODAY ONLY)
   useEffect(() => {
@@ -352,13 +431,85 @@ const Attendance = () => {
     try {
       setLoading(true);
       const result = await getTodayAttendance();
-      setAttendance(result.data || null);
+      const nextAttendance = result.data || null;
+      setAttendance(nextAttendance);
+      return nextAttendance;
     } catch (error) {
       console.error("Failed to load attendance:", error);
       setAttendance(null);
+      return null;
     } finally {
       setLoading(false);
     }
+  };
+
+  const buildAttendanceProofText = (att) => {
+    if (!att) return "";
+    const dateText = formatWIBDate(att.date || new Date());
+    const checkInText = att.checkIn_at ? formatWIBTime(att.checkIn_at) : "-";
+    const checkOutText = att.checkOut_at ? formatWIBTime(att.checkOut_at) : "-";
+
+    // Kelompokkan task berdasarkan project parent (task.project_id)
+    const projectMap = new Map();
+    (att.tasks_today || []).forEach((task) => {
+      const proj = task?.project_id;
+      const projId =
+        proj?._id?.toString?.() || proj?._id || proj?.toString?.() || "no-project";
+
+      if (!projectMap.has(projId)) {
+        const name = proj?.name || proj?.project_id?.name || (projId === "no-project" ? "Tanpa Proyek" : "-");
+        const code = proj?.code || proj?.project_code || (projId === "no-project" ? "-" : "-");
+        projectMap.set(projId, {
+          name,
+          code,
+          tasks: [],
+        });
+      }
+
+      const bucket = projectMap.get(projId);
+      const status = checkoutTaskStatuses[task._id] || task.status || "-";
+      const tier = task.tier || "normal";
+      const weight = Number(task.hour_weight) || 0;
+      const noteText = task.note ? ` | note: ${task.note}` : "";
+      bucket.tasks.push(
+        `  - ${task.title} | status: ${status} | tier: ${tier} | ${weight} jam${noteText}`
+      );
+    });
+
+    const groupedTaskLines = [];
+    let projIndex = 1;
+    for (const [, proj] of projectMap.entries()) {
+      groupedTaskLines.push(
+        `${projIndex}. ${proj.name}${proj.code && proj.code !== "-" ? ` (${proj.code})` : ""}`
+      );
+      if (proj.tasks.length === 0) {
+        groupedTaskLines.push("  - (tidak ada task)");
+      } else {
+        groupedTaskLines.push(...proj.tasks);
+      }
+      projIndex += 1;
+    }
+
+    const activityLines = (att.activities || []).map(
+      (a, idx) => `${idx + 1}. ${a.name_activity || a.name || a}`
+    );
+    const noteText = att.note ? `Catatan: ${att.note}` : "Catatan: -";
+
+    return [
+      "BUKTI PRESENSI HARIAN",
+      `Nama: ${user?.full_name || user?.email || "-"}`,
+      `Tanggal: ${dateText}`,
+      `Check-in: ${checkInText}`,
+      `Check-out: ${checkOutText}`,
+      "",
+      "Task hari ini (dikelompokkan per proyek):",
+      ...(groupedTaskLines.length ? groupedTaskLines : ["-"]),
+      "",
+      "Aktivitas:",
+      ...(activityLines.length ? activityLines : ["-"]),
+      "",
+      noteText,
+    ].join("\n");
   };
 
   const loadProjectTasksFor = async (projectId) => {
@@ -439,6 +590,18 @@ const Attendance = () => {
     }
   };
 
+  const loadMyAbsenceRequests = async () => {
+    try {
+      setLoadingAbsenceRequests(true);
+      const res = await listMyAbsenceRequests();
+      setAbsenceRequests(res.data || []);
+    } catch (e) {
+      console.error("Failed to load absence requests:", e);
+    } finally {
+      setLoadingAbsenceRequests(false);
+    }
+  };
+
   const loadMonthlyOverview = async () => {
     try {
       setLoadingMonthlyDays(true);
@@ -456,20 +619,29 @@ const Attendance = () => {
         "0"
       )}-${String(start.getDate()).padStart(2, "0")}`;
 
-      const res = await getAttendanceHistory({ from: fromStr, to: toStr });
-      const history = res.data || res || [];
-
+      const monthNow = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}`;
+      const monthStart = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`;
+      const [calNow, calStart] = await Promise.all([
+        getMyAttendanceCalendar({ month: monthNow }),
+        monthNow === monthStart ? Promise.resolve(null) : getMyAttendanceCalendar({ month: monthStart }),
+      ]);
+      const dayMeta = new Map();
+      const records = [];
+      const pushCalendar = (calRes) => {
+        if (!calRes?.data) return;
+        const days = calRes.data.days || [];
+        const recs = calRes.data.records || [];
+        days.forEach((d) => dayMeta.set(d.date, d));
+        records.push(...recs);
+      };
+      pushCalendar(calNow);
+      pushCalendar(calStart);
       const mapByDate = new Map();
-      (history || []).forEach((att) => {
+      records.forEach((att) => {
         if (!att?.date) return;
         const d = getWIBDate(new Date(att.date));
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
-        const key = `${year}-${month}-${day}`;
-        if (!mapByDate.has(key)) {
-          mapByDate.set(key, att);
-        }
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        if (!mapByDate.has(key)) mapByDate.set(key, att);
       });
 
       const days = [];
@@ -479,12 +651,16 @@ const Attendance = () => {
         const m = String(cursor.getMonth() + 1).padStart(2, "0");
         const d = String(cursor.getDate()).padStart(2, "0");
         const key = `${y}-${m}-${d}`;
-        const isSundayDay = isSunday(cursor);
+        const meta = dayMeta.get(key);
         days.push({
           date: key,
           jsDate: new Date(cursor),
           attendance: mapByDate.get(key) || null,
-          isSunday: isSundayDay,
+          isSunday: meta ? meta.dayOfWeek === 0 : isSunday(cursor),
+          isHoliday: !!meta?.is_holiday,
+          holidayName: meta?.holiday_name || "",
+          hasWorkDayConfig: meta?.has_workday_config ?? false,
+          isWorkingDay: meta?.is_working_day ?? false,
         });
         cursor.setDate(cursor.getDate() + 1);
       }
@@ -494,6 +670,36 @@ const Attendance = () => {
       console.error("Failed to load monthly overview:", error);
     } finally {
       setLoadingMonthlyDays(false);
+    }
+  };
+
+  const loadLateEligibleDates = async () => {
+    try {
+      const today = getWIBDate(new Date());
+      const end = new Date(today);
+      end.setDate(end.getDate() - 1);
+      const start = new Date(today);
+      start.setDate(start.getDate() - 90);
+
+      const monthKeys = new Set();
+      const cur = new Date(start);
+      while (cur <= end) {
+        monthKeys.add(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
+        cur.setMonth(cur.getMonth() + 1, 1);
+      }
+
+      const calendars = await Promise.all(Array.from(monthKeys).map((m) => getMyAttendanceCalendar({ month: m })));
+      const eligible = new Set();
+      calendars.forEach((res) => {
+        (res?.data?.days || []).forEach((d) => {
+          if (d?.has_workday_config && d?.is_working_day && !d?.is_holiday) {
+            eligible.add(d.date);
+          }
+        });
+      });
+      setLateEligibleDates(eligible);
+    } catch (_e) {
+      setLateEligibleDates(new Set());
     }
   };
 
@@ -527,9 +733,14 @@ const Attendance = () => {
       }));
       await checkOut(tasksPayload);
       toast.success("Check-out berhasil!");
-      await loadTodayAttendance();
+      const refreshedAttendance = await loadTodayAttendance();
+      const proof = buildAttendanceProofText(refreshedAttendance);
+      if (proof) {
+        setCheckoutSummaryText(proof);
+        setShowCheckoutSummaryModal(true);
+      }
     } catch (error) {
-      console.error("Check-out error:", error);
+      console.error("Check-out error:", error); 
       toast.error("Gagal check-out");
     } finally {
       setCheckingOut(false);
@@ -662,6 +873,10 @@ const Attendance = () => {
   const handleSubmitLateAttendance = async () => {
     if (!lateDate || !lateReason || lateReason.trim().length < 10) {
       toast.error("Tanggal dan alasan (min 10 karakter) wajib diisi");
+      return;
+    }
+    if (!isLateDateAllowed(lateDate)) {
+      toast.error("Tanggal tidak tersedia untuk pengajuan late attendance. Hubungi HR.");
       return;
     }
     try {
@@ -964,9 +1179,10 @@ const Attendance = () => {
     const hour = new Date(checkInTime).getHours();
     const minute = new Date(checkInTime).getMinutes();
     const totalMinutes = hour * 60 + minute;
-    const eightAM = 8 * 60;
+    const defaultStart = 8 * 60;
+    const cfgStart = toMinutes(workingConfig?.check_in) ?? defaultStart;
 
-    if (totalMinutes <= eightAM) {
+    if (totalMinutes <= cfgStart) {
       return {
         status: "ontime",
         color: "text-green-400",
@@ -989,10 +1205,13 @@ const Attendance = () => {
     const hour = new Date(checkOutTime).getHours();
     const minute = new Date(checkOutTime).getMinutes();
     const totalMinutes = hour * 60 + minute;
-    const fourPM = 16 * 60;
+    const defaultEnd = 16 * 60;
+    const fourPM = defaultEnd;
     const ninePM = 21 * 60;
+    const cfgEnd = toMinutes(workingConfig?.check_out) ?? defaultEnd;
+    // const ninePM = 21 * 60;
 
-    if (totalMinutes >= fourPM && totalMinutes <= ninePM) {
+    if (totalMinutes >= cfgEnd && totalMinutes <= ninePM) {
       return {
         status: "normal",
         color: "text-green-400",
@@ -1000,7 +1219,7 @@ const Attendance = () => {
         borderColor: "border-emerald-500/40",
         label: "Normal",
       };
-    } else if (totalMinutes < fourPM) {
+    } else if (totalMinutes < cfgEnd) {
       return {
         status: "early",
         color: "text-yellow-400",
@@ -1021,8 +1240,9 @@ const Attendance = () => {
 
   const canCheckOutNow = () => {
     const now = new Date();
-    const hour = now.getHours();
-    return hour <= 21;
+    const total = now.getHours() * 60 + now.getMinutes();
+    const max = toMinutes(workingConfig?.max_checkout) ?? (21 * 60);
+    return total <= max;
   };
 
   const isLocked = attendance?.checkOut_at;
@@ -1043,6 +1263,15 @@ const Attendance = () => {
   wibMinDate.setDate(wibMinDate.getDate() - 90);
   const minLateDate = `${wibMinDate.getFullYear()}-${String(wibMinDate.getMonth() + 1).padStart(2, '0')}-${String(wibMinDate.getDate()).padStart(2, '0')}`;
 
+  const todayWibKey = `${wibToday.getFullYear()}-${String(wibToday.getMonth() + 1).padStart(2, "0")}-${String(wibToday.getDate()).padStart(2, "0")}`;
+  const attendanceIsToday = !!attendance?.date
+    ? (() => {
+        const d = getWIBDate(new Date(attendance.date));
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return key === todayWibKey;
+      })()
+    : false;
+
   const hasLateRequestForDate = (date) => {
     if (!date) return false;
     return lateRequests.some((req) => {
@@ -1055,18 +1284,110 @@ const Attendance = () => {
       return reqDateStr === date;
     });
   };
+  const isLateDateAllowed = (date) => {
+    if (!date) return false;
+    return lateEligibleDates.has(date);
+  };
+  const hasAttendanceForDate = (date) => {
+    if (!date) return false;
+    return monthlyDays.some((d) => d.date === date && !!d.attendance);
+  };
+  const hasAbsenceRequestForDate = (date) => {
+    if (!date) return false;
+    return absenceRequests.some((req) => {
+      if (!req?.start_date || !req?.end_date) return false;
+      const start = getWIBDate(new Date(req.start_date));
+      const end = getWIBDate(new Date(req.end_date));
+      const s = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
+      const e = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
+      return date >= s && date <= e && req.status !== "rejected";
+    });
+  };
 
   const shouldHideLateForm = lateDate && hasLateRequestForDate(lateDate);
+  const lateDateInvalid =
+    !!lateDate &&
+    (!isLateDateAllowed(lateDate) ||
+      hasAbsenceRequestForDate(lateDate) ||
+      hasAttendanceForDate(lateDate));
+
+  const handleSubmitAbsenceRequest = async () => {
+    if (!absenceStartDate || !absenceEndDate || !absenceReason.trim()) {
+      toast.error("Tanggal awal, tanggal akhir, dan alasan wajib diisi");
+      return;
+    }
+    if (absenceEndDate < absenceStartDate) {
+      toast.error("Tanggal akhir harus sama/lebih besar dari tanggal awal");
+      return;
+    }
+
+    const conflicts = [];
+    let cursor = new Date(`${absenceStartDate}T00:00:00`);
+    const end = new Date(`${absenceEndDate}T00:00:00`);
+    while (cursor <= end) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+      if (hasLateRequestForDate(key)) conflicts.push(`${key} (late request)`);
+      if (hasAbsenceRequestForDate(key)) conflicts.push(`${key} (absence request)`);
+      if (hasAttendanceForDate(key)) conflicts.push(`${key} (attendance)`);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    if (conflicts.length > 0) {
+      toast.error(`Konflik tanggal: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? " ..." : ""}`);
+      return;
+    }
+
+    try {
+      setSubmittingAbsence(true);
+      let attachmentUrl = null;
+      if (absenceAttachmentFile) {
+        setUploadingAbsenceAttachment(true);
+        const uploadRes = await uploadAbsenceAttachment({
+          userId: currentUserId,
+          file: absenceAttachmentFile,
+        });
+        attachmentUrl = uploadRes?.data?.url || null;
+      }
+      await requestAbsence({
+        type: absenceType,
+        start_date: absenceStartDate,
+        end_date: absenceEndDate,
+        reason: absenceReason.trim(),
+        attachment_url: attachmentUrl,
+      });
+      toast.success("Pengajuan izin/cuti/sakit berhasil dikirim");
+      setShowAbsenceForm(false);
+      setAbsenceType("permission");
+      setAbsenceStartDate("");
+      setAbsenceEndDate("");
+      setAbsenceReason("");
+      setAbsenceAttachmentFile(null);
+      setAbsenceAttachmentPreview("");
+      await loadMyAbsenceRequests();
+    } catch (error) {
+      console.error("Absence request error:", error);
+    } finally {
+      setUploadingAbsenceAttachment(false);
+      setSubmittingAbsence(false);
+    }
+  };
 
   const getCalendarDayStyle = (day) => {
     const attendanceRecord = day.attendance;
     if (!attendanceRecord) {
-      if (day.isSunday) {
+      if (!day.hasWorkDayConfig) {
         return {
           bg: "bg-slate-950/60",
           border: "border-slate-700",
           text: "text-slate-500",
-          label: "Libur",
+          label: "Belum Diset HR",
+        };
+      }
+      if (day.isHoliday || !day.isWorkingDay) {
+        return {
+          bg: "bg-red-500/12",
+          border: "border-red-500/40",
+          text: "text-red-300",
+          label: day.holidayName || "Libur",
         };
       }
       return {
@@ -1156,12 +1477,17 @@ const Attendance = () => {
               min={minLateDate}
               className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 backdrop-blur-sm"
             />
+            {lateDateInvalid && (
+              <p className="text-xs text-red-400 mt-2">
+                Tanggal ini belum tersedia di jadwal HR (WorkDay), jadi belum bisa diajukan.
+              </p>
+            )}
             {shouldHideLateForm && (
               <p className="text-xs text-red-400 mt-2">Pengajuan untuk tanggal ini sudah ada</p>
             )}
           </div>
 
-          {!shouldHideLateForm && (
+          {!shouldHideLateForm && !lateDateInvalid && (
             <>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -1212,6 +1538,135 @@ const Attendance = () => {
               Batal
             </motion.button>
           )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderAbsenceRequestForm = () => (
+    <div className="p-6 bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-indigo-500/30">
+      <p className="text-sm text-slate-300 mb-4">
+        Ajukan izin, cuti, atau sakit untuk rentang tanggal tertentu. Approval Manager HR akan otomatis membuat data presensi.
+      </p>
+      {!showAbsenceForm ? (
+        <motion.button
+          onClick={() => setShowAbsenceForm(true)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="text-sm text-indigo-400 hover:text-indigo-300 font-medium underline transition-colors"
+        >
+          Ajukan Izin / Cuti / Sakit
+        </motion.button>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Jenis</label>
+            <select
+              value={absenceType}
+              onChange={(e) => setAbsenceType(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value="permission">Izin</option>
+              <option value="leave">Cuti</option>
+              <option value="sick">Sakit</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
+              <input
+                type="date"
+                value={absenceStartDate}
+                onChange={(e) => setAbsenceStartDate(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Akhir</label>
+              <input
+                type="date"
+                value={absenceEndDate}
+                onChange={(e) => setAbsenceEndDate(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Alasan</label>
+            <textarea
+              value={absenceReason}
+              onChange={(e) => setAbsenceReason(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500"
+              placeholder="Jelaskan alasan izin/cuti/sakit..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Lampiran (opsional - gambar/pdf)</label>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                if (!file) {
+                  setAbsenceAttachmentFile(null);
+                  setAbsenceAttachmentPreview("");
+                  return;
+                }
+                if (file.size > 5 * 1024 * 1024) {
+                  toast.error("Ukuran file maksimal 5MB");
+                  e.target.value = "";
+                  return;
+                }
+                setAbsenceAttachmentFile(file);
+                if (file.type.startsWith("image/")) {
+                  setAbsenceAttachmentPreview(URL.createObjectURL(file));
+                } else {
+                  setAbsenceAttachmentPreview("");
+                }
+              }}
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white"
+            />
+            {absenceAttachmentFile && (
+              <p className="text-xs text-slate-400 mt-2">
+                File: {absenceAttachmentFile.name} ({Math.round(absenceAttachmentFile.size / 1024)} KB)
+              </p>
+            )}
+            {absenceAttachmentPreview && (
+              <img
+                src={absenceAttachmentPreview}
+                alt="Preview lampiran absence"
+                className="mt-3 max-h-48 rounded-xl border border-slate-700 object-contain"
+              />
+            )}
+          </div>
+          <div className="flex gap-3">
+            <motion.button
+              onClick={handleSubmitAbsenceRequest}
+              disabled={submittingAbsence || uploadingAbsenceAttachment}
+              whileHover={{ scale: submittingAbsence || uploadingAbsenceAttachment ? 1 : 1.05 }}
+              whileTap={{ scale: submittingAbsence || uploadingAbsenceAttachment ? 1 : 0.95 }}
+              className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-700 hover:to-purple-800 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-3 px-4 rounded-2xl transition-all text-sm shadow-lg"
+            >
+              {uploadingAbsenceAttachment ? "Upload lampiran..." : submittingAbsence ? "Mengirim..." : "Ajukan"}
+            </motion.button>
+            <motion.button
+              onClick={() => {
+                setShowAbsenceForm(false);
+                setAbsenceType("permission");
+                setAbsenceStartDate("");
+                setAbsenceEndDate("");
+                setAbsenceReason("");
+                setAbsenceAttachmentFile(null);
+                setAbsenceAttachmentPreview("");
+              }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-sm text-slate-300 hover:bg-slate-700/70 transition-all"
+            >
+              Batal
+            </motion.button>
+          </div>
         </div>
       )}
     </div>
@@ -1283,6 +1738,42 @@ const Attendance = () => {
     </div>
   );
 
+  const AbsenceRequestsList = () => (
+    <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-indigo-900/50 p-6">
+      <h3 className="font-semibold text-white mb-4 text-lg">Pengajuan Izin/Cuti/Sakit Saya</h3>
+      {loadingAbsenceRequests ? (
+        <div className="text-sm text-slate-400">Memuat...</div>
+      ) : absenceRequests.length === 0 ? (
+        <div className="text-sm text-slate-400">Belum ada pengajuan.</div>
+      ) : (
+        <div className="space-y-3">
+          {absenceRequests.map((r) => (
+            <div key={r._id} className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+              <div className="text-sm font-medium text-white">
+                {(r.type || "-").toUpperCase()} • {new Date(r.start_date).toLocaleDateString("id-ID")} - {new Date(r.end_date).toLocaleDateString("id-ID")}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Alasan: {r.reason || "-"}</div>
+              {r.status === "rejected" && r.rejected_reason && (
+                <div className="text-xs text-red-400 mt-1">Alasan Penolakan: {r.rejected_reason}</div>
+              )}
+              <div className="mt-2">
+                <span className={`text-xs px-3 py-1 rounded-full whitespace-nowrap font-medium ${
+                  r.status === "approved"
+                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                    : r.status === "rejected"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                }`}>
+                  {r.status}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900">
@@ -1321,11 +1812,11 @@ const Attendance = () => {
             <Calendar className="w-5 h-5" />
             {formatWIBDate(new Date())}
           </p>
-          {isSunday(new Date()) && (
+          {workingConfig?.is_working_day === false && (
             <div className="mt-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl">
               <p className="text-red-400 font-medium flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
-                Hari ini adalah hari Minggu (libur). Presensi tidak dapat dilakukan.
+                Hari ini libur{workingConfig?.holiday_name ? `: ${workingConfig.holiday_name}` : ""}. Presensi tidak dapat dilakukan.
               </p>
             </div>
           )}
@@ -1345,7 +1836,7 @@ const Attendance = () => {
               </h2>
               <p className="text-[11px] text-slate-500">
                 Hijau: normal • Abu-abu: belum presensi • Kuning: late check-in / early check-out •
-                Merah: terlambat • Biru: manual • Ungu: lupa • Kotak gelap di Minggu: libur
+                Merah: terlambat/libur • Biru: manual • Ungu: lupa • Gelap: belum diset HR
               </p>
             </div>
           </div>
@@ -1432,12 +1923,12 @@ const Attendance = () => {
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-slate-400" />
                   <span className="text-slate-300">
-                    Jam Kerja: {isSaturday(new Date()) ? "08:00 - 12:00 (Setengah Hari)" : "08:00 - 16:00"}
+                    Jam Kerja: {workingConfig?.check_in || "--:--"} - {workingConfig?.check_out || "--:--"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-yellow-400" />
-                  <span className="text-slate-300">Check-out maksimal: 21:00</span>
+                  <span className="text-slate-300">Check-out maksimal: {workingConfig?.max_checkout || "21:00"}</span>
                 </div>
               </div>
             </div>
@@ -1454,23 +1945,28 @@ const Attendance = () => {
                 <div className="text-sm text-slate-300">
                   <p className="font-medium text-blue-400 mb-2">Informasi Jam Kerja:</p>
                   <ul className="list-disc list-inside space-y-1 text-slate-300">
-                    <li>Check-in maksimal: <span className="font-semibold text-white">08:00</span> (lewat dari jam ini = terlambat)</li>
-                    <li>Check-in deadline: <span className="font-semibold text-white">16:00</span> (setelah jam ini tidak bisa check-in)</li>
-                    <li>Check-out minimal: <span className="font-semibold text-white">16:00</span> (jam kerja standar)</li>
-                    <li>Check-out maksimal: <span className="font-semibold text-white">21:00</span> (antisipasi lupa checkout)</li>
+                    <li>Jam mulai: <span className="font-semibold text-white">{workingConfig?.check_in || (isSaturday(new Date()) ? "08:00" : "08:00")}</span></li>
+                    <li>Jam selesai standar: <span className="font-semibold text-white">{workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00")}</span></li>
+                    <li>Check-out maksimal: <span className="font-semibold text-white">{workingConfig?.max_checkout || "21:00"}</span></li>
                   </ul>
                 </div>
               </div>
             </div>
 
             {/* Check-in deadline warning */}
-            {isPastCheckInDeadline() && (
+            {(() => {
+              const now = getWIBDate();
+              const hhmmDeadline = workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00");
+              const minsNow = now.getHours() * 60 + now.getMinutes();
+              const minsDeadline = toMinutes(hhmmDeadline) ?? (16 * 60);
+              return minsNow >= minsDeadline;
+            })() && (
               <div className="mb-6 p-6 bg-red-500/20 backdrop-blur-xl rounded-3xl border border-red-500/30">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5" />
                   <div className="text-sm text-red-300">
                     <p className="font-medium mb-1 text-red-400">⚠️ Waktu check-in sudah lewat!</p>
-                    <p>Check-in hanya dapat dilakukan sebelum jam 16:00. Silakan ajukan presensi terlambat di bawah ini.</p>
+                    <p>Check-in hanya dapat dilakukan sebelum jam {workingConfig?.check_out || "16:00"}. Silakan ajukan presensi terlambat di bawah ini.</p>
                   </div>
                 </div>
               </div>
@@ -1525,7 +2021,7 @@ const Attendance = () => {
                     <div className="space-y-4">
                       {selectedProjectsForToday.map((projectId) => {
                         const proj = projects.find((p) => p._id === projectId);
-                        const tasks = projectTasksMap[projectId] || [];
+                        const tasks = sortTasksByTier(projectTasksMap[projectId] || []);
                         const newTitle = newTaskTitleByProject[projectId] || "";
                         return (
                           <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
@@ -1545,10 +2041,23 @@ const Attendance = () => {
                                 tasks.map((task) => {
                                   const checked = selectedTasksToday.includes(task._id);
                                   const status = task.status;
+                                  const tier = task.tier || "normal";
                                   const workerName = task.user_id?.full_name || task.user_id?.email || "";
-                                  const isSelectable = status === "planned" || status === "rejected";
-                                  const isAuto = status === "ongoing";
+                                  const isOngoingOwned =
+                                    status === "ongoing" &&
+                                    String(task.user_id?._id || task.user_id || "") === String(currentUserId);
+                                  const isSelectable =
+                                    status === "planned" || status === "rejected" || isOngoingOwned;
+                                  const isAuto = isOngoingOwned;
                                   const isRejected = status === "rejected";
+                                  const blockedReason =
+                                    status === "ongoing" && !isOngoingOwned
+                                      ? `Sedang dikerjakan ${workerName || "orang lain"}`
+                                      : status === "done"
+                                      ? `Sudah selesai${workerName ? ` oleh ${workerName}` : ""}`
+                                      : status === "approved"
+                                      ? `Sudah disetujui${workerName ? ` (${workerName})` : ""}`
+                                      : "";
                                   return (
                                     <label
                                       key={task._id}
@@ -1568,11 +2077,17 @@ const Attendance = () => {
                                           className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                                         />
                                         <div>
-                                          <div className="text-xs text-slate-200 font-medium">{task.title}</div>
+                                          <div className="text-xs text-slate-200 font-medium flex items-center gap-2 flex-wrap">
+                                            <span>{task.title}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tierBadgeClass(tier)}`}>
+                                              {tierLabel(tier)}
+                                            </span>
+                                          </div>
                                           <div className="text-[10px] text-slate-500">
                                             Bobot jam: {task.hour_weight} • Status: {status}
                                             {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
                                             {isAuto ? " • (Auto)" : ""}
+                                            {blockedReason ? ` • ${blockedReason}` : ""}
                                           </div>
                                         </div>
                                       </div>
@@ -1616,23 +2131,30 @@ const Attendance = () => {
               )}
             </div>
 
-            <motion.button
-              onClick={handleCheckIn}
-              disabled={checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline()}
-              whileHover={{ scale: checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 1.02 }}
-              whileTap={{ scale: checkingIn || selectedTasksToday.length === 0 || isSunday(new Date()) || isPastCheckInDeadline() ? 1 : 0.98 }}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
-            >
-              <Clock className="w-5 h-5" />
-              {isSunday(new Date()) ? "Hari Minggu (Libur)"
-                : isPastCheckInDeadline() ? "Check-in Tidak Tersedia (Lewat Jam 16:00)"
-                : checkingIn ? "Memproses..."
-                : selectedTasksToday.length === 0 ? "Pilih minimal 1 task untuk check-in"
-                : "Check-in"}
-            </motion.button>
+            {workingConfig?.is_working_day !== false && (
+              <motion.button
+                onClick={handleCheckIn}
+                disabled={
+                  checkingIn ||
+                  selectedTasksToday.length === 0 ||
+                  isPastCheckInDeadline()
+                }
+                whileHover={{ scale: checkingIn || selectedTasksToday.length === 0 || isPastCheckInDeadline() ? 1 : 1.02 }}
+                whileTap={{ scale: checkingIn || selectedTasksToday.length === 0 || isPastCheckInDeadline() ? 1 : 0.98 }}
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
+              >
+                <Clock className="w-5 h-5" />
+                {isPastCheckInDeadline() ? `Check-in Tidak Tersedia (Lewat Jam ${workingConfig?.check_out || "16:00"})`
+                  : checkingIn ? "Memproses..."
+                  : selectedTasksToday.length === 0 ? "Pilih minimal 1 task untuk check-in"
+                  : "Check-in"}
+              </motion.button>
+            )}
 
             <div className="mt-6">{renderLateRequestForm()}</div>
             <div className="mt-6"><LateRequestsList /></div>
+            <div className="mt-6">{renderAbsenceRequestForm()}</div>
+            <div className="mt-6"><AbsenceRequestsList /></div>
           </motion.div>
         )}
 
@@ -1647,8 +2169,23 @@ const Attendance = () => {
             >
               Lihat Presensi Hari Ini
             </motion.button>
+            {attendance.checkOut_at && attendanceIsToday && (
+              <motion.button
+                onClick={() => {
+                  setCheckoutSummaryText(buildAttendanceProofText(attendance));
+                  setShowCheckoutSummaryModal(true);
+                }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full bg-slate-800/70 hover:bg-slate-700/70 text-white font-semibold py-3 px-6 mb-6 rounded-2xl transition-all shadow-lg border border-slate-700"
+              >
+                Buka Bukti Presensi Hari Ini
+              </motion.button>
+            )}
             <div className="mb-6">{renderLateRequestForm()}</div>
             <LateRequestsList />
+            <div className="mt-6">{renderAbsenceRequestForm()}</div>
+            <div className="mt-6"><AbsenceRequestsList /></div>
           </motion.div>
         )}
 
@@ -1703,7 +2240,7 @@ const Attendance = () => {
                     <div className="space-y-4">
                       {selectedProjectsForToday.map((projectId) => {
                         const proj = projects.find((p) => p._id === projectId);
-                        const tasks = projectTasksMap[projectId] || [];
+                        const tasks = sortTasksByTier(projectTasksMap[projectId] || []);
                         const newTitle = newTaskTitleByProject[projectId] || "";
                         return (
                           <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
@@ -1723,10 +2260,19 @@ const Attendance = () => {
                                 tasks.map((task) => {
                                   const checked = selectedTasksToday.includes(task._id);
                                   const status = task.status;
+                                  const tier = task.tier || "normal";
                                   const workerName = task.user_id?.full_name || task.user_id?.email || "";
                                   const isRejected = status === "rejected";
                                   const isOngoingOwned = status === "ongoing" && String(task.user_id?._id || task.user_id || "") === String(currentUserId);
                                   const isSelectable = status === "planned" || status === "rejected" || isOngoingOwned;
+                                  const blockedReason =
+                                    status === "ongoing" && !isOngoingOwned
+                                      ? `Sedang dikerjakan ${workerName || "orang lain"}`
+                                      : status === "done"
+                                      ? `Sudah selesai${workerName ? ` oleh ${workerName}` : ""}`
+                                      : status === "approved"
+                                      ? `Sudah disetujui${workerName ? ` (${workerName})` : ""}`
+                                      : "";
                                   return (
                                     <label
                                       key={task._id}
@@ -1746,10 +2292,16 @@ const Attendance = () => {
                                           className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                                         />
                                         <div>
-                                          <div className="text-xs text-slate-200 font-medium">{task.title}</div>
+                                          <div className="text-xs text-slate-200 font-medium flex items-center gap-2 flex-wrap">
+                                            <span>{task.title}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tierBadgeClass(tier)}`}>
+                                              {tierLabel(tier)}
+                                            </span>
+                                          </div>
                                           <div className="text-[10px] text-slate-500">
                                             Bobot jam: {task.hour_weight} • Status: {status}
                                             {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
+                                            {blockedReason ? ` • ${blockedReason}` : ""}
                                           </div>
                                         </div>
                                       </div>
@@ -1916,6 +2468,21 @@ const Attendance = () => {
               <Calendar className="w-6 h-6 text-blue-400" />
               Catatan Pekerjaan Harian
             </h2>
+            {attendance.checkOut_at && attendanceIsToday && (
+              <div className="mb-4">
+                <motion.button
+                  onClick={() => {
+                    setCheckoutSummaryText(buildAttendanceProofText(attendance));
+                    setShowCheckoutSummaryModal(true);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
+                >
+                  Lihat Bukti Presensi Hari Ini
+                </motion.button>
+              </div>
+            )}
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-3">Task Hari Ini</label>
@@ -1925,7 +2492,7 @@ const Attendance = () => {
                       <li key={task._id || task} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700">
                         <span className="text-slate-200">{typeof task === "object" ? task.title : task}</span>
                         <span className="text-slate-400 text-sm tabular-nums">
-                          {typeof task === "object" ? (task.progress ?? 0) : 0}%
+                          {typeof task === "object" ? (task.status ?? "tidak ada status") : "tidak ada status"}
                         </span>
                       </li>
                     ))}
@@ -2009,6 +2576,60 @@ const Attendance = () => {
                 tandai done/ongoing → isi aktivitas → catatan → submit
       ═══════════════════════════════════════════════════════════════════ */}
       <AnimatePresence>
+        {showCheckoutSummaryModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowCheckoutSummaryModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-900/95 border border-blue-900/50 rounded-3xl shadow-2xl max-w-2xl w-full"
+            >
+              <div className="p-6 border-b border-slate-700 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-white">Bukti Presensi Hari Ini</h3>
+                <button
+                  className="p-2 rounded-lg hover:bg-slate-800 text-slate-300"
+                  onClick={() => setShowCheckoutSummaryModal(false)}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6">
+                <pre className="whitespace-pre-wrap text-xs text-slate-200 bg-slate-950/60 border border-slate-800 rounded-2xl p-4 max-h-[50vh] overflow-auto">
+                  {checkoutSummaryText}
+                </pre>
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(checkoutSummaryText);
+                        toast.success("Bukti presensi berhasil disalin");
+                      } catch (_e) {
+                        toast.error("Gagal menyalin bukti presensi");
+                      }
+                    }}
+                    className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-sm font-semibold flex items-center justify-center gap-2"
+                  >
+                    <ClipboardCopy className="w-4 h-4" />
+                    Copy ke Clipboard
+                  </button>
+                  <button
+                    onClick={() => setShowCheckoutSummaryModal(false)}
+                    className="px-4 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-2xl text-sm"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
         {showLateModal && editingLateRequest && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -2127,7 +2748,7 @@ const Attendance = () => {
                     <div className="space-y-4">
                       {lateSelectedProjects.map((projectId) => {
                         const proj = projects.find((p) => p._id === projectId);
-                        const tasks = lateProjectTasksMap[projectId] || [];
+                        const tasks = sortTasksByTier(lateProjectTasksMap[projectId] || []);
                         const newTitle = lateNewTaskTitleByProject[projectId] || "";
                         return (
                           <div key={projectId} className="border border-slate-700 rounded-2xl p-4 bg-slate-900/60">
@@ -2149,11 +2770,20 @@ const Attendance = () => {
                                 tasks.map((task) => {
                                   const selected = lateSelectedTasks.includes(task._id);
                                   const status = task.status;
+                                  const tier = task.tier || "normal";
                                   const workerName = task.user_id?.full_name || task.user_id?.email || "";
                                   const isRejected = status === "rejected";
                                   const isOngoingOwned = status === "ongoing" && String(task.user_id?._id || task.user_id || "") === String(currentUserId);
                                   const isSelectable = status === "planned" || status === "rejected" || isOngoingOwned;
                                   const taskDone = (lateTaskStatuses[task._id] ?? "done") === "done";
+                                  const blockedReason =
+                                    status === "ongoing" && !isOngoingOwned
+                                      ? `Sedang dikerjakan ${workerName || "orang lain"}`
+                                      : status === "done"
+                                      ? `Sudah selesai${workerName ? ` oleh ${workerName}` : ""}`
+                                      : status === "approved"
+                                      ? `Sudah disetujui${workerName ? ` (${workerName})` : ""}`
+                                      : "";
 
                                   return (
                                     <div
@@ -2176,11 +2806,17 @@ const Attendance = () => {
                                             className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                                           />
                                           <div>
-                                            <div className="text-xs text-slate-200 font-medium">{task.title}</div>
+                                            <div className="text-xs text-slate-200 font-medium flex items-center gap-2 flex-wrap">
+                                              <span>{task.title}</span>
+                                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tierBadgeClass(tier)}`}>
+                                                {tierLabel(tier)}
+                                              </span>
+                                            </div>
                                             <div className="text-[10px] text-slate-500">
                                               Bobot jam: {task.hour_weight} • Status: {status}
                                               {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
                                               {isOngoingOwned ? " • (Milikmu)" : ""}
+                                              {blockedReason ? ` • ${blockedReason}` : ""}
                                             </div>
                                           </div>
                                         </label>
@@ -2310,7 +2946,6 @@ const Attendance = () => {
                     <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
                     <p className="text-xs text-slate-300">
                       Data akan langsung tersimpan dan terkunci setelah submit. Pastikan semua informasi sudah benar.
-                      Minimal 1 task harus ditandai <span className="text-emerald-400 font-medium">Done</span>.
                     </p>
                   </div>
                 </div>

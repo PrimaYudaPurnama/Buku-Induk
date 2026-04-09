@@ -3,6 +3,9 @@ import {
   listPendingLateAttendanceRequests,
   approveLateAttendance,
   rejectLateAttendance,
+  listPendingAbsenceRequests,
+  approveAbsenceRequest,
+  rejectAbsenceRequestWithReason,
 } from "../utils/api.jsx";
 import toast, { Toaster } from "react-hot-toast";
 import { motion } from "framer-motion";
@@ -43,8 +46,24 @@ const LateAttendanceApprovals = () => {
   const load = async () => {
     try {
       setLoading(true);
-      const res = await listPendingLateAttendanceRequests();
-      setItems(res.data || []);
+      const [lateRes, absenceRes] = await Promise.all([
+        listPendingLateAttendanceRequests(),
+        listPendingAbsenceRequests(),
+      ]);
+      const lateItems = (lateRes.data || []).map((item) => ({
+        ...item,
+        request_kind: "late",
+      }));
+      const absenceItems = (absenceRes.data || []).map((item) => ({
+        ...item,
+        request_kind: "absence",
+      }));
+      const merged = [...lateItems, ...absenceItems].sort(
+        (a, b) =>
+          new Date(b.createdAt || b.created_at || 0) -
+          new Date(a.createdAt || a.created_at || 0)
+      );
+      setItems(merged);
     } catch (e) {
       console.error(e);
     } finally {
@@ -57,9 +76,13 @@ const LateAttendanceApprovals = () => {
   }, []);
 
   // ── Actions ────────────────────────────────────────────────────
-  const onApprove = async (id) => {
+  const onApprove = async (id, requestKind) => {
     try {
-      await approveLateAttendance(id);
+      if (requestKind === "absence") {
+        await approveAbsenceRequest(id);
+      } else {
+        await approveLateAttendance(id);
+      }
       toast.success("Request approved");
       await load();
     } catch (e) {
@@ -67,14 +90,18 @@ const LateAttendanceApprovals = () => {
     }
   };
 
-  const onReject = async (id) => {
+  const onReject = async (id, requestKind) => {
     const reason = (rejectReasonById[id] || "").trim();
-    if (reason.length < 3) {
+    if (requestKind === "late" && reason.length < 3) {
       toast.error("Alasan penolakan minimal 3 karakter");
       return;
     }
     try {
-      await rejectLateAttendance(id, reason);
+      if (requestKind === "absence") {
+        await rejectAbsenceRequestWithReason(id, reason);
+      } else {
+        await rejectLateAttendance(id, reason);
+      }
       toast.success("Request rejected");
       setExpandedId(null);
       await load();
@@ -114,11 +141,11 @@ const LateAttendanceApprovals = () => {
           <motion.div variants={itemVariants} className="mb-10">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent flex items-center gap-5">
               <Clock className="w-10 h-10 text-blue-400" />
-              Persetujuan Keterlambatan
+              Persetujuan Absensi Khusus
             </h1>
             <p className="text-slate-400 mt-2 text-xl flex items-center gap-3">
               <Sparkles className="w-4 h-4" />
-              Tinjau dan proses izin keterlambatan absensi karyawan
+              Tinjau dan proses pengajuan late attendance maupun izin/cuti/sakit
             </p>
             <motion.p
               className="text-xl font-medium text-blue-300 mt-2"
@@ -142,7 +169,7 @@ const LateAttendanceApprovals = () => {
             <motion.div className="text-center py-32" variants={itemVariants}>
               <CheckCircle className="w-24 h-24 text-slate-600 mx-auto mb-6" />
               <p className="text-2xl text-slate-400">
-                Tidak ada permintaan keterlambatan saat ini
+                Tidak ada permintaan saat ini
               </p>
               <p className="text-slate-500 mt-4">
                 Semua tugas Anda sudah selesai! 🎉
@@ -187,35 +214,68 @@ const LateAttendanceApprovals = () => {
                               {/* Tanggal */}
                               <div className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-4 border border-slate-700/50">
                                 <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-                                  Tanggal Absensi
+                                  {r.request_kind === "absence" ? "Rentang Tanggal" : "Tanggal Absensi"}
                                 </p>
                                 <p className="text-base font-semibold text-slate-100 flex items-center gap-2">
                                   <Clock className="w-4 h-4 text-blue-400" />
-                                  {new Date(r.date).toLocaleDateString("id-ID", {
-                                    day: "numeric",
-                                    month: "long",
-                                    year: "numeric",
-                                  })}
+                                  {r.request_kind === "absence"
+                                    ? `${new Date(r.start_date).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })} - ${new Date(r.end_date).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}`
+                                    : new Date(r.date).toLocaleDateString("id-ID", {
+                                        day: "numeric",
+                                        month: "long",
+                                        year: "numeric",
+                                      })}
                                 </p>
                               </div>
 
                               {/* Alasan */}
                               <div className="bg-slate-800/70 backdrop-blur-sm rounded-2xl p-4 border border-slate-700/50 sm:col-span-2">
                                 <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">
-                                  Alasan Keterlambatan
+                                  {r.request_kind === "absence" ? "Alasan Izin/Cuti/Sakit" : "Alasan Keterlambatan"}
                                 </p>
                                 <p className="text-base text-slate-200">
-                                  {r.late_reason || "-"}
+                                  {r.request_kind === "absence" ? (r.reason || "-") : (r.late_reason || "-")}
                                 </p>
                               </div>
                             </div>
+
+                            {r.request_kind === "absence" && r.attachment_url && (
+                              <div className="mt-3 p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
+                                <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">
+                                  Lampiran
+                                </p>
+                                <div className="flex flex-col gap-2">
+                                  <img
+                                    src={r.attachment_url}
+                                    alt="Lampiran absence"
+                                    className="max-h-56 rounded-lg border border-slate-700 object-contain"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = "none";
+                                      const fallback = e.currentTarget.nextSibling;
+                                      if (fallback) fallback.style.display = "inline-block";
+                                    }}
+                                  />
+                                  <a
+                                    href={r.attachment_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-sm text-blue-400 hover:text-blue-300 underline"
+                                    style={{ display: "none" }}
+                                  >
+                                    Lihat / Unduh Lampiran
+                                  </a>
+                                </div>
+                              </div>
+                            )}
 
                             {/* Status badge */}
                             <div className="flex items-center gap-2 mt-1">
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-900/40 border border-amber-700/50 rounded-full">
                                 <AlertCircle className="w-4 h-4 text-amber-400" />
                                 <span className="text-xs font-medium text-amber-300 capitalize">
-                                  {r.status}
+                                  {r.request_kind === "absence"
+                                    ? `absence:${r.type} • ${r.status}`
+                                    : `late • ${r.status}`}
                                 </span>
                               </span>
                             </div>
@@ -223,7 +283,7 @@ const LateAttendanceApprovals = () => {
 
                           {/* Right – Approve button */}
                           <motion.button
-                            onClick={() => onApprove(r._id)}
+                            onClick={() => onApprove(r._id, r.request_kind)}
                             className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-2xl font-semibold shadow-lg transition-all whitespace-nowrap"
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.97 }}
@@ -264,7 +324,7 @@ const LateAttendanceApprovals = () => {
                         >
                           <label className="flex items-center gap-3 text-base font-medium text-slate-300 mb-3">
                             <FileText className="w-5 h-5 text-red-400" />
-                            Alasan Penolakan <span className="text-red-400">*</span>
+                            Alasan Penolakan {r.request_kind === "late" && <span className="text-red-400">*</span>}
                           </label>
                           <textarea
                             value={rejectReasonById[r._id] || ""}
@@ -275,7 +335,11 @@ const LateAttendanceApprovals = () => {
                               }))
                             }
                             rows={3}
-                            placeholder="Tuliskan alasan penolakan (min. 3 karakter)..."
+                            placeholder={
+                              r.request_kind === "absence"
+                                ? "Opsional (rejection absence tidak menyimpan alasan)"
+                                : "Tuliskan alasan penolakan (min. 3 karakter)..."
+                            }
                             className="w-full px-5 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all backdrop-blur-sm resize-none"
                           />
 
@@ -289,7 +353,7 @@ const LateAttendanceApprovals = () => {
                             </motion.button>
 
                             <motion.button
-                              onClick={() => onReject(r._id)}
+                              onClick={() => onReject(r._id, r.request_kind)}
                               className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-2xl font-semibold shadow-lg relative overflow-hidden group transition-all"
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.97 }}

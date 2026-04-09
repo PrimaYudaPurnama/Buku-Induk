@@ -112,6 +112,8 @@ const AttendanceDetailModal = ({ attendance, onClose }) => {
     status,
     late_reason,
     late_request_id,
+    absence_type,
+    leave_request_id,
     approved_by,
     approved_at,
     user_consent,
@@ -143,6 +145,12 @@ const AttendanceDetailModal = ({ attendance, onClose }) => {
   const doneTasks = tasks_today.filter((t) => t?.status === "done").length;
   const approvedTasks = tasks_today.filter((t) => t?.status === "approved").length;
   const totalTasks = tasks_today.length;
+  const absenceTypeLabel = {
+    none: "Tidak Absen",
+    sick: "Sakit",
+    leave: "Cuti",
+    permission: "Izin",
+  }[absence_type || "none"];
 
   return (
     <AnimatePresence>
@@ -290,6 +298,55 @@ const AttendanceDetailModal = ({ attendance, onClose }) => {
                   !late_reason && (
                     <div className="text-sm text-slate-500 italic">Tidak ada pengajuan keterlambatan terkait.</div>
                   )
+                )}
+              </Section>
+            )}
+
+            {absence_type && absence_type !== "none" && (
+              <Section icon={FileText} title="Info Ketidakhadiran" accent="orange">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-slate-400">Tipe</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-orange-500/20 text-orange-300 border-orange-500/30">
+                    {absenceTypeLabel}
+                  </span>
+                </div>
+                {leave_request_id ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Status Pengajuan</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                        leave_request_id.status === "approved"
+                          ? "bg-green-500/20 text-green-300 border-green-500/30"
+                          : leave_request_id.status === "rejected"
+                            ? "bg-red-500/20 text-red-300 border-red-500/30"
+                            : "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+                      }`}>
+                        {(leave_request_id.status || "-").toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      Periode: <span className="text-slate-200">{fmt(leave_request_id.start_date)} - {fmt(leave_request_id.end_date)}</span>
+                    </div>
+                    {leave_request_id.reason && (
+                      <div className="bg-slate-800/60 rounded-lg p-3">
+                        <div className="text-xs text-slate-400 mb-1">Alasan</div>
+                        <div className="text-slate-200 text-sm">{leave_request_id.reason}</div>
+                      </div>
+                    )}
+                    {leave_request_id.status === "approved" && leave_request_id.approved_by && (
+                      <div className="text-xs text-green-300 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+                        Disetujui oleh {leave_request_id.approved_by.full_name || "-"} pada {fmtDateTime(leave_request_id.approved_at)}
+                      </div>
+                    )}
+                    {leave_request_id.status === "rejected" && (
+                      <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                        Ditolak oleh {leave_request_id.rejected_by?.full_name || "-"} pada {fmtDateTime(leave_request_id.rejected_at)}
+                        {leave_request_id.rejected_reason ? ` • Alasan: ${leave_request_id.rejected_reason}` : ""}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-500 italic">Tidak ada data pengajuan yang terhubung.</div>
                 )}
               </Section>
             )}

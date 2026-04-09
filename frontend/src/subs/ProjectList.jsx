@@ -46,6 +46,13 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Dibatalkan" },
 ];
 
+const TASK_TIER_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" },
+];
+
 function TaskListWithActions({
   tasks,
   project,
@@ -97,6 +104,10 @@ function TaskListWithActions({
           totalHours > 0 ? ((hours / totalHours) * 100).toFixed(1) : "0.0";
         const isDone = task.status === "done";
         const isApproved = task.status === "approved";
+        const tierLabel =
+          TASK_TIER_OPTIONS.find((x) => x.value === task.tier)?.label ||
+          task.tier ||
+          "Normal";
 
         return (
           <button
@@ -115,18 +126,14 @@ function TaskListWithActions({
                 </span>
                 <span>
                   Bobot jam:{" "}
-                  <input
-                    type="number"
-                    min={0.25}
-                    step={0.25}
-                    defaultValue={hours}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={(e) => handleHourChange(task, e.target.value)}
-                    className="w-16 px-1 py-0.5 text-xs bg-slate-900 border border-slate-600 rounded ml-1"
-                  />{" "}
+                  {hours} jam
                   ({percent}% dari total jam task proyek)
                 </span>
+                <span className="px-2 py-0.5 rounded-full border bg-indigo-500/10 text-indigo-300 border-indigo-500/30">
+                  Tier: {tierLabel}
+                </span>
                 {task.user_id?.full_name && <span>Dikerjakan oleh: {task.user_id.full_name}</span>}
+                {task.note && <span>Catatan: {task.note}</span>}
                 {task.approved_by && task.approved_at && (
                   <span>
                     Disetujui:{" "}
@@ -197,12 +204,21 @@ export default function ProjectList() {
   const [taskModalProject, setTaskModalProject] = useState(null);
   const [projectTasks, setProjectTasks] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
-  const [taskForm, setTaskForm] = useState({ title: "", hour_weight: 1 });
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    hour_weight: 1,
+    tier: "normal",
+    note: "",
+  });
   const [taskProcessing, setTaskProcessing] = useState(false);
   const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
   const [taskDetail, setTaskDetail] = useState(null);
   const [taskDetailHour, setTaskDetailHour] = useState(1);
-  const [initialTasks, setInitialTasks] = useState([{ title: "", hour_weight: 1 }]);
+  const [taskDetailTier, setTaskDetailTier] = useState("normal");
+  const [taskDetailNote, setTaskDetailNote] = useState("");
+  const [initialTasks, setInitialTasks] = useState([
+    { title: "", hour_weight: 1, tier: "normal", note: "" },
+  ]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -255,7 +271,7 @@ export default function ProjectList() {
       end_date: "", // Hidden from form, auto-filled by system
       target_end_date: "",
     });
-    setInitialTasks([{ title: "", hour_weight: 1 }]);
+    setInitialTasks([{ title: "", hour_weight: 1, tier: "normal", note: "" }]);
   };
 
   const openAddModal = () => {
@@ -290,7 +306,7 @@ export default function ProjectList() {
   const openTaskModal = async (project) => {
     setTaskModalProject(project);
     setShowTaskModal(true);
-    setTaskForm({ title: "", hour_weight: 1 });
+    setTaskForm({ title: "", hour_weight: 1, tier: "normal", note: "" });
     setLoadingTasks(true);
     try {
       const res = await fetchProjectTasks(project._id);
@@ -327,7 +343,7 @@ export default function ProjectList() {
     try {
       await createProjectTask(taskModalProject._id, taskForm);
       toast.success("Task berhasil ditambahkan");
-      setTaskForm({ title: "", hour_weight: 1 });
+      setTaskForm({ title: "", hour_weight: 1, tier: "normal", note: "" });
       await refreshTasks();
     } catch (err) {
       const msg = err?.message || "Gagal menambah task";
@@ -342,6 +358,8 @@ export default function ProjectList() {
       title: form.title.trim(),
       project_id: projectId,
       hour_weight: Number(form.hour_weight) || 1,
+      tier: form.tier || "normal",
+      note: String(form.note || "").trim(),
       status: "planned",
     };
     await createTask(payload);
@@ -380,6 +398,8 @@ export default function ProjectList() {
   const openTaskDetail = (task) => {
     setTaskDetail(task);
     setTaskDetailHour(Number(task?.hour_weight) || 1);
+    setTaskDetailTier(task?.tier || "normal");
+    setTaskDetailNote(task?.note || "");
     setShowTaskDetailModal(true);
   };
 
@@ -392,8 +412,12 @@ export default function ProjectList() {
     if (!taskDetail) return;
     setTaskProcessing(true);
     try {
-      await updateTask(taskDetail._id, { hour_weight: Number(taskDetailHour) || 1 });
-      toast.success("Bobot jam diperbarui");
+      await updateTask(taskDetail._id, {
+        hour_weight: Number(taskDetailHour) || 1,
+        tier: taskDetailTier || "normal",
+        note: String(taskDetailNote || "").trim(),
+      });
+      toast.success("Task diperbarui");
       await refreshTasks();
       await loadProjects();
       closeTaskDetail();
@@ -470,6 +494,8 @@ export default function ProjectList() {
             .map((t) => ({
               title: String(t.title || "").trim(),
               hour_weight: Number(t.hour_weight) || 1,
+              tier: t.tier || "normal",
+              note: String(t.note || "").trim(),
             }))
             .filter((t) => t.title.length > 0);
 
@@ -480,6 +506,8 @@ export default function ProjectList() {
                   title: t.title,
                   project_id: projectId,
                   hour_weight: t.hour_weight,
+                  tier: t.tier,
+                  note: t.note,
                   status: "planned",
                   user_id: null, // manager menyiapkan task unassigned
                 })
@@ -994,7 +1022,7 @@ export default function ProjectList() {
                       <div className="space-y-3">
                         {initialTasks.map((t, idx) => (
                           <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                            <div className="md:col-span-8">
+                            <div className="md:col-span-5">
                               <input
                                 value={t.title}
                                 onChange={(e) => {
@@ -1009,7 +1037,7 @@ export default function ProjectList() {
                                 className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
                               />
                             </div>
-                            <div className="md:col-span-3">
+                            <div className="md:col-span-2">
                               <input
                                 type="number"
                                 min={0.25}
@@ -1026,12 +1054,49 @@ export default function ProjectList() {
                                 className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
                               />
                             </div>
+                            <div className="md:col-span-2">
+                              <select
+                                value={t.tier || "normal"}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setInitialTasks((prev) => {
+                                    const next = [...prev];
+                                    next[idx] = { ...next[idx], tier: v };
+                                    return next;
+                                  });
+                                }}
+                                className="w-full px-3 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
+                              >
+                                {TASK_TIER_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="md:col-span-2">
+                              <input
+                                value={t.note || ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setInitialTasks((prev) => {
+                                    const next = [...prev];
+                                    next[idx] = { ...next[idx], note: v };
+                                    return next;
+                                  });
+                                }}
+                                placeholder="Catatan"
+                                className="w-full px-3 py-3 bg-slate-800/50 border border-slate-700 rounded-2xl text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
                             <div className="md:col-span-1 flex items-center justify-end">
                               <button
                                 type="button"
                                 onClick={() => {
                                   setInitialTasks((prev) => {
-                                    if (prev.length <= 1) return [{ title: "", hour_weight: 1 }];
+                                    if (prev.length <= 1) {
+                                      return [{ title: "", hour_weight: 1, tier: "normal", note: "" }];
+                                    }
                                     return prev.filter((_, i) => i !== idx);
                                   });
                                 }}
@@ -1053,7 +1118,10 @@ export default function ProjectList() {
                             whileHover={{ scale: 1.03 }}
                             whileTap={{ scale: 0.97 }}
                             onClick={() =>
-                              setInitialTasks((prev) => [...prev, { title: "", hour_weight: 1 }])
+                              setInitialTasks((prev) => [
+                                ...prev,
+                                { title: "", hour_weight: 1, tier: "normal", note: "" },
+                              ])
                             }
                             className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2"
                           >
@@ -1252,7 +1320,32 @@ export default function ProjectList() {
                           hour_weight: Number(e.target.value) || 1,
                         }))
                       }
-                      className="w-28 px-3 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                      className="w-14 px-3 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                    />
+                    <select
+                      value={taskForm.tier}
+                      onChange={(e) =>
+                        setTaskForm((prev) => ({
+                          ...prev,
+                          tier: e.target.value,
+                        }))
+                      }
+                      className="w-32 px-3 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                    >
+                      {TASK_TIER_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Catatan task (opsional)"
+                      value={taskForm.note}
+                      onChange={(e) =>
+                        setTaskForm((prev) => ({ ...prev, note: e.target.value }))
+                      }
+                      className="flex-1 px-3 py-3 bg-slate-800/70 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                     />
                     <motion.button
                       type="submit"
@@ -1375,6 +1468,29 @@ export default function ProjectList() {
                       />
                       <span className="text-xs text-slate-400">jam</span>
                     </div>
+                  </div>
+                  <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                    <div className="text-[11px] text-slate-500 mb-2">Tier Prioritas</div>
+                    <select
+                      value={taskDetailTier}
+                      onChange={(e) => setTaskDetailTier(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                    >
+                      {TASK_TIER_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-3">
+                    <div className="text-[11px] text-slate-500 mb-2">Catatan</div>
+                    <textarea
+                      rows={3}
+                      value={taskDetailNote}
+                      onChange={(e) => setTaskDetailNote(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">

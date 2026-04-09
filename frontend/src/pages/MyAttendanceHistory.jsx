@@ -30,6 +30,7 @@ export default function MyAttendanceHistory() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [selectedMeta, setSelectedMeta] = useState(null);
 
   const monthParam = useMemo(
     () => `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, "0")}`,
@@ -51,8 +52,15 @@ export default function MyAttendanceHistory() {
       const res = await getMyAttendanceCalendar({ month: monthParam });
       const payload = res?.data || {};
       setCalendarData(payload.days || []);
-      const defaultDate = formatDateId(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1));
-      setSelectedDate((prev) => prev || defaultDate);
+      const today = new Date();
+      const isSameMonth =
+        today.getFullYear() === monthCursor.getFullYear() &&
+        today.getMonth() === monthCursor.getMonth();
+      const todayKey = formatDateId(today);
+      const defaultDate = isSameMonth
+        ? todayKey
+        : formatDateId(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1));
+      setSelectedDate(defaultDate);
     } finally {
       setLoading(false);
     }
@@ -82,6 +90,11 @@ export default function MyAttendanceHistory() {
     return m;
   }, [calendarData]);
 
+  useEffect(() => {
+    if (!selectedDate) return;
+    setSelectedMeta(dayMap.get(selectedDate) || null);
+  }, [selectedDate, dayMap]);
+
   const cells = useMemo(() => {
     const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
     const lastDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0);
@@ -93,26 +106,41 @@ export default function MyAttendanceHistory() {
     for (let d = 1; d <= total; d++) {
       const date = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), d);
       const key = formatDateId(date);
-      out.push(dayMap.get(key) || { date: key, hasAttendance: false, isSunday: date.getDay() === 0 });
+      out.push(
+        dayMap.get(key) || {
+          date: key,
+          hasAttendance: false,
+          is_working_day: false,
+          is_holiday: false,
+          holiday_name: "",
+          has_workday_config: false,
+        }
+      );
     }
     while (out.length % 7 !== 0) out.push(null);
     return out;
   }, [monthCursor, dayMap]);
 
-  const statusClass = (status, hasAttendance, isSunday) => {
-    if (!hasAttendance) return isSunday ? "bg-slate-900 border-slate-700 text-slate-500" : "bg-slate-800 border-slate-700 text-slate-400";
+  const statusClass = (status, hasAttendance, isWorkingDay, isHoliday) => {
+    if (!hasAttendance) {
+      // Semua hari non-aktif/libur (termasuk Minggu) tampilkan warna yang sama,
+      // supaya tidak berubah menjadi merah saat `holiday_name` ada.
+      if (!isWorkingDay) return "bg-slate-900 border-slate-700 text-slate-300";
+      return "bg-slate-800 border-slate-700 text-slate-400";
+    }
     if (status === "normal") return "bg-emerald-500/20 border-emerald-500/40 text-emerald-300";
     if (status === "late_checkin" || status === "early_checkout") return "bg-yellow-500/20 border-yellow-500/40 text-yellow-300";
     if (status === "late") return "bg-red-500/20 border-red-500/40 text-red-300";
+    // manual = termasuk attendance dari absence (izin/cuti/sakit)
     if (status === "manual") return "bg-blue-500/20 border-blue-500/40 text-blue-300";
     if (status === "forget") return "bg-purple-500/20 border-purple-500/40 text-purple-300";
     return "bg-slate-800 border-slate-700 text-slate-300";
   };
 
   const stats = useMemo(() => {
-    const workingDays = calendarData.filter((d) => !d.isSunday);
+    const workingDays = calendarData.filter((d) => d.is_working_day !== false);
     const attendedWorkingDays = workingDays.filter((d) => d.hasAttendance);
-    const libur = calendarData.filter((d) => d.isSunday).length;
+    const libur = calendarData.filter((d) => d.is_holiday || d.is_working_day === false).length;
 
     const terlambat = attendedWorkingDays.filter(
       (d) => d.status === "late" || d.status === "late_checkin"
@@ -123,6 +151,36 @@ export default function MyAttendanceHistory() {
 
     return { hadir, terlambat, libur, totalAttendance };
   }, [calendarData]);
+
+  const projectsGroupedFromTasks = useMemo(() => {
+    const tasks = Array.isArray(selectedDetail?.tasks_today) ? selectedDetail.tasks_today : [];
+    if (!tasks.length) return [];
+
+    const projectMap = new Map();
+    for (const t of tasks) {
+      const pid =
+        t?.project_id?._id?.toString?.() ||
+        t?.project_id?._id ||
+        t?.project_id?.toString?.() ||
+        t?.project_id ||
+        "no-project";
+
+      const projLabel =
+        t?.project_id?.name ||
+        t?.project_id?.code ||
+        (pid === "no-project" ? "Tanpa Proyek" : "Proyek");
+
+      if (!projectMap.has(pid)) projectMap.set(pid, { pid, projLabel, tasks: [] });
+      projectMap.get(pid).tasks.push({
+        tid: t?._id?.toString?.() || t?._id || `${projLabel}-${t?.title || "task"}-${Math.random()}`,
+        title: t?.title || "-",
+        status: t?.status || "ongoing",
+      });
+    }
+
+    // Stabil: urutkan project by label, dan task sesuai urutan array input
+    return Array.from(projectMap.values()).sort((a, b) => String(a.projLabel).localeCompare(String(b.projLabel)));
+  }, [selectedDetail]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6">
@@ -150,7 +208,7 @@ export default function MyAttendanceHistory() {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 flex-wrap mb-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="px-3 py-2 rounded-xl bg-slate-800/50 border border-slate-700">
                 <div className="text-[11px] text-slate-400">Hadir</div>
@@ -173,15 +231,15 @@ export default function MyAttendanceHistory() {
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-500/30 border border-yellow-500/40" />
-                Late In / Early Out
+                Terlambat masuk / Pulang cepat
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500/30 border border-red-500/40" />
                 Terlambat
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500/30 border border-blue-500/40" />
-                Manual
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500/30 border border-blue-500/40" />
+              Manual / Izin-Cuti-Sakit
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500/30 border border-purple-500/40" />
@@ -189,7 +247,7 @@ export default function MyAttendanceHistory() {
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700" />
-                Libur (Minggu)
+                  Libur (Minggu/Non-Working)
               </div>
             </div>
           </div>
@@ -209,12 +267,18 @@ export default function MyAttendanceHistory() {
                     key={cell.date}
                     onClick={() => setSelectedDate(cell.date)}
                     className={`h-20 rounded-xl border p-2 text-left transition ${
-                      statusClass(cell.status, cell.hasAttendance, cell.isSunday)
+                      statusClass(cell.status, cell.hasAttendance, cell.is_working_day !== false, cell.is_holiday)
                     } ${selectedDate === cell.date ? "ring-2 ring-blue-500" : ""}`}
                   >
                     <div className="text-xs font-semibold">{Number(cell.date.slice(-2))}</div>
                     <div className="text-[10px] mt-1">
-                      {cell.hasAttendance ? (cell.status || "-") : cell.isSunday ? "Libur" : "Belum"}
+                      {cell.hasAttendance
+                        ? (cell.status === "normal" ? "Hadir" : cell.status === "late" ? "Terlambat" : cell.status === "late_checkin" ? "Terlambat masuk" : cell.status === "early_checkout" ? "Pulang cepat" : cell.status === "manual" ? "Otomatis" : cell.status === "forget" ? "Lupa" : "Belum")
+                        : cell.has_workday_config === false
+                        ? "Belum diset HR"
+                        : cell.is_holiday
+                        ? (cell.holiday_name || "Libur")
+                        : (cell.is_working_day === false ? "Libur" : "Belum")}
                     </div>
                   </button>
                 ) : (
@@ -231,7 +295,22 @@ export default function MyAttendanceHistory() {
           {loadingDetail ? (
             <div className="text-sm text-slate-400">Memuat detail...</div>
           ) : !selectedDetail ? (
-            <div className="text-sm text-slate-400">Tidak ada presensi pada tanggal ini.</div>
+            (() => {
+              const hasWorkDayConfig = selectedMeta?.has_workday_config ?? false;
+              const isHoliday = selectedMeta?.is_holiday ?? false;
+              const isWorkingDay = selectedMeta?.is_working_day !== false;
+              const holidayName = selectedMeta?.holiday_name || "Libur";
+
+              if (!hasWorkDayConfig) {
+                return <div className="text-sm text-slate-400">Tanggal belum diset HR (work day config).</div>;
+              }
+
+              if (isHoliday || !isWorkingDay) {
+                return <div className="text-sm text-slate-400">Hari libur: {holidayName}</div>;
+              }
+
+              return <div className="text-sm text-slate-400">Tidak ada presensi pada tanggal ini.</div>;
+            })()
           ) : (
             <div className="space-y-3 text-sm">
               <div className="p-3 rounded-xl bg-slate-800/70 border border-slate-700 flex items-start justify-between gap-3">
@@ -240,6 +319,22 @@ export default function MyAttendanceHistory() {
                   <div className="text-white font-semibold mt-1">
                     {selectedDetail.status || "-"}
                   </div>
+                  {selectedDetail.absence_type && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        selectedDetail.absence_type === "sick"
+                          ? "bg-red-500/20 text-red-300 border border-red-500/30"
+                          : selectedDetail.absence_type === "leave"
+                          ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
+                          : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                      }`}>
+                        {selectedDetail.absence_type.toUpperCase()}
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        (Presensi dibuat dari pengajuan {selectedDetail.absence_type === "sick" ? "Sakit" : selectedDetail.absence_type === "leave" ? "Cuti" : selectedDetail.absence_type === "permission" ? "Izin" : selectedDetail.status === "forget" ? "Lupa Presensi" : "normal"})
+                      </span>
+                    </div>
+                  )}
                   {selectedDetail.late_reason && (
                     <div className="text-xs text-slate-300 mt-2">
                       Alasan terlambat: {selectedDetail.late_reason}
@@ -273,31 +368,24 @@ export default function MyAttendanceHistory() {
               </div>
 
               <div className="p-3 rounded-xl bg-slate-800/70 border border-slate-700">
-                <div className="text-slate-300 flex items-center gap-2"><ListChecks className="w-4 h-4" /> Task</div>
-                <div className="mt-2 space-y-1">
-                  {(selectedDetail.tasks_today || []).length === 0 ? (
+                <div className="text-slate-300 flex items-center gap-2">
+                  <Target className="w-4 h-4" /> Proyek & Task
+                </div>
+                <div className="mt-2 space-y-2">
+                  {projectsGroupedFromTasks.length === 0 ? (
                     <div className="text-slate-400 text-xs">Tidak ada task</div>
                   ) : (
-                    (selectedDetail.tasks_today || []).map((t) => (
-                      <div key={t._id} className="text-xs text-slate-200">{t.title} • {t.status}</div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/70 border border-slate-700">
-                <div className="text-slate-300 flex items-center gap-2"><Target className="w-4 h-4" /> Proyek</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(selectedDetail.projects || []).length === 0 ? (
-                    <div className="text-slate-400 text-xs">Tidak ada proyek</div>
-                  ) : (
-                    (selectedDetail.projects || []).map((p) => (
-                      <span
-                        key={p.project_id?._id || p.project_id}
-                        className="px-3 py-1.5 bg-green-500/20 text-green-300 border border-green-500/30 rounded-full text-xs font-medium"
-                      >
-                        {p.project_id?.name || p.project_id?.code || "Proyek"} • +{p.contribution_percentage ?? 0}%
-                      </span>
+                    projectsGroupedFromTasks.map((proj) => (
+                      <div key={proj.pid} className="space-y-1">
+                        <div className="text-white text-xs font-semibold">{proj.projLabel}</div>
+                        <div className="space-y-1">
+                          {proj.tasks.map((t) => (
+                            <div key={t.tid} className="text-xs text-slate-200 ml-4">
+                              - {t.title} ({t.status})
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ))
                   )}
                 </div>

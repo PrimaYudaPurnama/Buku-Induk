@@ -103,6 +103,18 @@ const AttendanceSchema = new mongoose.Schema(
       },
     ],
 
+    absence_type: {
+      type: String,
+      enum: ["none", "sick", "leave", "permission"],
+      default: "none",
+    },
+    
+    leave_request_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AbsenceRequest",
+      default: null,
+    },
+
     // ===== CATATAN =====
     note: {
       type: String,

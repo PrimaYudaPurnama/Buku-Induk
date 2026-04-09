@@ -725,7 +725,9 @@ function DetailModal({ projectDetails, onClose }) {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-white">{contributorCount} Kontributor</h3>
-                <div className="text-xs text-slate-500">Berdasarkan jam task approved</div>
+                <div className="text-xs text-slate-500">
+                  Persentase = jam task <span className="text-slate-300 font-semibold">approved</span> / total jam task project
+                </div>
               </div>
               {contributorCount === 0 ? (
                 <div className="py-16 text-center">
@@ -793,10 +795,28 @@ function DetailModal({ projectDetails, onClose }) {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
                               <span className={`px-2 py-0.5 rounded-lg text-xs font-semibold border ${sc}`}>{task.status}</span>
+                              {task.tier && (
+                                <span className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border ${
+                                  task.tier === "critical"
+                                    ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                                    : task.tier === "high"
+                                      ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                                      : task.tier === "normal"
+                                        ? "bg-sky-500/20 text-sky-300 border-sky-500/30"
+                                        : "bg-slate-700/40 text-slate-300 border-slate-600/40"
+                                }`}>
+                                  tier: {task.tier}
+                                </span>
+                              )}
                               <span className="text-sm font-semibold text-white truncate">{task.title}</span>
                             </div>
                             {task.description && (
                               <div className="text-xs text-slate-500 truncate mb-2">{task.description}</div>
+                            )}
+                            {task.note && (
+                              <div className="text-xs text-slate-400 mb-2 italic">
+                                Catatan: {task.note}
+                              </div>
                             )}
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
                               <span className="flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" />{task.user?.user_name}</span>
@@ -832,7 +852,9 @@ function DetailModal({ projectDetails, onClose }) {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-white">Timeline Approved Tasks</h3>
-                <div className="text-xs text-slate-500">Ascending • Kumulatif progress</div>
+                <div className="text-xs text-slate-500">
+                  Kontribusi (%) berbasis total bobot jam task project (bukan hanya approved)
+                </div>
               </div>
               {(!d.task_timeline || d.task_timeline.length === 0) ? (
                 <div className="py-16 text-center">
@@ -842,54 +864,60 @@ function DetailModal({ projectDetails, onClose }) {
                 </div>
               ) : (
                 <>
-                  {/* Mini bar chart cumulative */}
-                  <div className="bg-slate-800/40 border border-slate-700/40 rounded-2xl p-5">
-                    <div className="text-xs text-slate-500 mb-3">Akumulasi Progress (%)</div>
-                    <div className="flex items-end gap-1 h-20">
-                      {d.task_timeline.map((item, i) => {
-                        const maxCum = d.task_timeline[d.task_timeline.length - 1]?.cumulative_pct || 1;
-                        const barH = (item.cumulative_pct / maxCum) * 100;
-                        return (
-                          <div key={i} className="flex-1 flex flex-col items-center group relative">
-                            <div
-                              className="w-full rounded-t bg-gradient-to-t from-blue-600 to-blue-400 transition-all group-hover:from-blue-500 group-hover:to-cyan-400"
-                              style={{ height:`${barH}%`, minHeight:2 }}
-                            />
-                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-700 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
-                              {item.date}: {item.cumulative_pct}%
-                            </div>
-                          </div>
-                        );
-                      })}
+                  {/* Timeline table (lebih jelas) */}
+                  <div className="bg-slate-800/40 border border-slate-700/40 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-700/40">
+                      <div className="text-xs text-slate-500">
+                        Kolom: bobot jam approved hari itu, kontribusi hari itu (%), dan kumulatif progress (%).
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-900/60">
+                          <tr className="text-slate-400">
+                            <th className="text-left py-3 px-4">Tanggal</th>
+                            <th className="text-right py-3 px-4">Task</th>
+                            <th className="text-right py-3 px-4">Jam Approved</th>
+                            <th className="text-right py-3 px-4">Kontribusi</th>
+                            <th className="text-right py-3 px-4">Kumulatif</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {d.task_timeline.map((item, i) => (
+                            <tr key={i} className="border-t border-slate-800/80 hover:bg-slate-800/30">
+                              <td className="py-3 px-4 text-white font-semibold">{item.date}</td>
+                              <td className="py-3 px-4 text-right text-slate-300 tabular-nums">{item.task_count}</td>
+                              <td className="py-3 px-4 text-right text-slate-200 tabular-nums">{Number(item.total_hour_weight || 0).toFixed(2)}j</td>
+                              <td className="py-3 px-4 text-right text-slate-300 tabular-nums">+{Number(item.total_contribution_pct || 0).toFixed(2)}%</td>
+                              <td className="py-3 px-4 text-right text-blue-400 font-black tabular-nums">∑ {Number(item.cumulative_pct || 0).toFixed(2)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
-                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                    {d.task_timeline.map((item, i) => (
-                      <div key={i} className="bg-slate-800/40 border border-slate-700/40 rounded-xl p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-bold text-white">{item.date}</span>
-                            <span className="text-xs text-slate-500">{item.task_count} task</span>
-                            <span className="text-xs text-slate-500">{item.total_hour_weight}j</span>
+                  {/* Contributors per-day (optional) */}
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {d.task_timeline
+                      .filter((it) => (it.contributors || []).length > 0)
+                      .slice()
+                      .reverse()
+                      .map((item, i) => (
+                        <div key={`${item.date}-${i}`} className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4">
+                          <div className="text-xs text-slate-400 mb-2 font-semibold">
+                            {item.date} • kontributor hari itu
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-slate-500">+{item.total_contribution_pct}%</span>
-                            <span className="text-sm font-black text-blue-400">∑ {item.cumulative_pct}%</span>
-                          </div>
-                        </div>
-                        {item.contributors?.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {item.contributors.map((c, ci) => (
-                              <span key={ci} className="px-2 py-0.5 bg-slate-700/60 rounded text-xs text-slate-300">
+                              <span key={ci} className="px-2 py-0.5 bg-slate-700/60 rounded text-xs text-slate-200">
                                 {c.user_name}{" "}
-                                <span className="text-slate-500">{c.contribution_pct}% • {c.hour_weight}j</span>
+                                <span className="text-slate-400">{Number(c.contribution_pct || 0).toFixed(2)}% • {Number(c.hour_weight || 0).toFixed(2)}j</span>
                               </span>
                             ))}
                           </div>
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      ))}
                   </div>
                 </>
               )}
@@ -908,7 +936,7 @@ function DetailModal({ projectDetails, onClose }) {
                 )}
               </div>
               <div className="text-xs text-slate-500">
-                Kontribusi harian dari Attendance.projects (snapshot saat check-in)
+                Kontribusi harian dihitung dari bobot jam task <span className="text-slate-300 font-semibold">done/approved</span> pada hari itu ÷ total bobot jam task project
               </div>
 
               {/* FIX: empty state yang lebih informatif */}
@@ -939,10 +967,28 @@ function DetailModal({ projectDetails, onClose }) {
                       {item.contributors?.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {item.contributors.map((c, ci) => (
-                            <div key={ci} className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/50 rounded-lg">
-                              <span className="text-xs text-slate-300 font-medium">{c.user_name}</span>
-                              <span className="text-xs text-slate-500">{c.daily_contribution}%</span>
-                              {c.division && <span className="text-xs text-slate-600">• {c.division}</span>}
+                            <div key={ci} className="w-full bg-slate-900/40 border border-slate-700/30 rounded-lg px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs text-slate-200 font-semibold truncate">{c.user_name}</div>
+                                  {c.division && <div className="text-[11px] text-slate-500 truncate">{c.division}</div>}
+                                </div>
+                                <div className="text-xs text-slate-300 font-black tabular-nums">
+                                  {Number(c.daily_contribution || 0).toFixed(2)}%
+                                </div>
+                              </div>
+                              {(c.tasks_done || []).length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {c.tasks_done.slice(0, 6).map((t, ti) => (
+                                    <span key={t.task_id || ti} className="px-2 py-0.5 bg-slate-800/70 border border-slate-700/40 rounded text-[11px] text-slate-300">
+                                      {t.title || "Task"} <span className="text-slate-500">• {Number(t.hour_weight || 0).toFixed(2)}j</span>
+                                    </span>
+                                  ))}
+                                  {c.tasks_done.length > 6 && (
+                                    <span className="text-[11px] text-slate-500">+{c.tasks_done.length - 6} task</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -961,167 +1007,167 @@ function DetailModal({ projectDetails, onClose }) {
 
 // ─── Import Panel ─────────────────────────────────────────────────────────────
 
-function ImportPanel() {
-  const [importFile, setImportFile]         = useState(null);
-  const [importPreview, setImportPreview]   = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [importing, setImporting]           = useState(false);
-  const [importResult, setImportResult]     = useState(null);
-  const [open, setOpen]                     = useState(false);
+// function ImportPanel() {
+//   const [importFile, setImportFile]         = useState(null);
+//   const [importPreview, setImportPreview]   = useState(null);
+//   const [previewLoading, setPreviewLoading] = useState(false);
+//   const [importing, setImporting]           = useState(false);
+//   const [importResult, setImportResult]     = useState(null);
+//   const [open, setOpen]                     = useState(false);
 
-  const reset = () => { setImportFile(null); setImportPreview(null); setImportResult(null); };
+//   const reset = () => { setImportFile(null); setImportPreview(null); setImportResult(null); };
 
-  const onPickFile = async (file) => {
-    setImportFile(file || null); setImportResult(null); setImportPreview(null);
-    if (!file) return;
-    try {
-      setPreviewLoading(true);
-      setImportPreview(await buildExcelPreview(file, { maxRows:8, mode:"project" }));
-    } catch (e) {
-      toast.error(e.message || "Gagal preview Excel");
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
+//   const onPickFile = async (file) => {
+//     setImportFile(file || null); setImportResult(null); setImportPreview(null);
+//     if (!file) return;
+//     try {
+//       setPreviewLoading(true);
+//       setImportPreview(await buildExcelPreview(file, { maxRows:8, mode:"project" }));
+//     } catch (e) {
+//       toast.error(e.message || "Gagal preview Excel");
+//     } finally {
+//       setPreviewLoading(false);
+//     }
+//   };
 
-  const doImport = async () => {
-    if (!importFile) return toast.error("Pilih file Excel terlebih dahulu");
-    try {
-      setImporting(true); setImportResult(null);
-      const res = await importProjectsExcel(importFile);
-      setImportResult(res);
-      if ((res?.success_rows || 0) > 0) toast.success(`Import sukses: ${res.success_rows} baris`);
-      else toast.error("Tidak ada baris yang berhasil diimport");
-    } catch (e) {
-      toast.error(e.message || "Gagal import");
-      setImportResult({ error: e.message });
-    } finally {
-      setImporting(false);
-    }
-  };
+//   const doImport = async () => {
+//     if (!importFile) return toast.error("Pilih file Excel terlebih dahulu");
+//     try {
+//       setImporting(true); setImportResult(null);
+//       const res = await importProjectsExcel(importFile);
+//       setImportResult(res);
+//       if ((res?.success_rows || 0) > 0) toast.success(`Import sukses: ${res.success_rows} baris`);
+//       else toast.error("Tidak ada baris yang berhasil diimport");
+//     } catch (e) {
+//       toast.error(e.message || "Gagal import");
+//       setImportResult({ error: e.message });
+//     } finally {
+//       setImporting(false);
+//     }
+//   };
 
-  return (
-    <div className="bg-slate-900/60 border border-slate-700/50 rounded-2xl overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-800/40 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-500/20 rounded-xl"><FileSpreadsheet className="w-5 h-5 text-indigo-400" /></div>
-          <div className="text-left">
-            <div className="text-sm font-bold text-white">Import / Migrasi Proyek dari Excel</div>
-            <div className="text-xs text-slate-500">POST /import/projects • preview sebelum upload</div>
-          </div>
-        </div>
-        <ChevronRight className={`w-4 h-4 text-slate-500 transition-transform ${open ? "rotate-90" : ""}`} />
-      </button>
+//   return (
+//     <div className="bg-slate-900/60 border border-slate-700/50 rounded-2xl overflow-hidden">
+//       <button
+//         onClick={() => setOpen(!open)}
+//         className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-800/40 transition-colors"
+//       >
+//         <div className="flex items-center gap-3">
+//           <div className="p-2 bg-indigo-500/20 rounded-xl"><FileSpreadsheet className="w-5 h-5 text-indigo-400" /></div>
+//           <div className="text-left">
+//             <div className="text-sm font-bold text-white">Import / Migrasi Proyek dari Excel</div>
+//             <div className="text-xs text-slate-500">POST /import/projects • preview sebelum upload</div>
+//           </div>
+//         </div>
+//         <ChevronRight className={`w-4 h-4 text-slate-500 transition-transform ${open ? "rotate-90" : ""}`} />
+//       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ height:0, opacity:0 }} animate={{ height:"auto", opacity:1 }} exit={{ height:0, opacity:0 }}
-            className="overflow-hidden border-t border-slate-800"
-          >
-            <div className="px-5 py-4 space-y-4">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="file" accept=".xlsx,.xls"
-                  onChange={(e) => onPickFile(e.target.files?.[0] || null)}
-                  className="flex-1 text-sm text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600 cursor-pointer"
-                />
-                <button onClick={reset} disabled={!importFile && !importResult}
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm disabled:opacity-40">
-                  Reset
-                </button>
-                <button onClick={doImport} disabled={!importFile || previewLoading || importing}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40 flex items-center gap-2">
-                  <Upload className="w-4 h-4" />{importing ? "Mengimport..." : "Import"}
-                </button>
-              </div>
+//       <AnimatePresence>
+//         {open && (
+//           <motion.div
+//             initial={{ height:0, opacity:0 }} animate={{ height:"auto", opacity:1 }} exit={{ height:0, opacity:0 }}
+//             className="overflow-hidden border-t border-slate-800"
+//           >
+//             <div className="px-5 py-4 space-y-4">
+//               <div className="flex flex-col sm:flex-row gap-2">
+//                 <input
+//                   type="file" accept=".xlsx,.xls"
+//                   onChange={(e) => onPickFile(e.target.files?.[0] || null)}
+//                   className="flex-1 text-sm text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600 cursor-pointer"
+//                 />
+//                 <button onClick={reset} disabled={!importFile && !importResult}
+//                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm disabled:opacity-40">
+//                   Reset
+//                 </button>
+//                 <button onClick={doImport} disabled={!importFile || previewLoading || importing}
+//                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40 flex items-center gap-2">
+//                   <Upload className="w-4 h-4" />{importing ? "Mengimport..." : "Import"}
+//                 </button>
+//               </div>
 
-              {previewLoading && <div className="text-xs text-slate-500">Membuat preview...</div>}
+//               {previewLoading && <div className="text-xs text-slate-500">Membuat preview...</div>}
 
-              {!previewLoading && importPreview && importPreview.headers.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs text-slate-500">
-                    Sheet: <span className="text-slate-300">{importPreview.sheetName}</span> •
-                    Total: <span className="text-slate-300">{importPreview.totalRows}</span> baris •
-                    Preview: <span className="text-slate-300">{importPreview.rows.length}</span> baris pertama
-                  </div>
-                  <div className="overflow-x-auto rounded-xl border border-slate-700">
-                    <table className="min-w-full text-xs">
-                      <thead className="bg-slate-900/80">
-                        <tr>
-                          {[...importPreview.displayHeaders, "work_type (auto)"].map((h) => (
-                            <th key={h} className="text-left py-2 px-3 text-slate-400 font-semibold whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importPreview.rows.map((r, i) => {
-                          const codeHeader = importPreview.headers.find((h) =>
-                            /kode\s*pekerjaan|kode\s*proyek|project\s*code/i.test(String(h))
-                          ) ?? importPreview.displayHeaders[0];
-                          const wt = deriveWorkTypeFromCode(r?.[codeHeader] ?? "");
-                          return (
-                            <tr key={i} className="border-t border-slate-800 hover:bg-slate-800/40">
-                              {[...importPreview.displayHeaders, "work_type (auto)"].map((h) => (
-                                <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap">
-                                  {h === "work_type (auto)"
-                                    ? WORK_TYPE_LABELS[wt] || wt
-                                    : String(r?.[h] ?? "")}
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+//               {!previewLoading && importPreview && importPreview.headers.length > 0 && (
+//                 <div className="space-y-2">
+//                   <div className="text-xs text-slate-500">
+//                     Sheet: <span className="text-slate-300">{importPreview.sheetName}</span> •
+//                     Total: <span className="text-slate-300">{importPreview.totalRows}</span> baris •
+//                     Preview: <span className="text-slate-300">{importPreview.rows.length}</span> baris pertama
+//                   </div>
+//                   <div className="overflow-x-auto rounded-xl border border-slate-700">
+//                     <table className="min-w-full text-xs">
+//                       <thead className="bg-slate-900/80">
+//                         <tr>
+//                           {[...importPreview.displayHeaders, "work_type (auto)"].map((h) => (
+//                             <th key={h} className="text-left py-2 px-3 text-slate-400 font-semibold whitespace-nowrap">{h}</th>
+//                           ))}
+//                         </tr>
+//                       </thead>
+//                       <tbody>
+//                         {importPreview.rows.map((r, i) => {
+//                           const codeHeader = importPreview.headers.find((h) =>
+//                             /kode\s*pekerjaan|kode\s*proyek|project\s*code/i.test(String(h))
+//                           ) ?? importPreview.displayHeaders[0];
+//                           const wt = deriveWorkTypeFromCode(r?.[codeHeader] ?? "");
+//                           return (
+//                             <tr key={i} className="border-t border-slate-800 hover:bg-slate-800/40">
+//                               {[...importPreview.displayHeaders, "work_type (auto)"].map((h) => (
+//                                 <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap">
+//                                   {h === "work_type (auto)"
+//                                     ? WORK_TYPE_LABELS[wt] || wt
+//                                     : String(r?.[h] ?? "")}
+//                                 </td>
+//                               ))}
+//                             </tr>
+//                           );
+//                         })}
+//                       </tbody>
+//                     </table>
+//                   </div>
+//                 </div>
+//               )}
 
-              {importResult && (
-                <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                  {importResult.error ? (
-                    <div className="text-sm text-rose-300">Error: {importResult.error}</div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-4 text-sm">
-                        {[
-                          ["Berhasil", importResult.success_rows||0, "text-emerald-400"],
-                          ["Inserted", importResult.inserted||0,     "text-blue-400"   ],
-                          ["Updated",  importResult.updated||0,      "text-sky-400"    ],
-                          ["Gagal",    importResult.failed_rows||0,  "text-rose-400"   ],
-                        ].map(([l, v, c]) => (
-                          <div key={l} className="text-slate-400">{l}: <span className={`font-black ${c}`}>{v}</span></div>
-                        ))}
-                      </div>
-                      {(importResult.failed_rows || 0) > 0 && Array.isArray(importResult.errors) && (
-                        <details className="text-xs">
-                          <summary className="cursor-pointer text-slate-400 hover:text-white">
-                            Lihat error ({importResult.errors.length})
-                          </summary>
-                          <div className="mt-2 max-h-40 overflow-y-auto space-y-1 pl-2">
-                            {importResult.errors.map((e, i) => (
-                              <div key={i} className="text-slate-400">
-                                Row {e.rowNumber}{e.code ? ` • ${e.code}` : ""}: <span className="text-rose-400">{e.reason}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
+//               {importResult && (
+//                 <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+//                   {importResult.error ? (
+//                     <div className="text-sm text-rose-300">Error: {importResult.error}</div>
+//                   ) : (
+//                     <div className="space-y-2">
+//                       <div className="flex flex-wrap gap-4 text-sm">
+//                         {[
+//                           ["Berhasil", importResult.success_rows||0, "text-emerald-400"],
+//                           ["Inserted", importResult.inserted||0,     "text-blue-400"   ],
+//                           ["Updated",  importResult.updated||0,      "text-sky-400"    ],
+//                           ["Gagal",    importResult.failed_rows||0,  "text-rose-400"   ],
+//                         ].map(([l, v, c]) => (
+//                           <div key={l} className="text-slate-400">{l}: <span className={`font-black ${c}`}>{v}</span></div>
+//                         ))}
+//                       </div>
+//                       {(importResult.failed_rows || 0) > 0 && Array.isArray(importResult.errors) && (
+//                         <details className="text-xs">
+//                           <summary className="cursor-pointer text-slate-400 hover:text-white">
+//                             Lihat error ({importResult.errors.length})
+//                           </summary>
+//                           <div className="mt-2 max-h-40 overflow-y-auto space-y-1 pl-2">
+//                             {importResult.errors.map((e, i) => (
+//                               <div key={i} className="text-slate-400">
+//                                 Row {e.rowNumber}{e.code ? ` • ${e.code}` : ""}: <span className="text-rose-400">{e.reason}</span>
+//                               </div>
+//                             ))}
+//                           </div>
+//                         </details>
+//                       )}
+//                     </div>
+//                   )}
+//                 </div>
+//               )}
+//             </div>
+//           </motion.div>
+//         )}
+//       </AnimatePresence>
+//     </div>
+//   );
+// }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -1215,7 +1261,7 @@ const ProjectAnalytics = () => {
         </motion.div>
 
         {/* ── Import Panel ── */}
-        <ImportPanel />
+        {/* <ImportPanel /> */}
 
         {/* ── Loading ── */}
         {loading && (

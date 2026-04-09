@@ -8,6 +8,9 @@ import Activity from "../models/activity.js";
 import Project from "../models/project.js";
 import Task from "../models/task.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
+import AbsenceRequest from "../models/absenceRequest.js";
+import WorkDay from "../models/workDay.js";
+import WeeklySchedule from "../models/weeklySchedule.js";
 import { generateApprovalSteps } from "../lib/approvalWorkflows.js";
 import mongoose from "mongoose";
 
@@ -665,16 +668,16 @@ class AnalyticsController {
       //   filter.user_id = currentUser._id;
       // }
 
-      // User filter
-      if (user_id) {
-        filter.user_id = user_id;
-      }
-
-      // Division filter
-      if (division_id) {
-        const usersInDivision = await User.find({ division_id }).select("_id").lean();
-        filter.user_id = { $in: usersInDivision.map(u => u._id) };
-      }
+      // User scope: semua karyawan di bawah direktur (direktur tidak termasuk)
+      const nonDirectorBaseFilter = await AnalyticsController.getNonDirectorUsersBaseFilter();
+      if (division_id) nonDirectorBaseFilter.division_id = division_id;
+      if (user_id) nonDirectorBaseFilter._id = user_id;
+      const scopedUsers = await User.find(nonDirectorBaseFilter)
+        .select("_id full_name email employee_code division_id")
+        .populate("division_id", "name")
+        .lean();
+      const scopedUserIds = scopedUsers.map((u) => u._id);
+      filter.user_id = { $in: scopedUserIds };
 
       const attendances = await Attendance.find(filter)
         .populate({
@@ -732,16 +735,111 @@ class AnalyticsController {
         filled: lateRequests.filter((r) => r.status === "filled").length,
       };
 
-      // Calculate attendance rate (if date range provided)
+      // Employee cards summary (default harian; jika range > 1 hari maka berbasis periode)
+      const attendancePresentUsers = new Set();
+      const attendanceAbsentUsers = new Set();
+      attendances.forEach((a) => {
+        const uid = a.user_id?._id?.toString() || a.user_id?.toString();
+        if (!uid) return;
+        if ((a.absence_type || "none") === "none") attendancePresentUsers.add(uid);
+        if (["sick", "leave", "permission"].includes(a.absence_type)) attendanceAbsentUsers.add(uid);
+      });
+
+      const approvedAbsenceUsers = new Set();
+      const absenceStart = filter.date?.$gte || new Date("1970-01-01");
+      const absenceEnd = filter.date?.$lte || new Date();
+      const approvedAbsencesForUsers = await AbsenceRequest.find({
+        user_id: { $in: scopedUserIds },
+        status: "approved",
+        start_date: { $lte: absenceEnd },
+        end_date: { $gte: absenceStart },
+      })
+        .select("user_id")
+        .lean();
+      approvedAbsencesForUsers.forEach((r) => {
+        if (r.user_id) approvedAbsenceUsers.add(r.user_id.toString());
+      });
+
+      const totalEmployees = scopedUsers.length;
+      const presentEmployees = attendancePresentUsers.size;
+
+      // Untuk range > 1 hari, seorang user bisa punya data hadir (absence_type=none)
+      // di beberapa hari dan juga absen (sick/leave/permission) di hari lain.
+      // Supaya angka "berangkat" vs "absen" tetap relevan, kategorikan menjadi tidak saling tumpang tindih:
+      // - "berangkat": punya minimal 1 hari hadir
+      // - "absen": punya minimal 1 hari absen/approved absence, tapi TIDAK punya hari hadir
+      const absentUsersUnion = new Set([...attendanceAbsentUsers, ...approvedAbsenceUsers]);
+      const absentOnlyUsers = new Set(
+        [...absentUsersUnion].filter((uid) => !attendancePresentUsers.has(uid))
+      );
+
+      const absentEmployees = absentOnlyUsers.size;
+      const unexcusedEmployees = Math.max(
+        0,
+        totalEmployees - (presentEmployees + absentEmployees)
+      );
+      const employeeAttendanceRate =
+        totalEmployees > 0 ? (presentEmployees / totalEmployees) * 100 : 0;
+
+      // Calculate attendance rate with working-day basis (if date range provided)
       let attendanceRate = 0;
+      let workCalendar = null;
       if (start_date && end_date) {
         const start = new Date(start_date);
         const end = new Date(end_date);
-        const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+        const allDates = AnalyticsController.eachDateInRange(start, end);
+        const [weeklySchedules, workDayOverrides] = await Promise.all([
+          WeeklySchedule.find({}).lean(),
+          WorkDay.find({ date: { $gte: start, $lte: end } }).lean(),
+        ]);
+
+        const weeklyMap = new Map((weeklySchedules || []).map((w) => [w.day_of_week, w]));
+        const overridesMap = new Map(
+          (workDayOverrides || []).map((w) => [AnalyticsController.toDateOnlyString(w.date), w])
+        );
+        const workingDaySet = AnalyticsController.buildWorkingDaySet(allDates, weeklyMap, overridesMap);
+
         const uniqueUsers = new Set(attendances.map((a) => a.user_id?._id?.toString() || a.user_id?.toString()));
-        const expectedAttendances = uniqueUsers.size * daysDiff;
+        const expectedAttendances = uniqueUsers.size * workingDaySet.size;
         attendanceRate = expectedAttendances > 0 ? (totalAttendances / expectedAttendances) * 100 : 0;
+
+        workCalendar = {
+          total_days_in_range: allDates.length,
+          working_days_in_range: workingDaySet.size,
+          holiday_overrides: (workDayOverrides || []).filter((w) => w.is_holiday).length,
+          non_working_overrides: (workDayOverrides || []).filter((w) => w.is_working_day === false).length,
+          active_users: uniqueUsers.size,
+          expected_attendance_records: expectedAttendances,
+        };
       }
+
+      // Absence requests analytics
+      const absenceFilter = {};
+      if (filter.user_id) absenceFilter.user_id = filter.user_id;
+      if (filter.date) {
+        absenceFilter.start_date = { $lte: filter.date.$lte || new Date("2999-12-31") };
+        absenceFilter.end_date = { $gte: filter.date.$gte || new Date("1970-01-01") };
+      }
+      const absenceRequests = await AbsenceRequest.find(absenceFilter).lean();
+      const absenceRequestsStats = {
+        total: absenceRequests.length,
+        pending: absenceRequests.filter((r) => r.status === "pending").length,
+        approved: absenceRequests.filter((r) => r.status === "approved").length,
+        rejected: absenceRequests.filter((r) => r.status === "rejected").length,
+        by_type: {
+          sick: absenceRequests.filter((r) => r.type === "sick").length,
+          leave: absenceRequests.filter((r) => r.type === "leave").length,
+          permission: absenceRequests.filter((r) => r.type === "permission").length,
+        },
+      };
+
+      // Absence type distribution in attendance rows
+      const absenceAttendanceStats = {
+        none: attendances.filter((a) => (a.absence_type || "none") === "none").length,
+        sick: attendances.filter((a) => a.absence_type === "sick").length,
+        leave: attendances.filter((a) => a.absence_type === "leave").length,
+        permission: attendances.filter((a) => a.absence_type === "permission").length,
+      };
 
       // Activity breakdown (count of activity occurrences in attendance records)
       // Note: one attendance can have multiple activities, so counts can exceed total_attendances.
@@ -791,7 +889,17 @@ class AnalyticsController {
           by_status: byStatus,
           by_date: byDate.slice(0, 30), // Last 30 days
           late_requests: lateRequestStats,
+          absence_requests: absenceRequestsStats,
+          absence_attendance: absenceAttendanceStats,
+          employee_summary: {
+            total_employees: totalEmployees,
+            present_employees: presentEmployees,
+            absent_employees: absentEmployees,
+            unexcused_employees: unexcusedEmployees,
+            attendance_rate: Math.round(employeeAttendanceRate * 100) / 100,
+          },
           by_activity: byActivityAgg || [],
+          work_calendar: workCalendar,
           attendance_rate: Math.round(attendanceRate * 100) / 100,
         },
       });
@@ -950,6 +1058,104 @@ class AnalyticsController {
 
         rows = rowsAgg || [];
         total = totalAgg?.[0]?.total || 0;
+      } else if (metric === "employee_state") {
+        if (!["total", "present", "absent", "unexcused"].includes(value)) {
+          return c.json({ message: "Invalid employee_state value" }, 400);
+        }
+
+        const nonDirectorBaseFilter = await AnalyticsController.getNonDirectorUsersBaseFilter();
+        if (division_id) nonDirectorBaseFilter.division_id = division_id;
+        if (user_id) nonDirectorBaseFilter._id = user_id;
+
+        const scopedUsers = await User.find(nonDirectorBaseFilter)
+          .select("_id full_name email employee_code division_id")
+          .populate("division_id", "name")
+          .lean();
+        const scopedUserIds = scopedUsers.map((u) => u._id);
+        const scopedUserIdSet = new Set(scopedUserIds.map((id) => id.toString()));
+
+        const attFilter = { ...filter, user_id: { $in: scopedUserIds } };
+        const attRows = await Attendance.find(attFilter).select("user_id date absence_type").lean();
+        const presentDaysByUser = new Map();
+        const absentDaysByUser = new Map();
+        for (const row of attRows) {
+          const uid = row.user_id?.toString();
+          if (!uid || !scopedUserIdSet.has(uid)) continue;
+          const ds = AnalyticsController.toDateOnlyString(row.date);
+          if (!ds) continue;
+          if ((row.absence_type || "none") === "none") {
+            if (!presentDaysByUser.has(uid)) presentDaysByUser.set(uid, new Set());
+            presentDaysByUser.get(uid).add(ds);
+          }
+          if (["sick", "leave", "permission"].includes(row.absence_type)) {
+            if (!absentDaysByUser.has(uid)) absentDaysByUser.set(uid, new Set());
+            absentDaysByUser.get(uid).add(ds);
+          }
+        }
+
+        const periodStart = filter.date?.$gte || new Date("1970-01-01");
+        const periodEnd = filter.date?.$lte || new Date();
+        const approvedAbsence = await AbsenceRequest.find({
+          user_id: { $in: scopedUserIds },
+          status: "approved",
+          start_date: { $lte: periodEnd },
+          end_date: { $gte: periodStart },
+        }).select("user_id start_date end_date").lean();
+
+        const effectiveDays = AnalyticsController.eachDateInRange(periodStart, periodEnd);
+        for (const req of approvedAbsence) {
+          const uid = req.user_id?.toString();
+          if (!uid || !scopedUserIdSet.has(uid)) continue;
+          if (!absentDaysByUser.has(uid)) absentDaysByUser.set(uid, new Set());
+          const setRef = absentDaysByUser.get(uid);
+          for (const d of effectiveDays) {
+            if (d >= new Date(req.start_date) && d <= new Date(req.end_date)) {
+              const ds = AnalyticsController.toDateOnlyString(d);
+              if (ds) setRef.add(ds);
+            }
+          }
+        }
+
+        const normalizedRows = scopedUsers.map((u) => {
+          const uid = u._id.toString();
+          const presentDays = presentDaysByUser.get(uid)?.size || 0;
+          const absentDays = absentDaysByUser.get(uid)?.size || 0;
+          const isPresent = presentDays > 0;
+          const isAbsent = absentDays > 0;
+          const isUnexcused = !isPresent && !isAbsent;
+          return {
+            user: {
+              _id: u._id,
+              full_name: u.full_name,
+              email: u.email,
+              employee_code: u.employee_code,
+              division: {
+                _id: u.division_id?._id,
+                name: u.division_id?.name,
+              },
+            },
+            present_days: presentDays,
+            absent_days: absentDays,
+            count: value === "present" ? presentDays : value === "absent" ? absentDays : 1,
+            flags: { isPresent, isAbsent, isUnexcused },
+          };
+        });
+
+        const filteredRows = normalizedRows.filter((r) => {
+          if (value === "total") return true;
+          if (value === "present") return r.flags.isPresent;
+          if (value === "absent") return r.flags.isAbsent;
+          return r.flags.isUnexcused;
+        });
+
+        filteredRows.sort((a, b) => b.count - a.count);
+        total = filteredRows.length;
+        rows = filteredRows.slice(skip, skip + limitNum).map((r) => ({
+          user: r.user,
+          count: r.count,
+          present_days: r.present_days,
+          absent_days: r.absent_days,
+        }));
       } else if (metric === "late_request_status") {
         const lrFilter = {};
 
@@ -1064,7 +1270,7 @@ class AnalyticsController {
         rows = rowsAgg || [];
         total = totalAgg?.[0]?.total || 0;
       } else {
-        return c.json({ message: "Invalid metric (allowed: status, activity, late_request_status)" }, 400);
+        return c.json({ message: "Invalid metric (allowed: status, activity, employee_state, late_request_status)" }, 400);
       }
 
       return c.json({
@@ -1168,6 +1374,14 @@ class AnalyticsController {
           path: "projects.project_id",
           select: "code name work_type percentage status start_date end_date",
         })
+        .populate({
+          path: "leave_request_id",
+          select: "type start_date end_date reason status approved_by approved_at rejected_by rejected_at rejected_reason",
+          populate: [
+            { path: "approved_by", select: "full_name email" },
+            { path: "rejected_by", select: "full_name email" },
+          ],
+        })
         .populate("activities", "name_activity")
         .sort({ date: -1 })
         .limit(parseInt(limit))
@@ -1243,6 +1457,124 @@ class AnalyticsController {
   /** Hitung selisih hari antara dua Date (positif = tgl2 lebih jauh ke depan) */
   static daysDiff = (d1, d2) =>
     Math.round((new Date(d2) - new Date(d1)) / 86_400_000);
+
+  static toDateOnlyString(dateLike) {
+    const d = new Date(dateLike);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().split("T")[0];
+  }
+
+  static eachDateInRange(startDate, endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    const out = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      out.push(new Date(d));
+    }
+    return out;
+  }
+
+  static buildWorkingDaySet(dateList, weeklyMap, overridesMap) {
+    const working = new Set();
+    for (const d of dateList) {
+      const ds = AnalyticsController.toDateOnlyString(d);
+      if (!ds) continue;
+      if (overridesMap.has(ds)) {
+        const o = overridesMap.get(ds);
+        if (o.is_holiday === true) continue;
+        if (o.is_working_day === true) working.add(ds);
+        continue;
+      }
+      const dow = d.getDay();
+      if (weeklyMap.has(dow)) {
+        const w = weeklyMap.get(dow);
+        if (w.is_working_day) working.add(ds);
+      } else if (dow !== 0 && dow !== 6) {
+        working.add(ds);
+      }
+    }
+    return working;
+  }
+
+  static deriveAttendanceProjectContribution(attendance, projectId) {
+    const pid = projectId?.toString();
+    if (!pid) return 0;
+
+    const fromProjectField = (attendance.projects || []).find(
+      (p) =>
+        p?.project_id?.toString?.() === pid &&
+        Number.isFinite(Number(p?.contribution_percentage))
+    );
+    if (fromProjectField) return Number(fromProjectField.contribution_percentage) || 0;
+
+    const tasks = Array.isArray(attendance.tasks_today) ? attendance.tasks_today : [];
+    const approvedTasks = tasks.filter((t) => t?.status === "approved");
+    const totalApprovedHw = approvedTasks.reduce((s, t) => s + (Number(t?.hour_weight) || 0), 0);
+    if (totalApprovedHw <= 0) return 0;
+
+    const projectApprovedHw = approvedTasks
+      .filter((t) => (t?.project_id?._id?.toString?.() || t?.project_id?.toString?.()) === pid)
+      .reduce((s, t) => s + (Number(t?.hour_weight) || 0), 0);
+    if (projectApprovedHw <= 0) return 0;
+
+    return AnalyticsController.round((projectApprovedHw / totalApprovedHw) * 100);
+  }
+
+  /**
+   * Derive contribution percentage for a project on a single attendance record,
+   * based on tasks that were completed (done/approved) on that day.
+   *
+   * Definition:
+   *   contribution_pct = (sum hour_weight of tasks_today for the project with status done/approved) / totalProjectHourWeightAll * 100
+   *
+   * NOTE:
+   * - This uses task weights as the "unit" to align with project progress mechanics.
+   * - If totalProjectHourWeightAll is 0, contribution is 0.
+   */
+  static deriveAttendanceProjectContributionFromDoneTasks(attendance, projectId, totalProjectHourWeightAll) {
+    const denom = Number(totalProjectHourWeightAll) || 0;
+    if (denom <= 0) return 0;
+
+    const pid = projectId?.toString?.() || projectId?.toString?.() || String(projectId || "");
+    if (!pid) return 0;
+
+    const tasks = Array.isArray(attendance?.tasks_today) ? attendance.tasks_today : [];
+    const doneHw = tasks
+      .filter((t) => {
+        const tPid = t?.project_id?._id?.toString?.() || t?.project_id?.toString?.() || t?.project_id?.toString?.() || t?.project_id;
+        if (!tPid) return false;
+        const st = t?.status;
+        return String(tPid) === String(pid) && (st === "done" || st === "approved");
+      })
+      .reduce((s, t) => s + (Number(t?.hour_weight) || 0), 0);
+
+    if (doneHw <= 0) return 0;
+    return AnalyticsController.round((doneHw / denom) * 100);
+  }
+
+  static async getNonDirectorUsersBaseFilter() {
+    const directorRole = await Role.findOne({
+      name: { $regex: /(direktur|director)/i },
+    })
+      .sort({ hierarchy_level: 1 })
+      .lean();
+
+    if (!directorRole) return { status: { $ne: "terminated" } };
+
+    const rolesBelowDirector = await Role.find({
+      hierarchy_level: { $gt: directorRole.hierarchy_level },
+    })
+      .select("_id")
+      .lean();
+
+    return {
+      role_id: { $in: rolesBelowDirector.map((r) => r._id) },
+      status: { $ne: "terminated" },
+    };
+  }
 
   /**
  * Hitung "project health" sederhana berdasarkan progress vs waktu terpakai.
@@ -1374,6 +1706,11 @@ static async getProjectOverview(c) {
         select: "full_name email employee_code division_id",
         populate: { path: "division_id", select: "name" },
       })
+      .populate({
+        path: "tasks_today",
+        select: "hour_weight status project_id",
+        populate: { path: "project_id", select: "_id" },
+      })
       .lean();
  
     // 4. Bangun lookup: projectId → tasks[]
@@ -1433,8 +1770,11 @@ static async getProjectOverview(c) {
  
       const contributors = Array.from(contribMap.entries())
         .map(([uid, e]) => {
+          // IMPORTANT:
+          // Denominator uses ALL project task hour weights, so when new tasks are added,
+          // each contributor percentage can go down (aligned with project progress behavior).
           const pct =
-            totalApprovedHw > 0 ? (e.total_hw / totalApprovedHw) * 100 : 0;
+            totalAllHw > 0 ? (e.total_hw / totalAllHw) * 100 : 0;
           return {
             user_id: uid,
             user_name: e.user?.full_name ?? "Unknown",
@@ -1450,7 +1790,10 @@ static async getProjectOverview(c) {
  
       // ── Attendance summary (dari Attendance.projects) ──
       const uniqueAttUsers = new Set(attRows.map((r) => r.att.user_id?._id?.toString()));
-      const totalDailyContrib = attRows.reduce((s, r) => s + (r.contrib.contribution_percentage ?? 0), 0);
+      const totalDailyContrib = attRows.reduce(
+        (s, r) => s + AnalyticsController.deriveAttendanceProjectContributionFromDoneTasks(r.att, pid, totalAllHw),
+        0
+      );
  
       // ── Health ──
       const health = AnalyticsController.calcHealth(project);
@@ -1636,6 +1979,11 @@ static async getProjectDetails(c) {
         select: "full_name email employee_code division_id",
         populate: { path: "division_id", select: "name" },
       })
+      .populate({
+        path: "tasks_today",
+        select: "hour_weight status project_id",
+        populate: { path: "project_id", select: "_id" },
+      })
       .sort({ date: -1 })
       .lean();
  
@@ -1669,8 +2017,9 @@ static async getProjectDetails(c) {
  
     const contributors = Array.from(contribMap.entries())
       .map(([uid, e]) => {
+        // Denominator uses ALL project task hour weights (align with project progress denominator)
         const pct =
-          totalApprovedHw > 0 ? (e.total_hw / totalApprovedHw) * 100 : 0;
+          totalAllHw > 0 ? (e.total_hw / totalAllHw) * 100 : 0;
         return {
           user_id:             uid,
           user_name:           e.user?.full_name    ?? "Unknown",
@@ -1703,7 +2052,9 @@ static async getProjectDetails(c) {
  
       const entry = timelineMap.get(dateStr);
       const hw    = Number(task.hour_weight) || 0;
-      const pct   = totalApprovedHw > 0 ? (hw / totalApprovedHw) * 100 : 0;
+      // Denominator uses ALL project task hour weights, so daily contributions can go down
+      // when new tasks are added to the project.
+      const pct   = totalAllHw > 0 ? (hw / totalAllHw) * 100 : 0;
  
       entry.total_hour_weight    += hw;
       entry.total_contribution_pct += pct;
@@ -1746,6 +2097,7 @@ static async getProjectDetails(c) {
       }));
  
     // Hitung cumulative_pct (running total → cocok untuk area chart progress)
+    // cumulative_pct is based on approved hour weights accumulated vs totalAllHw
     let cumulative = 0;
     for (const row of taskTimeline) {
       cumulative += row.total_contribution_pct;
@@ -1756,10 +2108,12 @@ static async getProjectDetails(c) {
     const attTimelineMap = new Map();
     for (const att of attendances) {
       const dateStr = att.date ? new Date(att.date).toISOString().split("T")[0] : "unknown";
-      const contrib = att.projects?.find(
-        (p) => p.project_id?.toString() === projectId
-      );
-      if (!contrib) continue;
+      // Attendance should already be associated with this project; fallback to tasks_today detection.
+      const hasProject =
+        (att.projects || []).some((p) => String(p?.project_id) === String(projectId)) ||
+        (Array.isArray(att.tasks_today) &&
+          att.tasks_today.some((t) => String(t?.project_id?._id || t?.project_id) === String(projectId)));
+      if (!hasProject) continue;
  
       if (!attTimelineMap.has(dateStr)) {
         attTimelineMap.set(dateStr, {
@@ -1771,21 +2125,38 @@ static async getProjectDetails(c) {
       }
  
       const entry = attTimelineMap.get(dateStr);
-      entry.total_daily_contribution += contrib.contribution_percentage ?? 0;
+      const dailyContribution = AnalyticsController.deriveAttendanceProjectContributionFromDoneTasks(att, projectId, totalAllHw);
+      entry.total_daily_contribution += dailyContribution;
       entry.attendance_count         += 1;
  
       const userObj = att.user_id;
       const uid     = userObj?._id?.toString() ?? att.user_id?.toString() ?? "unknown";
       const existing = entry.contributors.find((c) => c.user_id === uid);
+
+      const doneTasksForProject = (Array.isArray(att.tasks_today) ? att.tasks_today : [])
+        .filter((t) => {
+          const tPid = t?.project_id?._id?.toString?.() || t?.project_id?.toString?.() || t?.project_id;
+          const st = t?.status;
+          return String(tPid) === String(projectId) && (st === "done" || st === "approved");
+        })
+        .map((t) => ({
+          task_id: t?._id,
+          title: t?.title,
+          hour_weight: Number(t?.hour_weight) || 0,
+          status: t?.status,
+        }));
+
       if (existing) {
-        existing.daily_contribution += contrib.contribution_percentage ?? 0;
+        existing.daily_contribution += dailyContribution;
+        existing.tasks_done = [...(existing.tasks_done || []), ...doneTasksForProject];
       } else {
         entry.contributors.push({
           user_id:             uid,
           user_name:           userObj?.full_name    ?? "Unknown",
           user_email:          userObj?.email         ?? "",
           division:            userObj?.division_id?.name ?? "",
-          daily_contribution:  contrib.contribution_percentage ?? 0,
+          daily_contribution:  dailyContribution,
+          tasks_done:          doneTasksForProject,
         });
       }
     }
@@ -1815,6 +2186,8 @@ static async getProjectDetails(c) {
         _id:         t._id,
         title:       t.title,
         description: t.description,
+        tier:        t.tier,
+        note:        t.note,
         hour_weight: t.hour_weight,
         start_at:    t.start_at,
         created_at:  t.created_at,
@@ -1847,6 +2220,8 @@ static async getProjectDetails(c) {
       _id:         t._id,
       title:       t.title,
       description: t.description,
+      tier:        t.tier,
+      note:        t.note,
       status:      t.status,
       hour_weight: t.hour_weight,
       start_at:    t.start_at,

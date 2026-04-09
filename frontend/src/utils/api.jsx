@@ -1296,6 +1296,92 @@ export const listPendingLateAttendanceRequests = async () => {
   return data;
 };
 
+export const requestAbsence = async (payload) => {
+  const response = await fetch(`${API_BASE}/attendance/absence-request`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal mengajukan izin/cuti/sakit");
+  return data;
+};
+
+export const uploadAbsenceAttachment = async ({ userId, file }) => {
+  if (!userId) throw new Error("userId is required");
+  if (!file) throw new Error("file is required");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE}/files/${userId}/upload-absence`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal upload lampiran absence");
+  return data;
+};
+
+export const listMyAbsenceRequests = async () => {
+  const response = await fetch(`${API_BASE}/attendance/absence-requests/mine`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat pengajuan izin/cuti/sakit");
+  return data;
+};
+
+export const listPendingAbsenceRequests = async () => {
+  const response = await fetch(`${API_BASE}/attendance/absence-requests/pending`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal memuat pengajuan izin/cuti/sakit pending");
+  return data;
+};
+
+export const approveAbsenceRequest = async (requestId) => {
+  const response = await fetch(`${API_BASE}/attendance/absence-approve/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menyetujui pengajuan izin/cuti/sakit");
+  return data;
+};
+
+export const rejectAbsenceRequest = async (requestId) => {
+  const response = await fetch(`${API_BASE}/attendance/absence-reject/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({}),
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menolak pengajuan izin/cuti/sakit");
+  return data;
+};
+
+export const rejectAbsenceRequestWithReason = async (requestId, rejected_reason = "") => {
+  const response = await fetch(`${API_BASE}/attendance/absence-reject/${requestId}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ rejected_reason }),
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal menolak pengajuan izin/cuti/sakit");
+  return data;
+};
+
 export const approveLateAttendance = async (requestId) => {
   const response = await fetch(`${API_BASE}/attendance/late-approve/${requestId}`, {
     method: "POST",
@@ -1439,4 +1525,89 @@ export const fetchProjects = async () => {
   const data = await handleResponse(response);
   if (!data) throw new Error("Gagal memuat proyek");
   return data;
+};
+
+export const getWorkingConfig = async ({ date } = {}) => {
+  const params = new URLSearchParams();
+  if (date) params.append("date", date);
+  const response = await fetch(`${API_BASE}/attendance/working-config?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  return data;
+};
+
+// ==================== ADMIN: SCHEDULE (WeeklySchedule & WorkDay) ====================
+export const fetchWeeklySchedule = async () => {
+  const response = await fetch(`${API_BASE}/admin/schedule/weekly`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  return data?.data || [];
+};
+
+export const seedWeeklySchedule = async () => {
+  const response = await fetch(`${API_BASE}/admin/schedule/weekly/seed`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  return data?.data || [];
+};
+
+export const updateWeeklyScheduleDay = async (dayOfWeek, payload) => {
+  const response = await fetch(`${API_BASE}/admin/schedule/weekly/${dayOfWeek}`, {
+    method: "PUT",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(response);
+  return data?.data || null;
+};
+
+export const fetchWorkDaysRange = async ({ from, to }) => {
+  const params = new URLSearchParams();
+  if (from) params.append("from", from);
+  if (to) params.append("to", to);
+  const response = await fetch(`${API_BASE}/admin/schedule/workdays?${params.toString()}`, {
+    method: "GET",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  return data?.data || [];
+};
+
+export const upsertWorkDay = async (date, payload) => {
+  const response = await fetch(`${API_BASE}/admin/schedule/workdays/${date}`, {
+    method: "PUT",
+    headers: defaultHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(response);
+  return data?.data || null;
+};
+
+export const seedWorkDays = async ({ days = 30, from, to } = {}) => {
+  const params = new URLSearchParams();
+  if (from && to) {
+    params.append("from", from);
+    params.append("to", to);
+  } else {
+    params.append("days", String(days));
+  }
+  const response = await fetch(`${API_BASE}/admin/schedule/workdays/seed?${params.toString()}`, {
+    method: "POST",
+    headers: defaultHeaders(),
+    credentials: "include",
+  });
+  const data = await handleResponse(response);
+  return data?.data || { created: 0 };
 };
