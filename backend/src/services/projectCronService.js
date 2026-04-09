@@ -2,6 +2,7 @@ import { Cron } from "croner";
 import Project from "../models/project.js";
 import Attendance from "../models/attendance.js";
 import Task from "../models/task.js";
+import { logAudit } from "../utils/auditLogger.js";
 
 // ===== WIB helpers (UTC+7) =====
 const getWIBDate = (date = new Date()) => {
@@ -15,7 +16,7 @@ const normalizeToDateOnly = (date = new Date()) => {
 };
 
 export const startProjectCronJob = () => {
-  new Cron("0 0 */6 * * *", async () => {
+  new Cron("0 0 * * * *", async () => {
     try {
 
       const now = new Date()
@@ -41,6 +42,9 @@ export const startProjectCronJob = () => {
   // This is a data-integrity guard if user accidentally closes the checkout proof modal.
   new Cron("0 0 21 * * *", async () => {
     try {
+      const c = await getContext(ctx);
+      if (!c) return;
+
       const wibNow = getWIBDate(new Date());
       const cutoffTotalMinutes = 21 * 60; // 21:00
       const nowTotalMinutes = wibNow.getHours() * 60 + wibNow.getMinutes();
@@ -71,6 +75,15 @@ export const startProjectCronJob = () => {
       }
 
       await Attendance.deleteMany({ _id: { $in: attendanceIds } });
+      // Log audit
+      await logAudit(
+        c,
+        "attendance_cleanup",
+        "attendance",
+        attendanceIds,
+        null,
+        { date: today }
+      );
     } catch (err) {
       console.error("Attendance cleanup cron error:", err);
     }

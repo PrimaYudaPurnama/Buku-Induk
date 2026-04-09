@@ -26,11 +26,12 @@ const STATUS_COLORS = {
 };
 
 const HEALTH_META = {
-  on_track:    { label: "On Track",     icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
-  // at_risk:     { label: "Berisiko",     icon: AlertTriangle, color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
+  on_track:    { label: "Deadline Aman",     icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
+  at_risk:     { label: "Berisiko",     icon: AlertTriangle, color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
   behind:      { label: "Terlambat",    icon: AlertTriangle, color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
-  no_deadline: { label: "Tanpa Deadline", icon: Minus,       color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
+  no_deadline: { label: "Deadline Belum Ditetapkan", icon: Minus,       color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
   completed:   { label: "Selesai",      icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
+  aman:   { label: "Selesai Sesuai Jadwal",      icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
   cancelled:   { label: "Dibatalkan",   icon: X,             color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
   no_target:   { label: "Tanpa Target", icon: Minus,         color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
 };
@@ -196,10 +197,10 @@ function TargetEndBlock({ project, health, compact = false }) {
         </span>
 
         {/* Badge health target */}
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold border ${targetMeta.bg} ${targetMeta.color} ${targetMeta.border}`}>
+        {/* <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold border ${targetMeta.bg} ${targetMeta.color} ${targetMeta.border}`}>
           <TargetIcon className="w-3 h-3" />
           {targetMeta.label}
-        </span>
+        </span> */}
 
         {/* Sisa hari / terlambat */}
         {health?.days_target_overdue > 0 ? (
@@ -210,7 +211,11 @@ function TargetEndBlock({ project, health, compact = false }) {
           <span className="text-xs text-sky-400">
             {health.days_to_target} hari ke target
           </span>
-        ) : null}
+        ) : (
+          <span className="text-xs text-yellow-400">
+            Deadline Hari ini
+          </span>
+        )}
 
         {/* Revisi count + toggle riwayat */}
         {revCount > 0 && (
@@ -500,7 +505,7 @@ function DetailModal({ projectDetails, onClose }) {
                 <span>{WORK_TYPE_LABELS[p.work_type]}</span>
                 <span>{fmt(p.start_date)} → {fmt(p.end_date)}</span>
                 {health?.days_remaining != null && health.days_remaining > 0 && (
-                  <span className="text-sky-400 font-semibold">{health.days_remaining} hari tersisa</span>
+                  <span className="text-sky-400 font-semibold">selesai dalam {health.days_remaining} hari</span>
                 )}
                 {health?.days_overdue > 0 && (
                   <span className="text-rose-400 font-semibold">{health.days_overdue} hari terlambat</span>
@@ -562,11 +567,11 @@ function DetailModal({ projectDetails, onClose }) {
                         <div className="text-slate-700 text-2xl font-thin mb-1">|</div>
                         <div>
                           <div className="text-2xl font-black text-slate-400">{health.time_elapsed_pct}%</div>
-                          <div className="text-xs text-slate-500">waktu deadline terpakai</div>
+                          <div className="text-xs text-slate-500">persen waktu terpakai</div>
                         </div>
                       </>
                     )}
-                    {health?.target_time_elapsed_pct != null && (
+                    {/* {health?.target_time_elapsed_pct != null && (
                       <>
                         <div className="text-slate-700 text-2xl font-thin mb-1">|</div>
                         <div>
@@ -574,7 +579,7 @@ function DetailModal({ projectDetails, onClose }) {
                           <div className="text-xs text-slate-500">waktu target terpakai</div>
                         </div>
                       </>
-                    )}
+                    )} */}
                   </div>
                   <ProgressBar pct={p.percentage} />
                   {health?.estimated_end_date && (
@@ -618,8 +623,8 @@ function DetailModal({ projectDetails, onClose }) {
                     <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Deadline Proyek</div>
                     {[
                       { label:"Mulai",        val: fmt(p.start_date) },
-                      { label:"Deadline",     val: fmt(p.end_date)   },
-                      { label:"Sisa hari",    val: health?.days_remaining != null ? `${health.days_remaining} hari` : "—", highlight: health?.days_remaining === 0 },
+                      { label:"Selesai",     val: fmt(p.end_date)   },
+                      { label:"Selesai dalam",    val: health?.days_remaining != null ? `${health.days_remaining} hari` : "—", highlight: health?.days_remaining === 0 },
                       { label:"Terlambat",    val: health?.days_overdue > 0 ? `${health.days_overdue} hari` : "—", warn: health?.days_overdue > 0 },
                       { label:"Status health",val: null, badge: health?.label },
                     ].map((row, i) => (
@@ -644,8 +649,7 @@ function DetailModal({ projectDetails, onClose }) {
                         {[
                           { label:"Target saat ini",  val: fmt(p.target_end_date) },
                           { label:"Sisa ke target",   val: health?.days_to_target != null ? `${health.days_to_target} hari` : "—" },
-                          { label:"Lewat target",     val: health?.days_target_overdue > 0 ? `${health.days_target_overdue} hari` : "—", warn: health?.days_target_overdue > 0 },
-                          { label:"Health target",    val: null, badge: health?.target_label },
+                          // { label:"Health target",    val: null, badge: health?.target_label },
                           { label:"Jumlah revisi",    val: `${health?.target_revision_count ?? 0}×` },
                         ].map((row, i) => (
                           <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
@@ -1317,7 +1321,7 @@ const ProjectAnalytics = () => {
                   <Activity className="w-4 h-4" /> Kesehatan Proyek
                 </h2>
                 <div className="space-y-3">
-                  {(["on_track","behind","no_deadline","completed"] ).map((key) => {
+                  {(["on_track","behind","no_deadline", "at_risk"] ).map((key) => {
                     const meta  = HEALTH_META[key];
                     const count = ov?.by_health?.[key] ?? 0;
                     const total = ov?.total_projects || 1;
@@ -1327,7 +1331,8 @@ const ProjectAnalytics = () => {
                       on_track:    "#10b981",
                       behind:      "#f43f5e",
                       no_deadline: "#64748b",
-                      completed:   "#10b981",
+                      // completed:   "#10b981",
+                      at_risk:     "#f43f5e",
                     }[key] || "#64748b";
                     return (
                       <div key={key} className="flex items-center gap-3">

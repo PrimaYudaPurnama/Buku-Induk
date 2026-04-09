@@ -230,6 +230,12 @@ const Attendance = () => {
   const currentUserId = user?._id || null;
 
   // ===== Task tier helpers (sorting + badge) =====
+  const TASK_TIER_OPTIONS = [
+    { value: "low", label: "Low" },
+    { value: "normal", label: "Normal" },
+    { value: "high", label: "High" },
+    { value: "critical", label: "Critical" },
+  ];
   const tierOrder = { critical: 0, high: 1, normal: 2, low: 3 };
   const tierLabel = (tier) => {
     if (tier === "critical") return "CRITICAL";
@@ -290,6 +296,8 @@ const Attendance = () => {
   const [selectedTasksToday, setSelectedTasksToday] = useState([]);
   const [newTaskTitleByProject, setNewTaskTitleByProject] = useState({});
   const [newTaskHourByProject, setNewTaskHourByProject] = useState({});
+  const [newTaskTierByProject, setNewTaskTierByProject] = useState({});
+  const [newTaskNoteByProject, setNewTaskNoteByProject] = useState({});
   const [creatingTaskProjectId, setCreatingTaskProjectId] = useState(null);
   const [savingPlanAfterCheckIn, setSavingPlanAfterCheckIn] = useState(false);
   const [showCheckoutSummaryModal, setShowCheckoutSummaryModal] = useState(false);
@@ -334,6 +342,8 @@ const Attendance = () => {
   const [lateSelectedTasks, setLateSelectedTasks] = useState([]);         // array of taskId
   const [lateNewTaskTitleByProject, setLateNewTaskTitleByProject] = useState({});
   const [lateNewTaskHourByProject, setLateNewTaskHourByProject] = useState({});
+  const [lateNewTaskTierByProject, setLateNewTaskTierByProject] = useState({});
+  const [lateNewTaskNoteByProject, setLateNewTaskNoteByProject] = useState({});
   const [lateCreatingTaskProjectId, setLateCreatingTaskProjectId] = useState(null);
   // Status task saat "checkout" late (done/ongoing) — sama dengan alur checkout biasa
   const [lateTaskStatuses, setLateTaskStatuses] = useState({});
@@ -823,6 +833,14 @@ const Attendance = () => {
     }));
   };
 
+  const handleNewTaskTierChange = (projectId, value) => {
+    setNewTaskTierByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
+  const handleNewTaskNoteChange = (projectId, value) => {
+    setNewTaskNoteByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
   const handleAddProjectTask = async (projectId) => {
     const title = (newTaskTitleByProject[projectId] || "").trim();
     if (!title) {
@@ -835,6 +853,8 @@ const Attendance = () => {
         title,
         project_id: projectId,
         hour_weight: Number((newTaskHourByProject[projectId] ?? 1)) || 1,
+        tier: newTaskTierByProject[projectId] || "normal",
+        note: String(newTaskNoteByProject[projectId] || "").trim(),
       });
       const newTask = res.data;
       setProjectTasksMap((prev) => {
@@ -843,6 +863,8 @@ const Attendance = () => {
       });
       setSelectedTasksToday((prev) => [...prev, newTask._id]);
       setNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: "" }));
+      setNewTaskTierByProject((prev) => ({ ...prev, [projectId]: "normal" }));
+      setNewTaskNoteByProject((prev) => ({ ...prev, [projectId]: "" }));
       if (attendance && !attendance.checkOut_at) {
         try {
           await updateDailyWork({ tasks_today: [newTask._id] });
@@ -987,6 +1009,14 @@ const Attendance = () => {
     }));
   };
 
+  const handleLateNewTaskTierChange = (projectId, value) => {
+    setLateNewTaskTierByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
+  const handleLateNewTaskNoteChange = (projectId, value) => {
+    setLateNewTaskNoteByProject((prev) => ({ ...prev, [projectId]: value }));
+  };
+
   const handleLateAddProjectTask = async (projectId) => {
     const title = (lateNewTaskTitleByProject[projectId] || "").trim();
     if (!title) {
@@ -999,6 +1029,8 @@ const Attendance = () => {
         title,
         project_id: projectId,
         hour_weight: Number(lateNewTaskHourByProject[projectId] ?? 1) || 1,
+        tier: lateNewTaskTierByProject[projectId] || "normal",
+        note: String(lateNewTaskNoteByProject[projectId] || "").trim(),
       });
       const newTask = res.data;
       setLateProjectTasksMap((prev) => ({
@@ -1008,6 +1040,8 @@ const Attendance = () => {
       setLateSelectedTasks((prev) => [...prev, newTask._id]);
       setLateTaskStatuses((prev) => ({ ...prev, [newTask._id]: "done" }));
       setLateNewTaskTitleByProject((prev) => ({ ...prev, [projectId]: "" }));
+      setLateNewTaskTierByProject((prev) => ({ ...prev, [projectId]: "normal" }));
+      setLateNewTaskNoteByProject((prev) => ({ ...prev, [projectId]: "" }));
       toast.success("Task berhasil ditambahkan");
     } catch (e) {
       console.error("Create late task error:", e);
@@ -2127,6 +2161,7 @@ const Attendance = () => {
                                             {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
                                             {isAuto ? " • (Auto)" : ""}
                                             {blockedReason ? ` • ${blockedReason}` : ""}
+                                            {task.note ? ` • Note: ${task.note}` : ""}
                                           </div>
                                         </div>
                                       </div>
@@ -2135,7 +2170,7 @@ const Attendance = () => {
                                 })
                               )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col md:flex-row gap-2">
                               <input
                                 type="text"
                                 value={newTitle}
@@ -2149,6 +2184,24 @@ const Attendance = () => {
                                 value={newTaskHourByProject[projectId] ?? 1}
                                 onChange={(e) => handleNewTaskHourChange(projectId, e.target.value)}
                                 className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <select
+                                value={newTaskTierByProject[projectId] || "normal"}
+                                onChange={(e) => handleNewTaskTierChange(projectId, e.target.value)}
+                                className="w-28 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              >
+                                {TASK_TIER_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={newTaskNoteByProject[projectId] || ""}
+                                onChange={(e) => handleNewTaskNoteChange(projectId, e.target.value)}
+                                placeholder="Note (opsional)"
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <motion.button
                                 onClick={() => handleAddProjectTask(projectId)}
@@ -2341,6 +2394,7 @@ const Attendance = () => {
                                             Bobot jam: {task.hour_weight} • Status: {status}
                                             {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
                                             {blockedReason ? ` • ${blockedReason}` : ""}
+                                            {task.note ? ` • Note: ${task.note}` : ""}
                                           </div>
                                         </div>
                                       </div>
@@ -2349,7 +2403,7 @@ const Attendance = () => {
                                 })
                               )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col md:flex-row gap-2">
                               <input
                                 type="text" value={newTitle}
                                 onChange={(e) => handleNewTaskTitleChange(projectId, e.target.value)}
@@ -2362,6 +2416,24 @@ const Attendance = () => {
                                 value={newTaskHourByProject[projectId] ?? 1}
                                 onChange={(e) => handleNewTaskHourChange(projectId, e.target.value)}
                                 className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <select
+                                value={newTaskTierByProject[projectId] || "normal"}
+                                onChange={(e) => handleNewTaskTierChange(projectId, e.target.value)}
+                                className="w-28 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              >
+                                {TASK_TIER_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={newTaskNoteByProject[projectId] || ""}
+                                onChange={(e) => handleNewTaskNoteChange(projectId, e.target.value)}
+                                placeholder="Note (opsional)"
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <button
                                 onClick={() => handleAddProjectTask(projectId)}
@@ -2407,7 +2479,14 @@ const Attendance = () => {
                             onChange={() => handleToggleTaskStatusForCheckout(task._id)}
                             className="rounded border-slate-600 bg-slate-900 text-blue-500 focus:ring-blue-500"
                           />
-                          <span className="text-sm font-medium text-slate-200">{task.title}</span>
+                          <div>
+                            <div className="text-sm font-medium text-slate-200">{task.title}</div>
+                            {task.note && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">
+                                Note: {task.note}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <span className="text-xs text-slate-400 tabular-nums">
                           {done ? "Done" : "On-going"}
@@ -2856,6 +2935,7 @@ const Attendance = () => {
                                               {isRejected && workerName ? ` • Ditolak dari: ${workerName}` : ""}
                                               {isOngoingOwned ? " • (Milikmu)" : ""}
                                               {blockedReason ? ` • ${blockedReason}` : ""}
+                                              {task.note ? ` • Note: ${task.note}` : ""}
                                             </div>
                                           </div>
                                         </label>
@@ -2885,7 +2965,7 @@ const Attendance = () => {
                             </div>
 
                             {/* Tambah task baru */}
-                            <div className="flex gap-2">
+                            <div className="flex flex-col md:flex-row gap-2">
                               <input
                                 type="text"
                                 value={newTitle}
@@ -2899,6 +2979,24 @@ const Attendance = () => {
                                 value={lateNewTaskHourByProject[projectId] ?? 1}
                                 onChange={(e) => handleLateNewTaskHourChange(projectId, e.target.value)}
                                 className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              />
+                              <select
+                                value={lateNewTaskTierByProject[projectId] || "normal"}
+                                onChange={(e) => handleLateNewTaskTierChange(projectId, e.target.value)}
+                                className="w-28 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                              >
+                                {TASK_TIER_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={lateNewTaskNoteByProject[projectId] || ""}
+                                onChange={(e) => handleLateNewTaskNoteChange(projectId, e.target.value)}
+                                placeholder="Note (opsional)"
+                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <motion.button
                                 onClick={() => handleLateAddProjectTask(projectId)}
