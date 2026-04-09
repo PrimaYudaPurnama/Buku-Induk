@@ -264,6 +264,7 @@ const Attendance = () => {
     return copy;
   };
   const [attendance, setAttendance] = useState(null);
+  const [nowTick, setNowTick] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -328,6 +329,11 @@ const Attendance = () => {
       }
     };
   }, [absenceAttachmentPreview]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ─── Late attendance MODAL state (aligned with regular attendance flow) ───
   const [lateCheckInTime, setLateCheckInTime] = useState("08:00");
@@ -1883,7 +1889,7 @@ const Attendance = () => {
           </h1>
           <p className="text-slate-400 flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            {formatWIBDate(new Date())}
+            <span>{formatWIBDate(nowTick)} • {formatWIBTime(nowTick)} WIB</span>
           </p>
           {workingConfig?.is_working_day === false && (
             <div className="mt-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl">

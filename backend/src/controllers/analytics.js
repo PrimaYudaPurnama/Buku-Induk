@@ -1454,9 +1454,40 @@ class AnalyticsController {
   /** Bulatkan ke N desimal */
   static round = (n, dec = 2) => Math.round(n * 10 ** dec) / 10 ** dec;
 
-  /** Hitung selisih hari antara dua Date (positif = tgl2 lebih jauh ke depan) */
-  static daysDiff = (d1, d2) =>
-    Math.round((new Date(d2) - new Date(d1)) / 86_400_000);
+  /**
+   * Hitung selisih *calendar day* di zona waktu Asia/Jakarta (WIB).
+   * Positif = tgl2 lebih jauh ke depan dibanding tgl1.
+   *
+   * Penting: ini sengaja TIDAK berbasis jam (ms diff) supaya tidak ada off-by-one
+   * ketika sekarang sudah malam tetapi masih di tanggal yang sama.
+   */
+  static daysDiff = (d1, d2) => {
+    const toYMD = (dateLike) => {
+      const d = new Date(dateLike);
+      if (Number.isNaN(d.getTime())) return null;
+      // en-CA -> YYYY-MM-DD (format stabil)
+      const ymd = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jakarta",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+      return ymd || null;
+    };
+
+    const parseYMD = (ymd) => {
+      if (!ymd) return null;
+      const [y, m, day] = String(ymd).split("-").map((v) => Number(v));
+      if (!y || !m || !day) return null;
+      // UTC midnight timestamp for safe day-diff arithmetic
+      return Date.UTC(y, m - 1, day);
+    };
+
+    const a = parseYMD(toYMD(d1));
+    const b = parseYMD(toYMD(d2));
+    if (a == null || b == null) return 0;
+    return Math.round((b - a) / 86_400_000);
+  };
 
   static toDateOnlyString(dateLike) {
     const d = new Date(dateLike);
@@ -1579,10 +1610,6 @@ class AnalyticsController {
   /**
  * Hitung "project health" sederhana berdasarkan progress vs waktu terpakai.
  *
- * Returns:
- *   { label: "on_track"|"at_risk"|"behind"|"no_deadline"|"completed"|"cancelled",
- *     time_elapsed_pct: number|null,
- *     progress_pct: number }
 */
 static calcHealth(project) {
   const { status, percentage, start_date, end_date, target_end_date } = project;
@@ -1593,19 +1620,18 @@ static calcHealth(project) {
   const calcTimeProgress = (start, end, current) => {
     if (!start || !end) return null;
 
-    const totalDays = AnalyticsController.daysDiff(start, end);
-    if (totalDays <= 0) return null;
+    let totalDays = AnalyticsController.daysDiff(start, end);
+    // deadline hari ini / data anomali tetap bisa dihitung
+    if (totalDays <= 0) totalDays = 1;
 
-    const elapsed = Math.min(
-      AnalyticsController.daysDiff(start, current),
-      totalDays
-    );
+    const elapsedRaw = AnalyticsController.daysDiff(start, current);
+    const elapsed = Math.max(0, Math.min(elapsedRaw, totalDays));
 
     return AnalyticsController.round((elapsed / totalDays) * 100);
   };
 
-  const getLabel = (timePct, progressPct, hasDeadline) => {
-    if (!hasDeadline) return "no_deadline";
+  const getLabel = (timePct, progressPct, hasAnyDeadline) => {
+    if (!hasAnyDeadline) return "no_deadline";
     if (timePct == null) return "on_track"; // fallback netral, bukan no_deadline
   
     const gap = timePct - progressPct;
@@ -1614,15 +1640,15 @@ static calcHealth(project) {
     return "behind";
   };
 
-  const hasTarget = !!target_end_date;
+  const hasAnyDeadline = !!end_date || !!target_end_date;
 
   // ── Hitung berbasis end_date (formal deadline) ──
-  const endTimePct = calcTimeProgress(start_date, target_end_date, end_date);
-  let label = getLabel(endTimePct, progress, hasTarget);
+  const endTimePct = end_date ? calcTimeProgress(start_date, end_date, now) : null;
+  let label = getLabel(endTimePct, progress, hasAnyDeadline);
 
   // ── Hitung berbasis target_end_date (target manual) ──
-  const targetTimePct = calcTimeProgress(start_date, target_end_date, now);
-  let target_label = getLabel(targetTimePct, progress, hasTarget);
+  const targetTimePct = target_end_date ? calcTimeProgress(start_date, target_end_date, now) : null;
+  let target_label = getLabel(targetTimePct, progress, hasAnyDeadline);
 
   // fallback: kalau belum ada end_date, pakai target sebagai utama
   let time_elapsed_pct = endTimePct;

@@ -53,6 +53,9 @@ const fmt = (date) => {
   return new Date(date).toLocaleDateString("id-ID", { year:"numeric", month:"short", day:"numeric" });
 };
 
+// Catatan: logika hitung hari/percent dilakukan di backend (AnalyticsController.daysDiff & calcHealth)
+// supaya frontend tetap bersih dan konsisten.
+
 const progressGradient = (pct) => {
   if (pct >= 80) return "from-emerald-500 to-teal-400";
   if (pct >= 50) return "from-amber-500 to-yellow-400";
