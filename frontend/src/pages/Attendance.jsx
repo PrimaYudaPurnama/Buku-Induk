@@ -216,6 +216,15 @@ const toMinutes = (hhmm) => {
   return h * 60 + m;
 };
 
+const getDefaultTimeRangeForDate = (date = new Date()) => {
+  const hours = getWorkingHoursDefault(date);
+  const toHHMM = (h, m) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return {
+    checkIn: toHHMM(hours.startHour, hours.startMinute),
+    checkOut: toHHMM(hours.endHour, hours.endMinute),
+  };
+};
+
 const Attendance = () => {
   const { user } = useAuthStore();
   const currentUserId = user?._id || null;
@@ -903,12 +912,15 @@ const Attendance = () => {
   };
 
   // ─── Late modal: open → reset semua state modal ───
-  const handleOpenLateModal = (request) => {
+  const handleOpenLateModal = async (request) => {
     setEditingLateRequest(request);
 
+    const targetDate = request?.date ? new Date(request.date) : new Date();
+    const defaultTimeRange = getDefaultTimeRangeForDate(targetDate);
+
     // Reset semua state modal
-    setLateCheckInTime("08:00");
-    setLateCheckOutTime("17:00");
+    setLateCheckInTime(defaultTimeRange.checkIn);
+    setLateCheckOutTime(defaultTimeRange.checkOut);
     setLateSelectedActivities([]);
     setLateNote("");
     setLateSelectedProjects([]);
@@ -921,6 +933,18 @@ const Attendance = () => {
     setLateTaskStatuses({});
 
     setShowLateModal(true);
+
+    // Ambil jam kerja berdasarkan hari/tanggal request (sumber weekly/workday config backend).
+    try {
+      const payload = await getWorkingConfigApi({
+        date: request?.date,
+      });
+      const cfg = payload?.success && payload?.data ? payload.data : null;
+      if (cfg?.check_in) setLateCheckInTime(cfg.check_in);
+      if (cfg?.check_out) setLateCheckOutTime(cfg.check_out);
+    } catch (_e) {
+      // Keep fallback default by day if API fails.
+    }
   };
 
   // ─── Late modal: tambah proyek (sama alur dengan attendance biasa) ───
@@ -1322,14 +1346,25 @@ const Attendance = () => {
     }
 
     const conflicts = [];
+    let workingDaysInRange = 0;
     let cursor = new Date(`${absenceStartDate}T00:00:00`);
     const end = new Date(`${absenceEndDate}T00:00:00`);
     while (cursor <= end) {
       const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+      const isSundayInRange = new Date(`${key}T00:00:00Z`).getUTCDay() === 0;
+      if (isSundayInRange) {
+        cursor.setDate(cursor.getDate() + 1);
+        continue;
+      }
+      workingDaysInRange += 1;
       if (hasLateRequestForDate(key)) conflicts.push(`${key} (late request)`);
       if (hasAbsenceRequestForDate(key)) conflicts.push(`${key} (absence request)`);
       if (hasAttendanceForDate(key)) conflicts.push(`${key} (attendance)`);
       cursor.setDate(cursor.getDate() + 1);
+    }
+    if (workingDaysInRange === 0) {
+      toast.error("Rentang tanggal tidak memiliki hari kerja");
+      return;
     }
     if (conflicts.length > 0) {
       toast.error(`Konflik tanggal: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? " ..." : ""}`);

@@ -1,5 +1,6 @@
 import WeeklySchedule from "../models/weeklySchedule.js";
 import WorkDay from "../models/workDay.js";
+import { logAudit } from "../utils/auditLogger.js";
 
 // ENV defaults
 const DEFAULT_WEEKDAY_IN = process.env.DEFAULT_WEEKDAY_CHECKIN || "08:00";
@@ -42,8 +43,19 @@ class ScheduleController {
         check_in: typeof body.check_in === "string" || body.check_in === null ? body.check_in : undefined,
         check_out: typeof body.check_out === "string" || body.check_out === null ? body.check_out : undefined,
       };
+      const oldDoc = await WeeklySchedule.findOne({ day_of_week }).lean();
       const update = { $set: { day_of_week, ...Object.fromEntries(Object.entries(payload).filter(([_, v]) => v !== undefined)) } };
       const doc = await WeeklySchedule.findOneAndUpdate({ day_of_week }, update, { upsert: true, new: true });
+
+      await logAudit(
+        c,
+        "weekly_schedule_update",
+        "weekly_schedule",
+        String(day_of_week),
+        oldDoc,
+        doc?.toObject ? doc.toObject() : doc
+      );
+
       return c.json({ success: true, data: doc });
     } catch (error) {
       return c.json({ success: false, error: { message: error.message || "Failed to update weekly day" } }, 500);
@@ -65,6 +77,16 @@ class ScheduleController {
       }
       if (ops.length) await WeeklySchedule.bulkWrite(ops);
       const docs = await WeeklySchedule.find({}).sort({ day_of_week: 1 }).lean();
+
+      await logAudit(
+        c,
+        "weekly_schedule_seed",
+        "weekly_schedule",
+        "all_days",
+        null,
+        { total_days: docs.length }
+      );
+
       return c.json({ success: true, data: docs });
     } catch (error) {
       return c.json({ success: false, error: { message: error.message || "Failed to seed weekly defaults" } }, 500);
@@ -102,8 +124,19 @@ class ScheduleController {
         is_holiday: typeof body.is_holiday === "boolean" ? body.is_holiday : undefined,
         holiday_name: typeof body.holiday_name === "string" ? body.holiday_name : undefined,
       };
+      const oldDoc = await WorkDay.findOne({ date: nd }).lean();
       const update = { $set: { date: nd, ...Object.fromEntries(Object.entries(payload).filter(([_, v]) => v !== undefined)) } };
       const doc = await WorkDay.findOneAndUpdate({ date: nd }, update, { upsert: true, new: true });
+
+      await logAudit(
+        c,
+        "workday_update",
+        "workday",
+        dateStr,
+        oldDoc,
+        doc?.toObject ? doc.toObject() : doc
+      );
+
       return c.json({ success: true, data: doc });
     } catch (error) {
       return c.json({ success: false, error: { message: error.message || "Failed to update workday" } }, 500);
@@ -156,14 +189,25 @@ class ScheduleController {
         cursor.setDate(cursor.getDate() + 1);
       }
       if (docs.length) await WorkDay.insertMany(docs, { ordered: false });
+      const seedResult = {
+        created: docs.length,
+        existing: existingCount,
+        from: start.toISOString().slice(0, 10),
+        to: end.toISOString().slice(0, 10),
+      };
+
+      await logAudit(
+        c,
+        "workday_seed",
+        "workday",
+        `${seedResult.from}_${seedResult.to}`,
+        null,
+        seedResult
+      );
+
       return c.json({
         success: true,
-        data: {
-          created: docs.length,
-          existing: existingCount,
-          from: start.toISOString().slice(0, 10),
-          to: end.toISOString().slice(0, 10),
-        },
+        data: seedResult,
       });
     } catch (error) {
       return c.json({ success: false, error: { message: error.message || "Failed to seed workdays" } }, 500);

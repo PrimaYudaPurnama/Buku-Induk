@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Calendar, Save, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../stores/useAuthStore";
 import { fetchWorkDaysRange, upsertWorkDay, seedWorkDays } from "../utils/api.jsx";
+import toast, { Toaster } from "react-hot-toast";
 
 const dayNames = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 
@@ -68,6 +69,8 @@ export default function WorkDayAdmin() {
       setLoading(true);
       const data = await fetchWorkDaysRange({ from, to });
       setWorkdays(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error(error?.message || "Gagal memuat data workday");
     } finally {
       setLoading(false);
     }
@@ -114,7 +117,10 @@ export default function WorkDayAdmin() {
       setSaving(true);
       await upsertWorkDay(selected.key, body);
       await fetchWorkdays();
+      toast.success(`WorkDay ${selected.key} berhasil disimpan`);
       setSelected(null);
+    } catch (error) {
+      toast.error(error?.message || "Gagal menyimpan workday");
     } finally {
       setSaving(false);
     }
@@ -129,6 +135,8 @@ export default function WorkDayAdmin() {
   // }
 
   return (
+    <>
+    <Toaster position="top-center" />
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-6">
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-3xl p-5">
@@ -153,15 +161,24 @@ export default function WorkDayAdmin() {
               </button>
               <button
                 onClick={async () => {
-                  const range = getMonthRangeFromYYYYMM(seedTargetMonth);
-                  if (!range) return;
-                  const res = await seedWorkDays({ from: range.from, to: range.to });
-                  if (res?.existing > 0 && res?.created === 0) {
-                    window.alert(`Data WorkDay untuk bulan ${seedTargetMonth} sudah ada semua.`);
-                  } else if (res?.existing > 0) {
-                    window.alert(`Sebagian data sudah ada.\nDibuat baru: ${res.created}\nSudah ada: ${res.existing}`);
+                  try {
+                    const range = getMonthRangeFromYYYYMM(seedTargetMonth);
+                    if (!range) {
+                      toast.error("Format bulan tidak valid");
+                      return;
+                    }
+                    const res = await seedWorkDays({ from: range.from, to: range.to });
+                    if (res?.existing > 0 && res?.created === 0) {
+                      toast("Data WorkDay untuk bulan terpilih sudah ada semua.");
+                    } else if (res?.existing > 0) {
+                      toast.success(`Seed selesai. Dibuat: ${res.created}, sudah ada: ${res.existing}`);
+                    } else {
+                      toast.success(`Seed bulan ${seedTargetMonth} berhasil: ${res?.created || 0} data dibuat`);
+                    }
+                    await fetchWorkdays();
+                  } catch (error) {
+                    toast.error(error?.message || "Gagal seed WorkDay bulan dipilih");
                   }
-                  await fetchWorkdays();
                 }}
                 className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs"
               >
@@ -169,17 +186,25 @@ export default function WorkDayAdmin() {
               </button>
               <button
                 onClick={async () => {
-                  const nextStart = new Date();
-                  nextStart.setMonth(nextStart.getMonth() + 1, 1);
-                  const nextEnd = new Date(nextStart.getFullYear(), nextStart.getMonth() + 1, 0);
-                  const res = await seedWorkDays({
-                    from: formatDateId(nextStart),
-                    to: formatDateId(nextEnd),
-                  });
-                  if (res?.existing > 0 && res?.created === 0) {
-                    window.alert("Data WorkDay bulan depan sudah ada semua.");
+                  try {
+                    const nextStart = new Date();
+                    nextStart.setMonth(nextStart.getMonth() + 1, 1);
+                    const nextEnd = new Date(nextStart.getFullYear(), nextStart.getMonth() + 1, 0);
+                    const res = await seedWorkDays({
+                      from: formatDateId(nextStart),
+                      to: formatDateId(nextEnd),
+                    });
+                    if (res?.existing > 0 && res?.created === 0) {
+                      toast("Data WorkDay bulan depan sudah ada semua.");
+                    } else if (res?.existing > 0) {
+                      toast.success(`Seed bulan depan selesai. Dibuat: ${res.created}, sudah ada: ${res.existing}`);
+                    } else {
+                      toast.success(`Seed bulan depan berhasil: ${res?.created || 0} data dibuat`);
+                    }
+                    await fetchWorkdays();
+                  } catch (error) {
+                    toast.error(error?.message || "Gagal seed WorkDay bulan depan");
                   }
-                  await fetchWorkdays();
                 }}
                 className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
               >
@@ -296,6 +321,7 @@ export default function WorkDayAdmin() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

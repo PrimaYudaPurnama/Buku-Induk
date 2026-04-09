@@ -706,13 +706,12 @@ const AttendanceAnalytics = () => {
     page: 1,
     limit: 20,
   });
-  const [specificDate, setSpecificDate] = useState(todayStr);
+  const [datePreset, setDatePreset] = useState("today");
   const [users, setUsers] = useState([]);
   const [divisions, setDivisions] = useState([]);
   const [workloadLoading, setWorkloadLoading] = useState(false);
   const [workloadRows, setWorkloadRows] = useState([]);
   const [workloadSummary, setWorkloadSummary] = useState([]);
-  const [workloadPreset, setWorkloadPreset] = useState("month");
   const [workloadGranularity, setWorkloadGranularity] = useState("day");
   const [workloadUserQuery, setWorkloadUserQuery] = useState("");
   const [workloadModalOpen, setWorkloadModalOpen] = useState(false);
@@ -931,13 +930,18 @@ const AttendanceAnalytics = () => {
     return `${y}-${m}-${day}`;
   };
 
-  const applyWorkloadPreset = (preset) => {
+  const getDateRangeFromPreset = (preset) => {
     const now = new Date();
     const today = getLocalDateString(now);
     let start = today;
     let end = today;
 
-    if (preset === "week") {
+    if (preset === "yesterday") {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      start = getLocalDateString(y);
+      end = getLocalDateString(y);
+    } else if (preset === "this_week") {
       const day = now.getDay();
       const diffToMonday = day === 0 ? 6 : day - 1;
       const monday = new Date(now);
@@ -946,14 +950,46 @@ const AttendanceAnalytics = () => {
       sunday.setDate(monday.getDate() + 6);
       start = getLocalDateString(monday);
       end = getLocalDateString(sunday);
-    } else if (preset === "month") {
+    } else if (preset === "last_week") {
+      const day = now.getDay();
+      const diffToMonday = day === 0 ? 6 : day - 1;
+      const thisMonday = new Date(now);
+      thisMonday.setDate(now.getDate() - diffToMonday);
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(thisMonday.getDate() - 7);
+      const lastSunday = new Date(lastMonday);
+      lastSunday.setDate(lastMonday.getDate() + 6);
+      start = getLocalDateString(lastMonday);
+      end = getLocalDateString(lastSunday);
+    } else if (preset === "this_month") {
       const first = new Date(now.getFullYear(), now.getMonth(), 1);
       const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       start = getLocalDateString(first);
       end = getLocalDateString(last);
+    } else if (preset === "last_month") {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0);
+      start = getLocalDateString(first);
+      end = getLocalDateString(last);
+    } else if (preset === "this_year") {
+      const first = new Date(now.getFullYear(), 0, 1);
+      const last = new Date(now.getFullYear(), 11, 31);
+      start = getLocalDateString(first);
+      end = getLocalDateString(last);
+    } else if (preset === "last_year") {
+      const first = new Date(now.getFullYear() - 1, 0, 1);
+      const last = new Date(now.getFullYear() - 1, 11, 31);
+      start = getLocalDateString(first);
+      end = getLocalDateString(last);
     }
 
-    setWorkloadPreset(preset);
+    return { start, end };
+  };
+
+  const handleDatePresetChange = (preset) => {
+    setDatePreset(preset);
+    if (preset === "custom") return;
+    const { start, end } = getDateRangeFromPreset(preset);
     setFilters((prev) => ({ ...prev, start_date: start, end_date: end, page: 1 }));
   };
 
@@ -1249,79 +1285,48 @@ const AttendanceAnalytics = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-xl p-4 border border-slate-700/50"
         >
-          <div className="flex flex-wrap items-end gap-2 mb-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Cari Rekap Hari Spesifik</label>
-              <input
-                type="date"
-                value={specificDate}
-                onChange={(e) => setSpecificDate(e.target.value)}
-                className="px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (!specificDate) return;
-                setFilters((prev) => ({ ...prev, start_date: specificDate, end_date: specificDate, page: 1 }));
-              }}
-              className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm"
+          <div className="mb-5 max-w-sm">
+            <label className="block text-sm font-medium text-slate-300 mb-2">Periode</label>
+            <select
+              value={datePreset}
+              onChange={(e) => handleDatePresetChange(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              Tampilkan Hari Spesifik
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSpecificDate(todayStr);
-                setFilters((prev) => ({ ...prev, start_date: todayStr, end_date: todayStr, page: 1 }));
-              }}
-              className="px-3 py-2 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-100 text-sm"
-            >
-              Reset ke Hari Ini
-            </button>
-          </div>
-
-          {/* Shortcut range tanggal (lebih user friendly) */}
-          <div className="flex flex-wrap gap-2 mb-5">
-            {[
-              { preset: "today", label: "Hari Ini" },
-              { preset: "week", label: "Minggu Ini" },
-              { preset: "month", label: "Bulan Ini" },
-            ].map(({ preset, label }) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => applyWorkloadPreset(preset)}
-                className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                  workloadPreset === preset
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-700/50 text-slate-200 hover:bg-slate-700"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+              <option value="today">Hari Ini</option>
+              <option value="yesterday">Kemarin</option>
+              <option value="this_week">Minggu Ini</option>
+              <option value="last_week">Minggu Lalu</option>
+              <option value="this_month">Bulan Ini</option>
+              <option value="last_month">Bulan Lalu</option>
+              <option value="this_year">Tahun Ini</option>
+              <option value="last_year">Tahun Lalu</option>
+              <option value="custom">Custom</option>
+            </select>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
-              <input
-                type="date"
-                value={filters.start_date}
-                onChange={(e) => handleFilterChange("start_date", e.target.value)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Akhir</label>
-              <input
-                type="date"
-                value={filters.end_date}
-                onChange={(e) => handleFilterChange("end_date", e.target.value)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+            {datePreset === "custom" && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Mulai</label>
+                  <input
+                    type="date"
+                    value={filters.start_date}
+                    onChange={(e) => handleFilterChange("start_date", e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Tanggal Akhir</label>
+                  <input
+                    type="date"
+                    value={filters.end_date}
+                    onChange={(e) => handleFilterChange("end_date", e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Divisi</label>
               <SearchSelect

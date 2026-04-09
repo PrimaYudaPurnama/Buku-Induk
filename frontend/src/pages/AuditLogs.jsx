@@ -144,6 +144,8 @@ export default function AuditLogs() {
                   <option value="account_request">Account Request</option>
                   <option value="approval">Approval</option>
                   <option value="document">Document</option>
+                  <option value="weekly_schedule">Weekly Schedule</option>
+                  <option value="workday">WorkDay</option>
                 </select>
               </div>
 

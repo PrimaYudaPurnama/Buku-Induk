@@ -752,7 +752,7 @@ export default function ProjectList() {
                 <table className="w-full table-fixed">
                   <thead className="bg-slate-800/70 backdrop-blur-sm border-b border-slate-700/50 sticky top-0 z-20">
                     <tr>
-                      <th className="w-96 px-8 py-5 text-left text-sm font-medium text-slate-300">Proyek</th>
+                      <th className="w-60 px-8 py-5 text-left text-sm font-medium text-slate-300">Proyek</th>
                       <th className="px-8 py-5 text-left text-sm font-medium text-slate-300">Tipe</th>
                       <th className="px-8 py-5 text-left text-sm font-medium text-slate-300">Progress</th>
                       <th className="px-8 py-5 text-left text-sm font-medium text-slate-300">Status</th>
@@ -769,7 +769,7 @@ export default function ProjectList() {
                         className="hover:bg-slate-800/50 transition-all"
                         whileHover={{ x: 5 }}
                       >
-                        <td className="w-96 px-8 py-6">
+                        <td className="w-60 px-8 py-6">
                           <div className="flex items-center gap-5">
                             <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl flex items-center justify-center shadow-lg">
                               <Target className="w-8 h-8 text-white" />
