@@ -1614,67 +1614,72 @@ class AnalyticsController {
 static calcHealth(project) {
   const { status, percentage, start_date, end_date, target_end_date } = project;
   const now = new Date();
-
   const progress = percentage ?? 0;
 
   const calcTimeProgress = (start, end, current) => {
     if (!start || !end) return null;
-
     let totalDays = AnalyticsController.daysDiff(start, end);
-    // deadline hari ini / data anomali tetap bisa dihitung
     if (totalDays <= 0) totalDays = 1;
-
     const elapsedRaw = AnalyticsController.daysDiff(start, current);
     const elapsed = Math.max(0, Math.min(elapsedRaw, totalDays));
-
     return AnalyticsController.round((elapsed / totalDays) * 100);
   };
 
   const getLabel = (timePct, progressPct, hasAnyDeadline) => {
     if (!hasAnyDeadline) return "no_deadline";
-    if (timePct == null) return "on_track"; // fallback netral, bukan no_deadline
-  
+    // FIX: kalau timePct null berarti data tidak cukup, jangan misleading jadi on_track
+    if (timePct == null) return "no_deadline";
     const gap = timePct - progressPct;
-    if (gap <= 5) return "on_track";
+    if (gap <= 5)  return "on_track";
     if (gap <= 20) return "at_risk";
     return "behind";
   };
 
   const hasAnyDeadline = !!end_date || !!target_end_date;
 
-  // ── Hitung berbasis end_date (formal deadline) ──
-  const endTimePct = end_date ? calcTimeProgress(start_date, end_date, now) : null;
-  let label = getLabel(endTimePct, progress, hasAnyDeadline);
+  // Berbasis end_date (deadline formal)
+  const deadlineElapsedPct = end_date
+    ? calcTimeProgress(start_date, end_date, now)
+    : null;
 
-  // ── Hitung berbasis target_end_date (target manual) ──
-  const targetTimePct = target_end_date ? calcTimeProgress(start_date, target_end_date, now) : null;
-  let target_label = getLabel(targetTimePct, progress, hasAnyDeadline);
+  // Berbasis target_end_date (target manual)
+  const targetElapsedPct = target_end_date
+    ? calcTimeProgress(start_date, target_end_date, now)
+    : null;
 
-  // fallback: kalau belum ada end_date, pakai target sebagai utama
-  let time_elapsed_pct = endTimePct;
+  let label        = getLabel(deadlineElapsedPct, progress, hasAnyDeadline);
+  let target_label = getLabel(targetElapsedPct,   progress, hasAnyDeadline);
+
+  // Fallback: kalau belum ada end_date, pakai target sebagai label utama
+  let primaryElapsedPct = deadlineElapsedPct;
   if (!end_date && target_end_date) {
-    label = target_label;
-    time_elapsed_pct = targetTimePct;
+    label             = target_label;
+    primaryElapsedPct = targetElapsedPct;
   }
 
-  // ── Override khusus status TANPA mematikan perhitungan ──
+  // Override status khusus
   if (status === "completed") {
-    label = "aman";
+    label        = "aman";
     target_label = "completed";
-    time_elapsed_pct = endTimePct ?? targetTimePct ?? 100;
+    primaryElapsedPct = (start_date && end_date && target_end_date)
+    ? calcTimeProgress(start_date, target_end_date, end_date) // current = end_date, bukan now
+    : deadlineElapsedPct ?? targetElapsedPct ?? 100;
   }
 
   if (status === "cancelled") {
-    label = "cancelled";
+    label        = "cancelled";
     target_label = "cancelled";
-    time_elapsed_pct = endTimePct ?? targetTimePct;
+    primaryElapsedPct = (start_date && end_date && target_end_date)
+    ? calcTimeProgress(start_date, target_end_date, end_date)
+    : deadlineElapsedPct ?? targetElapsedPct ?? null;
   }
 
   return {
     label,
-    time_elapsed_pct,
-    progress_pct: progress,
     target_label,
+    deadline_elapsed_pct: primaryElapsedPct,  // renamed + fix
+    target_elapsed_pct:   targetElapsedPct,   // FIX: sebelumnya tidak di-return
+    progress_pct:         progress,
   };
 }
 
@@ -1692,7 +1697,9 @@ static async getProjectOverview(c) {
   try {
     const currentUser = c.get("user");
     if (!currentUser) return c.json({ message: "Unauthorized" }, 401);
- 
+    
+    const now = new Date();
+
     const { work_type, status } = c.req.query();
  
     // 1. Ambil proyek dengan filter opsional
@@ -1843,30 +1850,39 @@ static async getProjectOverview(c) {
           created_at:          project.created_at,
         },
         health: {
-          label:                    health.label,
-          time_elapsed_pct:         health.time_elapsed_pct,
-          progress_pct:             health.progress_pct,
-          estimated_end_date:       estimatedEndDate,
-          days_remaining:           project.end_date
-            ? Math.max(0, AnalyticsController.daysDiff(new Date(), project.end_date))
+          label:                health.label,
+          target_label:         health.target_label,
+          progress_pct:         health.progress_pct,
+        
+          // Waktu terpakai
+          deadline_elapsed_pct: health.deadline_elapsed_pct,
+          target_elapsed_pct:   health.target_elapsed_pct,   // FIX: sebelumnya selalu null
+        
+          // Estimasi selesai
+          estimated_end_date:   estimatedEndDate,
+        
+          // Deadline formal (end_date)
+          days_to_deadline:     project.end_date
+            ? Math.max(0, AnalyticsController.daysDiff(now, project.end_date))   // FIX: dari now
             : null,
-          // overdue berbasis deadline formal (end_date). Jika end_date belum ada, overdue formal = 0.
-          // Keterlambatan berbasis target manual ada di days_target_overdue.
-          days_overdue:             project.end_date && new Date() > new Date(project.end_date) && project.status !== "completed"
-            ? AnalyticsController.daysDiff(project.end_date, new Date())
-            : 0,
-          // ── Target fields ──
-          target_label:             health.target_label,              // ← baru
-          target_time_elapsed_pct:  health.target_time_elapsed_pct ?? null, // ← baru
-          days_to_target:           project.target_end_date           // ← baru
-            ? Math.max(0, AnalyticsController.daysDiff((project.end_date ?? new Date()), project.target_end_date))
-            : null,
-          days_target_overdue:      project.target_end_date &&        // ← baru
-            new Date() > new Date(project.target_end_date) &&
+          days_past_deadline:   project.end_date &&
+            now > new Date(project.end_date) &&
             project.status !== "completed"
-              ? AnalyticsController.daysDiff(project.target_end_date, new Date())
+              ? AnalyticsController.daysDiff(project.end_date, now)
               : 0,
-          target_revision_count:    project.target_end_history?.length ?? 0, // ← baru
+        
+          // Target manual (target_end_date)
+          days_to_target:       project.target_end_date
+            ? Math.max(0, AnalyticsController.daysDiff(project.end_date ?? now, project.target_end_date))  // FIX: dari now bukan end_date
+            : null,
+          days_past_target:     project.target_end_date &&
+            now > new Date(project.target_end_date) &&
+            project.status !== "completed"
+              ? AnalyticsController.daysDiff(project.target_end_date, now)
+              : 0,
+        
+          // Target revision
+          target_revision_count: project.target_end_history?.length ?? 0,
         },
         task_statistics: {
           ...taskBreakdown,
@@ -1897,7 +1913,6 @@ static async getProjectOverview(c) {
     });
  
     // 7. Overall statistics
-    const now = new Date();
     const overallStats = {
       total_projects: projects.length,
       by_status: {
@@ -1967,6 +1982,7 @@ static async getProjectDetails(c) {
   try {
     const currentUser = c.get("user");
     if (!currentUser) return c.json({ message: "Unauthorized" }, 401);
+    const now = new Date();
  
     const projectId = c.req.param("id");
  
@@ -2272,32 +2288,39 @@ static async getProjectDetails(c) {
         },
     
         health: {
-          label:                    health.label,
-          time_elapsed_pct:         health.time_elapsed_pct,
-          progress_pct:             health.progress_pct,
-          estimated_end_date:       estimatedEndDate,
-          days_remaining:           project.end_date
-            ? Math.max(0, AnalyticsController.daysDiff(project.start_date ?? 0, project.end_date))
+          label:                health.label,
+          target_label:         health.target_label,
+          progress_pct:         health.progress_pct,
+        
+          // Waktu terpakai
+          deadline_elapsed_pct: health.deadline_elapsed_pct,
+          target_elapsed_pct:   health.target_elapsed_pct,   // FIX: sebelumnya selalu null
+        
+          // Estimasi selesai
+          estimated_end_date:   estimatedEndDate,
+        
+          // Deadline formal (end_date)
+          days_to_deadline:     project.end_date
+            ? Math.max(0, AnalyticsController.daysDiff(now, project.end_date))   // FIX: sebelumnya dari start_date
             : null,
-          days_overdue:             (project.end_date || project.target_end_date) &&
-            new Date() > new Date(project.end_date ?? project.target_end_date) &&
+          days_past_deadline:   project.end_date &&
+            now > new Date(project.end_date) &&
             project.status !== "completed"
-              ? AnalyticsController.daysDiff(project.end_date ?? project.target_end_date, new Date())
+              ? AnalyticsController.daysDiff(project.end_date, now)
               : 0,
-          // ── Target fields ──
-          target_label:             health.target_label,            // ← baru
-          target_time_elapsed_pct:  health.target_time_elapsed_pct ?? null, // ← baru
-          days_to_target:           project.target_end_date         // ← baru
-            ? Math.max(0, AnalyticsController.daysDiff((project.end_date ?? new Date()), project.target_end_date))
+        
+          // Target manual (target_end_date)
+          days_to_target:       project.target_end_date
+            ? Math.max(0, AnalyticsController.daysDiff(project.end_date ?? now, project.target_end_date))  // FIX: dari now bukan end_date
             : null,
-          days_target_overdue:      project.target_end_date &&      // ← baru
-            new Date() > new Date(project.target_end_date) &&
-            project.status !== "completed" &&
-            project.end_date &&
-            new Date() > new Date(project.end_date)
-              ? AnalyticsController.daysDiff(project.end_date, project.target_end_date)
+          days_past_target:     project.target_end_date &&     // FIX: logika kondisi & kalkulasi diperbaiki
+            now > new Date(project.target_end_date) &&
+            project.status !== "completed"
+              ? AnalyticsController.daysDiff(project.target_end_date, now)
               : 0,
-          target_revision_count:    project.target_end_history?.length ?? 0, // ← baru
+        
+          // Target revision
+          target_revision_count: project.target_end_history?.length ?? 0,
         },
         task_statistics: {
           ...taskBreakdown,

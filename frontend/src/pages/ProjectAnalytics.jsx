@@ -32,7 +32,7 @@ const HEALTH_META = {
   no_deadline: { label: "Deadline Belum Ditetapkan", icon: Minus,       color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
   completed:   { label: "Selesai",      icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
   aman:   { label: "Selesai Sesuai Jadwal",      icon: CheckCircle2,  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
-  cancelled:   { label: "Dibatalkan",   icon: X,             color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
+  cancelled:   { label: "Sudah Dibatalkan",   icon: X,             color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
   no_target:   { label: "Tanpa Target", icon: Minus,         color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
 };
 
@@ -193,7 +193,7 @@ function TargetEndBlock({ project, health, compact = false }) {
       {/* Row utama */}
       <div className="flex items-center gap-2 flex-wrap">
         <Flag className={`w-3.5 h-3.5 shrink-0 ${
-          health?.days_target_overdue > 0 ? "text-rose-400" : "text-amber-400"
+          health?.days_past_target > 0 ? "text-rose-400" : "text-amber-400"
         }`} />
         <span className={compact ? "text-xs text-slate-400" : "text-sm text-slate-300"}>
           Target: <span className="font-semibold text-white">{fmt(project.target_end_date)}</span>
@@ -206,9 +206,9 @@ function TargetEndBlock({ project, health, compact = false }) {
         </span> */}
 
         {/* Sisa hari / terlambat */}
-        {health?.days_target_overdue > 0 ? (
+        {health?.days_past_target > 0 ? (
           <span className="text-xs text-rose-400 font-semibold">
-            {health.days_target_overdue} hari melewati target
+            {health.days_past_target} hari melewati target
           </span>
         ) : health?.days_to_target != null && health.days_to_target > 0 ? (
           <span className="text-xs text-sky-400">
@@ -298,14 +298,14 @@ function ProjectCard({ projectData, onDetail, idx }) {
               <Calendar className="w-3.5 h-3.5" />
               {fmt(p.start_date)} → {fmt(p.end_date)}
             </span>
-            {health?.days_remaining != null && health.days_remaining > 0 && (
+            {health?.health?.days_to_deadline != null && health.health?.days_to_deadline > 0 && (
               <span className="flex items-center gap-1 text-sky-400">
-                <Timer className="w-3.5 h-3.5" />{health.days_remaining} hari tersisa
+                <Timer className="w-3.5 h-3.5" />{health.health?.days_to_deadline} hari tersisa
               </span>
             )}
-            {health?.days_overdue > 0 && (
+            {health?.days_past_deadline > 0 && (
               <span className="flex items-center gap-1 text-rose-400">
-                <AlertTriangle className="w-3.5 h-3.5" />{health.days_overdue} hari terlambat
+                <AlertTriangle className="w-3.5 h-3.5" />{health.days_past_deadline} hari terlambat
               </span>
             )}
           </div>
@@ -339,26 +339,26 @@ function ProjectCard({ projectData, onDetail, idx }) {
             className={`absolute inset-y-0 left-0 rounded-full bg-gradient-to-r ${progressGradient(p.percentage)}`}
           />
           {/* Deadline marker */}
-          {health?.time_elapsed_pct != null && (
+          {health?.deadline_elapsed_pct != null && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-white/30"
-              style={{ left:`${Math.min(health.time_elapsed_pct, 100)}%` }}
-              title={`Waktu terpakai: ${health.time_elapsed_pct}%`}
+              style={{ left:`${Math.min(health.deadline_elapsed_pct, 100)}%` }}
+              title={`Waktu terpakai: ${health.deadline_elapsed_pct}%`}
             />
           )}
           {/* Target marker (kuning) */}
-          {health?.target_time_elapsed_pct != null && (
+          {health?.target_elapsed_pct != null && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-amber-400/60"
-              style={{ left:`${Math.min(health.target_time_elapsed_pct, 100)}%` }}
-              title={`Waktu ke target: ${health.target_time_elapsed_pct}%`}
+              style={{ left:`${Math.min(health.target_elapsed_pct, 100)}%` }}
+              title={`Waktu ke target: ${health.target_elapsed_pct}%`}
             />
           )}
         </div>
         <div className="flex items-center justify-between text-xs text-slate-600 flex-wrap gap-1">
-          {health?.time_elapsed_pct != null && (
+          {health?.deadline_elapsed_pct != null && (
             <span>
-              Waktu terpakai: <span className="text-slate-400">{health.time_elapsed_pct}%</span>
+              Waktu terpakai: <span className="text-slate-400">{health.deadline_elapsed_pct}%</span>
             </span>
           )}
           {health?.estimated_end_date && (
@@ -368,15 +368,15 @@ function ProjectCard({ projectData, onDetail, idx }) {
           )}
         </div>
         {/* Legenda marker */}
-        {(health?.time_elapsed_pct != null || health?.target_time_elapsed_pct != null) && (
+        {(health?.deadline_elapsed_pct != null || health?.target_elapsed_pct != null) && (
           <div className="flex gap-4 text-xs text-slate-600">
-            {health?.time_elapsed_pct != null && (
+            {health?.deadline_elapsed_pct != null && (
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-0.5 bg-white/30 rounded-full" />
                 Deadline
               </span>
             )}
-            {health?.target_time_elapsed_pct != null && (
+            {health?.target_elapsed_pct != null && (
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-2.5 h-0.5 bg-amber-400/60 rounded-full" />
                 Target
@@ -507,11 +507,11 @@ function DetailModal({ projectDetails, onClose }) {
                 <span className="font-mono text-slate-400">{p.code}</span>
                 <span>{WORK_TYPE_LABELS[p.work_type]}</span>
                 <span>{fmt(p.start_date)} → {fmt(p.end_date)}</span>
-                {health?.days_remaining != null && health.days_remaining > 0 && (
-                  <span className="text-sky-400 font-semibold">selesai dalam {health.days_remaining} hari</span>
+                {health?.health?.days_to_deadline != null && health.health?.days_to_deadline > 0 && (
+                  <span className="text-sky-400 font-semibold">selesai dalam {health.health?.days_to_deadline} hari</span>
                 )}
-                {health?.days_overdue > 0 && (
-                  <span className="text-rose-400 font-semibold">{health.days_overdue} hari terlambat</span>
+                {health?.days_past_deadline > 0 && (
+                  <span className="text-rose-400 font-semibold">{health.days_past_deadline} hari terlambat</span>
                 )}
               </div>
               {/* Target info di header modal */}
@@ -565,20 +565,20 @@ function DetailModal({ projectDetails, onClose }) {
                       <div className="text-4xl font-black text-white">{p.percentage}%</div>
                       <div className="text-xs text-slate-500">progress aktual</div>
                     </div>
-                    {health?.time_elapsed_pct != null && (
+                    {health?.deadline_elapsed_pct != null && (
                       <>
                         <div className="text-slate-700 text-2xl font-thin mb-1">|</div>
                         <div>
-                          <div className="text-2xl font-black text-slate-400">{health.time_elapsed_pct}%</div>
+                          <div className="text-2xl font-black text-slate-400">{health.deadline_elapsed_pct}%</div>
                           <div className="text-xs text-slate-500">persen waktu terpakai</div>
                         </div>
                       </>
                     )}
-                    {/* {health?.target_time_elapsed_pct != null && (
+                    {/* {health?.target_elapsed_pct != null && (
                       <>
                         <div className="text-slate-700 text-2xl font-thin mb-1">|</div>
                         <div>
-                          <div className="text-2xl font-black text-amber-400">{health.target_time_elapsed_pct}%</div>
+                          <div className="text-2xl font-black text-amber-400">{health.target_elapsed_pct}%</div>
                           <div className="text-xs text-slate-500">waktu target terpakai</div>
                         </div>
                       </>
@@ -627,8 +627,8 @@ function DetailModal({ projectDetails, onClose }) {
                     {[
                       { label:"Mulai",        val: fmt(p.start_date) },
                       { label:"Selesai",     val: fmt(p.end_date)   },
-                      { label:"Selesai dalam",    val: health?.days_remaining != null ? `${health.days_remaining} hari` : "—", highlight: health?.days_remaining === 0 },
-                      { label:"Terlambat",    val: health?.days_overdue > 0 ? `${health.days_overdue} hari` : "—", warn: health?.days_overdue > 0 },
+                      { label:"Selesai dalam",    val: health?.health?.days_to_deadline != null ? `${health.health?.days_to_deadline} hari` : "—", highlight: health?.health?.days_to_deadline === 0 },
+                      { label:"Terlambat",    val: health?.days_past_deadline > 0 ? `${health.days_past_deadline} hari` : "—", warn: health?.days_past_deadline > 0 },
                       { label:"Status health",val: null, badge: health?.label },
                     ].map((row, i) => (
                       <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
