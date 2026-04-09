@@ -1325,6 +1325,26 @@ export const uploadAbsenceAttachment = async ({ userId, file }) => {
   return data;
 };
 
+export const uploadAbsenceDocument = async ({ userId, file, description = "" }) => {
+  if (!userId) throw new Error("userId is required");
+  if (!file) throw new Error("file is required");
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("user_id", userId);
+  formData.append("document_type", "other");
+  if (description) formData.append("description", description);
+
+  const response = await fetch(`${API_BASE}/documents/upload`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  const data = await handleResponse(response);
+  if (!data) throw new Error("Gagal upload dokumen absence");
+  return data;
+};
+
 export const listMyAbsenceRequests = async () => {
   const response = await fetch(`${API_BASE}/attendance/absence-requests/mine`, {
     method: "GET",

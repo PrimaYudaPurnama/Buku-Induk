@@ -29,6 +29,12 @@ const AbsenceRequestSchema = new mongoose.Schema({
       type: String,
       default: null,
     },
+
+    attachment_document_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Document",
+      default: null,
+    },
   
     status: {
       type: String,

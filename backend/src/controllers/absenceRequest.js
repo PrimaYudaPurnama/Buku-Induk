@@ -5,7 +5,14 @@ class AbsenceRequestController {
     try {
       const user = c.get("user");
       const body = await c.req.json().catch(() => ({}));
-      const allowed = ["type", "start_date", "end_date", "reason", "attachment_url"];
+      const allowed = [
+        "type",
+        "start_date",
+        "end_date",
+        "reason",
+        "attachment_url",
+        "attachment_document_id",
+      ];
       const forbidden = Object.keys(body || {}).filter((k) => !allowed.includes(k));
       if (forbidden.length > 0) {
         return c.json(
@@ -27,6 +34,7 @@ class AbsenceRequestController {
         end_date: body.end_date,
         reason: body.reason,
         attachment_url: body.attachment_url,
+        attachment_document_id: body.attachment_document_id,
       });
       return c.json({ success: true, data: doc }, 201);
     } catch (error) {

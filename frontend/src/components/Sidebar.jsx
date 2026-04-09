@@ -19,7 +19,7 @@ const Sidebar = ({ isOpen, closeSidebar, permissions, activePage, setActivePage 
     { id: 'PendingUsers', label: 'Pending Users', icon: UserCheck, permission: ["user:create", "user:update"] },
     // { id: 'AccountRequest', label: 'Account Request', icon: ClipboardList, permission: ["account:create"] },
     { id: 'ApprovalInbox', label: 'Approval Inbox', icon: CheckCircle, permission: ["account:approve:any", "account:approve:own_division"] },
-    { id: 'LateAttendanceApprovals', label: 'Late Approvals', icon: CheckCircle, permission: ["user:update", "dashboard:read"] },
+    { id: 'AttendanceApprovals', label: 'Attendance Approvals', icon: CheckCircle, permission: ["user:update", "dashboard:read"] },
     { id: 'Documents', label: 'Documents', icon: FolderOpen, permission: ["user:read:any", "user:read:own_division", "user:read:self"] },
     { id: 'Notifications', label: 'Notifications', icon: Bell, permission: null },
     { id: 'DivisionList', label: 'Division Settings', icon: Settings, permission: ["system:manage_divisions", "dashboard:read"] },

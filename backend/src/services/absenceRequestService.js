@@ -3,6 +3,7 @@ import Attendance from "../models/attendance.js";
 import LateAttendanceRequest from "../models/lateAttendanceRequest.js";
 import WeeklySchedule from "../models/weeklySchedule.js";
 import WorkDay from "../models/workDay.js";
+import mongoose from "mongoose";
 
 const HR_MANAGER_MAX_LEVEL = 4;
 
@@ -138,7 +139,15 @@ const collectDateConflicts = async ({ userId, dates, skipAbsenceId = null }) => 
 };
 
 class AbsenceRequestService {
-  async requestAbsence({ user, type, start_date, end_date, reason, attachment_url = null }) {
+  async requestAbsence({
+    user,
+    type,
+    start_date,
+    end_date,
+    reason,
+    attachment_url = null,
+    attachment_document_id = null,
+  }) {
     if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
       const err = new Error("reason is required and must be at least 10 characters");
       err.code = "INVALID_REASON";
@@ -150,6 +159,15 @@ class AbsenceRequestService {
       if (!valid) {
         const err = new Error("attachment_url must be a valid http/https URL");
         err.code = "INVALID_ATTACHMENT_URL";
+        err.status = 400;
+        throw err;
+      }
+    }
+    if (attachment_document_id) {
+      const validDocId = mongoose.Types.ObjectId.isValid(String(attachment_document_id));
+      if (!validDocId) {
+        const err = new Error("attachment_document_id is invalid");
+        err.code = "INVALID_ATTACHMENT_DOCUMENT_ID";
         err.status = 400;
         throw err;
       }
@@ -217,6 +235,7 @@ class AbsenceRequestService {
       end_date: end,
       reason: typeof reason === "string" ? reason.trim() : "",
       attachment_url: attachment_url || null,
+      attachment_document_id: attachment_document_id || null,
       status: "pending",
     });
     return doc;

@@ -10,7 +10,7 @@ import {
   listMyLateAttendanceRequests,
   requestAbsence,
   listMyAbsenceRequests,
-  uploadAbsenceAttachment,
+  uploadAbsenceDocument,
   createLateAttendance,
   submitLateAttendance,
   fetchActivities,
@@ -1374,13 +1374,16 @@ const Attendance = () => {
     try {
       setSubmittingAbsence(true);
       let attachmentUrl = null;
+      let attachmentDocumentId = null;
       if (absenceAttachmentFile) {
         setUploadingAbsenceAttachment(true);
-        const uploadRes = await uploadAbsenceAttachment({
+        const uploadRes = await uploadAbsenceDocument({
           userId: currentUserId,
           file: absenceAttachmentFile,
+          description: `Lampiran ${absenceType} ${absenceStartDate} - ${absenceEndDate}`,
         });
-        attachmentUrl = uploadRes?.data?.url || null;
+        attachmentUrl = uploadRes?.data?.file_url || uploadRes?.data?.url || null;
+        attachmentDocumentId = uploadRes?.data?._id || null;
       }
       await requestAbsence({
         type: absenceType,
@@ -1388,6 +1391,7 @@ const Attendance = () => {
         end_date: absenceEndDate,
         reason: absenceReason.trim(),
         attachment_url: attachmentUrl,
+        attachment_document_id: attachmentDocumentId,
       });
       toast.success("Pengajuan izin/cuti/sakit berhasil dikirim");
       setShowAbsenceForm(false);

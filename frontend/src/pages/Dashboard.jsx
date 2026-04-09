@@ -17,7 +17,7 @@ import WorkflowAnalytics from './WorkflowAnalytics.jsx'
 import OrgChart from './OrgChart.jsx'
 import PendingUsers from './PendingUsers.jsx'
 import Attendance from './Attendance.jsx'
-import LateAttendanceApprovals from './LateAttendanceApprovals.jsx'
+import AttendanceApprovals from './AttendanceApprovals.jsx'
 import AttendanceAnalytics from './AttendanceAnalytics.jsx'
 import ProjectAnalytics from './ProjectAnalytics.jsx'
 import MyAttendanceHistory from './MyAttendanceHistory.jsx'
@@ -76,8 +76,8 @@ export default function Dashboard() {
         return <Home />
       case 'Attendance':
         return <Attendance />
-      case 'LateAttendanceApprovals':
-        return <LateAttendanceApprovals />
+      case 'AttendanceApprovals':
+        return <AttendanceApprovals />
       case 'MyAttendanceHistory':
         return <MyAttendanceHistory />
       case 'UserList':

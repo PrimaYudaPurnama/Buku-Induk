@@ -182,6 +182,7 @@ const DocumentList = () => {
                     <option value="disciplinary">Disciplinary</option>
                     <option value="resignation">Resignation</option>
                     <option value="termination">Termination</option>
+                    <option value="other">Other</option>
                   </select>
                 </div>
               )}

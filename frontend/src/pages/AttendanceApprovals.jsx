@@ -36,11 +36,25 @@ const itemVariants = {
 };
 
 // ─── Component ───────────────────────────────────────────────────
-const LateAttendanceApprovals = () => {
+const AttendanceApprovals = () => {
+  const API_BASE =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [rejectReasonById, setRejectReasonById] = useState({});
   const [expandedId, setExpandedId] = useState(null); // buka/tutup reject area
+
+  const resolveAttachmentUrl = (request) => {
+    if (request?.attachment_document_id) {
+      return `${API_BASE}/documents/${request.attachment_document_id}/view`;
+    }
+    return request?.attachment_url || "";
+  };
+
+  const isPdfAttachment = (url = "") => {
+    const cleanUrl = String(url || "").split("?")[0].toLowerCase();
+    return cleanUrl.endsWith(".pdf") || cleanUrl.includes("/raw/upload/");
+  };
 
   // ── Fetch ──────────────────────────────────────────────────────
   const load = async () => {
@@ -239,28 +253,27 @@ const LateAttendanceApprovals = () => {
                               </div>
                             </div>
 
-                            {r.request_kind === "absence" && r.attachment_url && (
+                            {r.request_kind === "absence" && resolveAttachmentUrl(r) && (
                               <div className="mt-3 p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
                                 <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">
                                   Lampiran
                                 </p>
                                 <div className="flex flex-col gap-2">
-                                  <img
-                                    src={r.attachment_url}
-                                    alt="Lampiran absence"
-                                    className="max-h-56 rounded-lg border border-slate-700 object-contain"
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = "none";
-                                      const fallback = e.currentTarget.nextSibling;
-                                      if (fallback) fallback.style.display = "inline-block";
-                                    }}
-                                  />
+                                  {!isPdfAttachment(resolveAttachmentUrl(r)) && (
+                                    <img
+                                      src={resolveAttachmentUrl(r)}
+                                      alt="Lampiran absence"
+                                      className="max-h-56 rounded-lg border border-slate-700 object-contain"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = "none";
+                                      }}
+                                    />
+                                  )}
                                   <a
-                                    href={r.attachment_url}
+                                    href={resolveAttachmentUrl(r)}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="text-sm text-blue-400 hover:text-blue-300 underline"
-                                    style={{ display: "none" }}
                                   >
                                     Lihat / Unduh Lampiran
                                   </a>
@@ -387,4 +400,4 @@ const LateAttendanceApprovals = () => {
   );
 };
 
-export default LateAttendanceApprovals;
+export default AttendanceApprovals;
