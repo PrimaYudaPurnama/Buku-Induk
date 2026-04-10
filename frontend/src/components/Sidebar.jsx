@@ -28,8 +28,8 @@ const menuGroups = [
   {
     title: 'Utama',
     items: [
-      { id: 'Home', label: 'Home', icon: Home, permission: null },
-      { id: 'Notifications', label: 'Notifications', icon: Bell, permission: null },
+      { id: 'Home', label: 'Beranda', icon: Home, permission: null },
+      { id: 'Notifications', label: 'Notifikasi', icon: Bell, permission: null },
     ],
   },
   {
@@ -37,31 +37,31 @@ const menuGroups = [
     items: [
       { id: 'Attendance', label: 'Presensi', icon: Clock, permission: ['system:attendance'] },
       { id: 'MyAttendanceHistory', label: 'Riwayat Presensi Saya', icon: Calendar, permission: ['system:attendance'] },
-      { id: 'AttendanceAnalytics', label: 'Analytics Presensi', icon: TrendingUp, permission: ['system:manage_analytics'] },
-      { id: 'ProjectAnalytics', label: 'Analytics Proyek', icon: Target, permission: ['system:manage_analytics'] },
+      { id: 'AttendanceAnalytics', label: 'Analitik Presensi', icon: TrendingUp, permission: ['system:manage_analytics'] },
+      { id: 'ProjectAnalytics', label: 'Analitik Proyek', icon: Target, permission: ['system:manage_analytics'] },
     ],
   },
   {
     title: 'Organisasi & SDM',
     items: [
-      { id: 'OrgChart', label: 'Company Org Chart', icon: GitBranch, permission: ['user:read:any', 'user:read:own_division', 'org_chart:read'] },
-      { id: 'UserList', label: 'User Management', icon: Users, permission: ['user:read:any', 'user:read:own_division'] },
-      { id: 'PendingUsers', label: 'Pending Users', icon: UserCheck, permission: ['user:create', 'user:update'] },
-      { id: 'ApprovalInbox', label: 'Approval Inbox', icon: Inbox, permission: ['account:approve:any', 'account:approve:own_division'] },
-      { id: 'AttendanceApprovals', label: 'Attendance Approvals', icon: CheckCircle, permission: ['user:update'] },
-      { id: 'Documents', label: 'Documents', icon: FolderOpen, permission: ['user:read:any', 'user:read:own_division', 'user:read:self'] },
+      { id: 'OrgChart', label: 'Bagan Organisasi', icon: GitBranch, permission: ['user:read:any', 'user:read:own_division', 'org_chart:read'] },
+      { id: 'UserList', label: 'Manajemen Pengguna', icon: Users, permission: ['user:read:any', 'user:read:own_division'] },
+      { id: 'PendingUsers', label: 'Registrasi Menunggu', icon: UserCheck, permission: ['user:create', 'user:update'] },
+      { id: 'ApprovalInbox', label: 'Kotak Masuk Persetujuan', icon: Inbox, permission: ['account:approve:any', 'account:approve:own_division'] },
+      { id: 'AttendanceApprovals', label: 'Persetujuan Presensi', icon: CheckCircle, permission: ['user:update'] },
+      { id: 'Documents', label: 'Dokumen', icon: FolderOpen, permission: ['user:read:any', 'user:read:own_division', 'user:read:self'] },
     ],
   },
   {
     title: 'Pengaturan sistem',
     items: [
-      { id: 'DivisionList', label: 'Division Settings', icon: Settings, permission: ['system:manage_divisions'] },
-      { id: 'ActivityList', label: 'Activity Management', icon: Activity, permission: ['system:manage_activities'] },
-      { id: 'ProjectList', label: 'Project Management', icon: FolderKanban, permission: ['system:manage_projects'] },
-      { id: 'WeeklyScheduleAdmin', label: 'Weekly Schedule Admin', icon: Calendar, permission: ['system:manage_weeklyschedule'] },
-      { id: 'WorkDayAdmin', label: 'Work Day Admin', icon: Calendar, permission: ['system:manage_workday'] },
-      { id: 'RoleSettings', label: 'Role Settings', icon: Shield, permission: ['system:manage_roles'] },
-      { id: 'AuditLogs', label: 'Audit Logs', icon: FileText, permission: ['system:view_audit_logs'] },
+      { id: 'DivisionList', label: 'Pengaturan Divisi', icon: Settings, permission: ['system:manage_divisions'] },
+      { id: 'ActivityList', label: 'Manajemen Aktivitas', icon: Activity, permission: ['system:manage_activities'] },
+      { id: 'ProjectList', label: 'Manajemen Proyek', icon: FolderKanban, permission: ['system:manage_projects'] },
+      { id: 'WeeklyScheduleAdmin', label: 'Admin Jadwal Mingguan', icon: Calendar, permission: ['system:manage_weeklyschedule'] },
+      { id: 'WorkDayAdmin', label: 'Admin Hari Kerja', icon: Calendar, permission: ['system:manage_workday'] },
+      { id: 'RoleSettings', label: 'Pengaturan Peran', icon: Shield, permission: ['system:manage_roles'] },
+      { id: 'AuditLogs', label: 'Log Audit', icon: FileText, permission: ['system:view_audit_logs'] },
     ],
   },
 ];

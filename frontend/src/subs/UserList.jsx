@@ -1583,7 +1583,7 @@ export default function UserList() {
                 
                       <div className="relative">
                         <input
-                          required
+                          required={showAddModal}
                           type={showPassword ? "text" : "password"}
                           value={formData.password}
                           onChange={(e) =>

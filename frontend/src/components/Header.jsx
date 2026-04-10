@@ -112,18 +112,18 @@ const Header = ({ toggleSidebar, onNavigateToProfile }) => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <motion.div
+            {/* <motion.div
               className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center"
               variants={floatingVariants}
               animate="animate"
             >
               <Sparkles className="w-7 h-7 text-white" />
-            </motion.div>
+            </motion.div> */}
             <div>
               <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
                 Dashboard
               </h1>
-              <p className="text-sm text-slate-400 mt-0.5">Welcome back, {user?.full_name?.split(' ')[0] || 'User'}</p>
+              {/* <p className="text-sm text-slate-400 mt-0.5">, {user?.full_name?.split(' ')[0] || 'User'}</p> */}
             </div>
           </motion.div>
         </div>
