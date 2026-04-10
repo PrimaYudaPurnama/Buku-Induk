@@ -1556,6 +1556,7 @@ class AttendanceService {
         holiday_name: holidayName,
         hasAttendance: !!rec,
         status: rec?.status || null,
+        absence_type: rec?.absence_type || "none",
         checkIn_at: rec?.checkIn_at || null,
         checkOut_at: rec?.checkOut_at || null,
         total_tasks: Array.isArray(rec?.tasks_today) ? rec.tasks_today.length : 0,

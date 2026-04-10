@@ -169,20 +169,20 @@ export default function WorkDayAdmin() {
                     }
                     const res = await seedWorkDays({ from: range.from, to: range.to });
                     if (res?.existing > 0 && res?.created === 0) {
-                      toast("Data WorkDay untuk bulan terpilih sudah ada semua.");
+                      toast("Jadwal bulan ini sudah lengkap, tidak ada yang perlu ditambahkan.");
                     } else if (res?.existing > 0) {
-                      toast.success(`Seed selesai. Dibuat: ${res.created}, sudah ada: ${res.existing}`);
+                      toast.success(`Jadwal berhasil disiapkan. ${res.created} hari baru ditambahkan, ${res.existing} hari sudah ada sebelumnya.`);
                     } else {
-                      toast.success(`Seed bulan ${seedTargetMonth} berhasil: ${res?.created || 0} data dibuat`);
+                      toast.success(`Jadwal ${seedTargetMonth} berhasil disiapkan — ${res?.created || 0} hari ditambahkan.`);
                     }
                     await fetchWorkdays();
                   } catch (error) {
-                    toast.error(error?.message || "Gagal seed WorkDay bulan dipilih");
+                    toast.error(error?.message || "Gagal menyiapkan jadwal bulan yang dipilih");
                   }
                 }}
                 className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs"
               >
-                Seed Bulan Dipilih
+                Siapkan Jadwal Bulan Ini
               </button>
               <button
                 onClick={async () => {
@@ -195,20 +195,20 @@ export default function WorkDayAdmin() {
                       to: formatDateId(nextEnd),
                     });
                     if (res?.existing > 0 && res?.created === 0) {
-                      toast("Data WorkDay bulan depan sudah ada semua.");
+                      toast("Jadwal bulan depan sudah lengkap, tidak ada yang perlu ditambahkan.");
                     } else if (res?.existing > 0) {
-                      toast.success(`Seed bulan depan selesai. Dibuat: ${res.created}, sudah ada: ${res.existing}`);
+                      toast.success(`Jadwal bulan depan berhasil disiapkan. ${res.created} hari baru ditambahkan, ${res.existing} hari sudah ada sebelumnya.`);
                     } else {
-                      toast.success(`Seed bulan depan berhasil: ${res?.created || 0} data dibuat`);
+                      toast.success(`Jadwal bulan depan berhasil disiapkan — ${res?.created || 0} hari ditambahkan.`);
                     }
                     await fetchWorkdays();
                   } catch (error) {
-                    toast.error(error?.message || "Gagal seed WorkDay bulan depan");
+                    toast.error(error?.message || "Gagal menyiapkan jadwal bulan depan");
                   }
                 }}
                 className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
               >
-                Seed Bulan Depan
+                Siapkan Jadwal Bulan Depan
               </button>
               <input
                 type="month"
@@ -324,4 +324,3 @@ export default function WorkDayAdmin() {
     </>
   );
 }
-

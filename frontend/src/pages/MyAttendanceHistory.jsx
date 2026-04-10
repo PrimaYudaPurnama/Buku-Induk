@@ -20,6 +20,15 @@ const formatDateId = (date) => {
   return `${y}-${m}-${d}`;
 };
 
+const normalizeAbsenceType = (t) => String(t || "").toLowerCase();
+const getAbsenceLabel = (absenceType) => {
+  const t = normalizeAbsenceType(absenceType);
+  if (t === "sick") return "Sakit";
+  if (t === "leave") return "Cuti";
+  if (t === "permission") return "Izin";
+  return "Izin";
+};
+
 export default function MyAttendanceHistory() {
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
@@ -121,7 +130,7 @@ export default function MyAttendanceHistory() {
     return out;
   }, [monthCursor, dayMap]);
 
-  const statusClass = (status, hasAttendance, isWorkingDay, isHoliday) => {
+  const statusClass = (status, hasAttendance, isWorkingDay, isHoliday, absenceType) => {
     if (!hasAttendance) {
       // Semua hari non-aktif/libur (termasuk Minggu) tampilkan warna yang sama,
       // supaya tidak berubah menjadi merah saat `holiday_name` ada.
@@ -131,10 +140,40 @@ export default function MyAttendanceHistory() {
     if (status === "normal") return "bg-emerald-500/20 border-emerald-500/40 text-emerald-300";
     if (status === "late_checkin" || status === "early_checkout") return "bg-yellow-500/20 border-yellow-500/40 text-yellow-300";
     if (status === "late") return "bg-red-500/20 border-red-500/40 text-red-300";
-    // manual = termasuk attendance dari absence (izin/cuti/sakit)
-    if (status === "manual") return "bg-blue-500/20 border-blue-500/40 text-blue-300";
+    // manual = bisa dari absence (izin/cuti/sakit) atau manual biasa
+    if (status === "manual") {
+      const t = normalizeAbsenceType(absenceType);
+      if (t && t !== "none") {
+        if (t === "sick") return "bg-rose-500/20 border-rose-500/40 text-rose-300";
+        if (t === "leave") return "bg-orange-500/20 border-orange-500/40 text-orange-300";
+        if (t === "permission") return "bg-indigo-500/20 border-indigo-500/40 text-indigo-300";
+        return "bg-indigo-500/20 border-indigo-500/40 text-indigo-300";
+      }
+      return "bg-blue-500/20 border-blue-500/40 text-blue-300";
+    }
     if (status === "forget") return "bg-purple-500/20 border-purple-500/40 text-purple-300";
     return "bg-slate-800 border-slate-700 text-slate-300";
+  };
+
+  const getCalendarCellLabel = (cell) => {
+    if (!cell?.hasAttendance) {
+      if (cell?.has_workday_config === false) return "Belum diset HR";
+      if (cell?.is_holiday) return cell?.holiday_name || "Libur";
+      return cell?.is_working_day === false ? "Libur" : "Belum";
+    }
+
+    const status = cell?.status;
+    const absenceType = normalizeAbsenceType(cell?.absence_type);
+    if (status === "manual" && absenceType && absenceType !== "none") {
+      return getAbsenceLabel(absenceType);
+    }
+    if (status === "normal") return "Hadir";
+    if (status === "late") return "Terlambat";
+    if (status === "late_checkin") return "Terlambat masuk";
+    if (status === "early_checkout") return "Pulang cepat";
+    if (status === "manual") return "Otomatis";
+    if (status === "forget") return "Lupa";
+    return "Belum";
   };
 
   const stats = useMemo(() => {
@@ -146,10 +185,15 @@ export default function MyAttendanceHistory() {
       (d) => d.status === "late" || d.status === "late_checkin"
     ).length;
 
-    const hadir = attendedWorkingDays.length;
+    const izin = attendedWorkingDays.filter((d) => {
+      const absenceType = normalizeAbsenceType(d?.absence_type);
+      return d?.status === "manual" && absenceType && absenceType !== "none";
+    }).length;
+
+    const hadir = attendedWorkingDays.length - izin;
     const totalAttendance = calendarData.filter((d) => d.hasAttendance).length;
 
-    return { hadir, terlambat, libur, totalAttendance };
+    return { hadir, terlambat, libur, izin, totalAttendance };
   }, [calendarData]);
 
   const projectsGroupedFromTasks = useMemo(() => {
@@ -222,6 +266,10 @@ export default function MyAttendanceHistory() {
                 <div className="text-[11px] text-slate-400">Libur</div>
                 <div className="text-white text-lg font-semibold">{stats.libur}</div>
               </div>
+              <div className="px-3 py-2 rounded-xl bg-slate-800/50 border border-slate-700">
+                <div className="text-[11px] text-slate-400">Izin</div>
+                <div className="text-white text-lg font-semibold">{stats.izin}</div>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -238,8 +286,20 @@ export default function MyAttendanceHistory() {
                 Terlambat
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
-              <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500/30 border border-blue-500/40" />
-              Manual / Izin-Cuti-Sakit
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500/30 border border-blue-500/40" />
+                Manual
+              </div>
+              <div className="text-xs text-slate-300 flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500/30 border border-indigo-500/40" />
+                Izin
+              </div>
+              <div className="text-xs text-slate-300 flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500/30 border border-orange-500/40" />
+                Cuti
+              </div>
+              <div className="text-xs text-slate-300 flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-500/30 border border-rose-500/40" />
+                Sakit
               </div>
               <div className="text-xs text-slate-300 flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500/30 border border-purple-500/40" />
@@ -267,18 +327,12 @@ export default function MyAttendanceHistory() {
                     key={cell.date}
                     onClick={() => setSelectedDate(cell.date)}
                     className={`h-20 rounded-xl border p-2 text-left transition ${
-                      statusClass(cell.status, cell.hasAttendance, cell.is_working_day !== false, cell.is_holiday)
+                      statusClass(cell.status, cell.hasAttendance, cell.is_working_day !== false, cell.is_holiday, cell.absence_type)
                     } ${selectedDate === cell.date ? "ring-2 ring-blue-500" : ""}`}
                   >
                     <div className="text-xs font-semibold">{Number(cell.date.slice(-2))}</div>
                     <div className="text-[10px] mt-1">
-                      {cell.hasAttendance
-                        ? (cell.status === "normal" ? "Hadir" : cell.status === "late" ? "Terlambat" : cell.status === "late_checkin" ? "Terlambat masuk" : cell.status === "early_checkout" ? "Pulang cepat" : cell.status === "manual" ? "Otomatis" : cell.status === "forget" ? "Lupa" : "Belum")
-                        : cell.has_workday_config === false
-                        ? "Belum diset HR"
-                        : cell.is_holiday
-                        ? (cell.holiday_name || "Libur")
-                        : (cell.is_working_day === false ? "Libur" : "Belum")}
+                      {getCalendarCellLabel(cell)}
                     </div>
                   </button>
                 ) : (
@@ -317,7 +371,11 @@ export default function MyAttendanceHistory() {
                 <div>
                   <div className="text-slate-300 text-xs">Status</div>
                   <div className="text-white font-semibold mt-1">
-                    {selectedDetail.status || "-"}
+                    {selectedDetail.status === "manual" &&
+                    normalizeAbsenceType(selectedDetail.absence_type) &&
+                    normalizeAbsenceType(selectedDetail.absence_type) !== "none"
+                      ? getAbsenceLabel(selectedDetail.absence_type)
+                      : (selectedDetail.status || "-")}
                   </div>
                   {selectedDetail.absence_type && (
                     <div className="mt-2 flex items-center gap-2">
