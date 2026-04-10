@@ -14,7 +14,7 @@ attendanceRouter.get(
   "/tasks/daily",
   authenticate(),
   authorize({
-    permissions: ["system:attendance"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.getDailyTasks(c)
 );
@@ -23,7 +23,7 @@ attendanceRouter.post(
   "/tasks",
   authenticate(),
   authorize({
-    permissions: ["system:attendance"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.createTask(c)
 );
@@ -32,7 +32,7 @@ attendanceRouter.get(
   "/tasks/by-project/:projectId",
   authenticate(),
   authorize({
-    permissions: ["system:attendance"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.getTasksByProject(c)
 );
@@ -41,7 +41,7 @@ attendanceRouter.patch(
   "/tasks/:id",
   authenticate(),
   authorize({
-    permissions: ["system:attendance"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.updateTask(c)
 );
@@ -50,7 +50,7 @@ attendanceRouter.post(
   "/tasks/:id/approve",
   authenticate(),
   authorize({
-    permissions: ["system:manage_projects"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.approveTask(c)
 );
@@ -59,7 +59,7 @@ attendanceRouter.post(
   "/tasks/:id/reject",
   authenticate(),
   authorize({
-    permissions: ["system:manage_projects"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.rejectTask(c)
 );
@@ -68,7 +68,7 @@ attendanceRouter.delete(
   "/tasks/:id",
   authenticate(),
   authorize({
-    permissions: ["system:manage_projects"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.deleteTask(c)
 );
@@ -77,7 +77,7 @@ attendanceRouter.get(
   "/tasks/:id",
   authenticate(),
   authorize({
-    permissions: ["system:attendance"],
+    permissions: ["system:attendance", "system:manage_projects"],
   }),
   (c) => TaskController.getTaskById(c)
 );

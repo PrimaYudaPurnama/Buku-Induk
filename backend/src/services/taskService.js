@@ -119,7 +119,7 @@ async function createTask({ user, payload }) {
     canManageProjects && payload?.user_id === null ? null : user._id;
 
   const task = await Task.create({
-    user_id: ownerUserId,
+    user_id: null,
     project_id: projectId || null,
     title,
     description:
