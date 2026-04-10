@@ -1,4 +1,5 @@
 import { connect, disconnect, mongoose } from "./utils/mongoose.js";
+import { pathToFileURL } from "node:url";
 
 async function migrateFresh() {
 	try {
@@ -11,7 +12,7 @@ async function migrateFresh() {
 			throw new Error("Refusing to drop database in production environment.");
 		}
 
-		const uri = process.env.MONGODB_URI;
+		const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 		console.log("🔗 Connecting to MongoDB...");
 		await connect(uri);
 		const db = mongoose.connection.db;
@@ -34,7 +35,10 @@ async function migrateFresh() {
 }
 
 // Execute when run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isDirectRun =
+	process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
 	migrateFresh()
 		.then(() => process.exit(0))
 		.catch(() => process.exit(1));

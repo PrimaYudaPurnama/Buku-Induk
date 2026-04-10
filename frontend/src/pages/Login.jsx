@@ -353,7 +353,7 @@ const Login = () => {
               Don't have an account?{' '}
               <motion.button 
                 type="button"
-                onClick={() => window.location.href = '/register'}
+                onClick={() => navigate('/register')}
                 className="font-medium text-blue-400 hover:text-blue-300 transition-colors"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

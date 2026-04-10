@@ -2,6 +2,7 @@ import { connect, disconnect, mongoose } from "./utils/mongoose.js";
 import Role from "../models/role.js";
 import User from "../models/user.js";
 import Division from "../models/division.js";
+import { pathToFileURL } from "node:url";
 
 const roles = [
 	{
@@ -282,14 +283,18 @@ async function upsertSuperadmin() {
 	console.log("✅ Superadmin user created");
 }
 
+export async function seedCore() {
+	await upsertRoles();
+	await upsertSuperadmin();
+}
+
 async function seed() {
 	try {
-		const uri = process.env.MONGODB_URI;
+		const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 		console.log("🔗 Connecting to MongoDB for seeding...");
 		await connect(uri);
 
-		await upsertRoles();
-		await upsertSuperadmin();
+		await seedCore();
 
 		await disconnect();
 		console.log("🔌 DB connection closed");
@@ -304,7 +309,10 @@ async function seed() {
 }
 
 // Execute when run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isDirectRun =
+	process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
 	seed()
 		.then(() => process.exit(0))
 		.catch(() => process.exit(1));
