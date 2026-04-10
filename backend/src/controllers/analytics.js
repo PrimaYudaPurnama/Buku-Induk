@@ -2301,7 +2301,7 @@ static async getProjectDetails(c) {
         
           // Deadline formal (end_date)
           days_to_deadline:     project.end_date
-            ? Math.max(0, AnalyticsController.daysDiff(now, project.end_date))   // FIX: sebelumnya dari start_date
+            ? Math.max(0, AnalyticsController.daysDiff(project.start_date ?? now, project.end_date))   // FIX: sebelumnya dari start_date
             : null,
           days_past_deadline:   project.end_date &&
             now > new Date(project.end_date) &&

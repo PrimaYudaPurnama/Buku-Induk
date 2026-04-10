@@ -507,12 +507,12 @@ function DetailModal({ projectDetails, onClose }) {
                 <span className="font-mono text-slate-400">{p.code}</span>
                 <span>{WORK_TYPE_LABELS[p.work_type]}</span>
                 <span>{fmt(p.start_date)} → {fmt(p.end_date)}</span>
-                {health?.health?.days_to_deadline != null && health.health?.days_to_deadline > 0 && (
-                  <span className="text-sky-400 font-semibold">selesai dalam {health.health?.days_to_deadline} hari</span>
+                {health?.days_to_deadline != null && health.days_to_deadline > 0 && (
+                  <span className="text-sky-400 font-semibold">selesai dalam {health.days_to_deadline} hari</span>
                 )}
-                {health?.days_past_deadline > 0 && (
-                  <span className="text-rose-400 font-semibold">{health.days_past_deadline} hari terlambat</span>
-                )}
+                {/* {health?.days_past_target > 0 && (
+                  <span className="text-rose-400 font-semibold">{health.days_past_target} hari terlambat</span>
+                )} */}
               </div>
               {/* Target info di header modal */}
               <TargetEndBlock project={p} health={health} compact />
@@ -627,8 +627,8 @@ function DetailModal({ projectDetails, onClose }) {
                     {[
                       { label:"Mulai",        val: fmt(p.start_date) },
                       { label:"Selesai",     val: fmt(p.end_date)   },
-                      { label:"Selesai dalam",    val: health?.health?.days_to_deadline != null ? `${health.health?.days_to_deadline} hari` : "—", highlight: health?.health?.days_to_deadline === 0 },
-                      { label:"Terlambat",    val: health?.days_past_deadline > 0 ? `${health.days_past_deadline} hari` : "—", warn: health?.days_past_deadline > 0 },
+                      { label:"Selesai dalam",    val: health?.days_to_deadline != null ? `${health.days_to_deadline} hari` : "—", highlight: health?.days_to_deadline === 0 },
+                      { label:"Terlambat",    val: health?.days_past_target > 0 ? `${health.days_past_target} hari` : "—", warn: health?.days_past_target > 0 },
                       { label:"Status health",val: null, badge: health?.label },
                     ].map((row, i) => (
                       <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
