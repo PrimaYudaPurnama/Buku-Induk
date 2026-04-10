@@ -1385,31 +1385,92 @@ const Attendance = () => {
       return;
     }
 
+    const normalizeDateKey = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const parseLocalDateKey = (key) => new Date(`${key}T00:00:00`);
+    const addDaysToKey = (key, amount) => {
+      const d = parseLocalDateKey(key);
+      d.setDate(d.getDate() + amount);
+      return normalizeDateKey(d);
+    };
+
+    // Ambil metadata workday dari backend (sama seperti yang dipakai calendar view),
+    // supaya tanggal libur / non-working bisa otomatis di-skip dan tidak memicu error backend.
+    const startD = parseLocalDateKey(absenceStartDate);
+    const endD = parseLocalDateKey(absenceEndDate);
+    const monthKeys = new Set();
+    const curMonth = new Date(startD);
+    curMonth.setDate(1);
+    while (curMonth <= endD) {
+      monthKeys.add(`${curMonth.getFullYear()}-${String(curMonth.getMonth() + 1).padStart(2, "0")}`);
+      curMonth.setMonth(curMonth.getMonth() + 1, 1);
+    }
+
+    const workMetaByDate = new Map();
+    try {
+      const calendars = await Promise.all(
+        Array.from(monthKeys).map((m) => getMyAttendanceCalendar({ month: m }))
+      );
+      calendars.forEach((res) => {
+        (res?.data?.days || []).forEach((d) => {
+          if (!d?.date) return;
+          workMetaByDate.set(d.date, d);
+        });
+      });
+    } catch (_e) {
+      // Kalau gagal fetch meta, tetap lanjut dengan fallback "tidak ada hari kerja"
+      // agar tidak mengirim request yang berpotensi ditolak backend.
+    }
+
     const conflicts = [];
-    let workingDaysInRange = 0;
-    let cursor = new Date(`${absenceStartDate}T00:00:00`);
-    const end = new Date(`${absenceEndDate}T00:00:00`);
-    while (cursor <= end) {
-      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
-      const isSundayInRange = new Date(`${key}T00:00:00Z`).getUTCDay() === 0;
-      if (isSundayInRange) {
-        cursor.setDate(cursor.getDate() + 1);
-        continue;
+    const workingKeys = [];
+    let cursor = new Date(startD);
+    while (cursor <= endD) {
+      const key = normalizeDateKey(cursor);
+      const meta = workMetaByDate.get(key);
+      const isWorking =
+        !!meta?.has_workday_config && !!meta?.is_working_day && !meta?.is_holiday;
+      if (isWorking) {
+        workingKeys.push(key);
+        if (hasLateRequestForDate(key)) conflicts.push(`${key} (late request)`);
+        if (hasAbsenceRequestForDate(key)) conflicts.push(`${key} (absence request)`);
+        if (hasAttendanceForDate(key)) conflicts.push(`${key} (attendance)`);
       }
-      workingDaysInRange += 1;
-      if (hasLateRequestForDate(key)) conflicts.push(`${key} (late request)`);
-      if (hasAbsenceRequestForDate(key)) conflicts.push(`${key} (absence request)`);
-      if (hasAttendanceForDate(key)) conflicts.push(`${key} (attendance)`);
       cursor.setDate(cursor.getDate() + 1);
     }
-    if (workingDaysInRange === 0) {
-      toast.error("Rentang tanggal tidak memiliki hari kerja");
+
+    if (workingKeys.length === 0) {
+      toast.error("Rentang tanggal tidak memiliki hari kerja (atau belum diset HR)");
       return;
     }
     if (conflicts.length > 0) {
-      toast.error(`Konflik tanggal: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? " ..." : ""}`);
+      toast.error(
+        `Konflik tanggal: ${conflicts.slice(0, 5).join(", ")}${
+          conflicts.length > 5 ? " ..." : ""
+        }`
+      );
       return;
     }
+
+    // Kelompokkan hari kerja menjadi blok berurutan supaya backend tetap menerima
+    // (backend menolak jika ada tanggal non-working di tengah rentang).
+    const ranges = [];
+    let rangeStart = workingKeys[0];
+    let prev = workingKeys[0];
+    for (let i = 1; i < workingKeys.length; i++) {
+      const cur = workingKeys[i];
+      const expected = addDaysToKey(prev, 1);
+      if (cur !== expected) {
+        ranges.push({ start: rangeStart, end: prev });
+        rangeStart = cur;
+      }
+      prev = cur;
+    }
+    ranges.push({ start: rangeStart, end: prev });
 
     try {
       setSubmittingAbsence(true);
@@ -1425,15 +1486,21 @@ const Attendance = () => {
         attachmentUrl = uploadRes?.data?.file_url || uploadRes?.data?.url || null;
         attachmentDocumentId = uploadRes?.data?._id || null;
       }
-      await requestAbsence({
-        type: absenceType,
-        start_date: absenceStartDate,
-        end_date: absenceEndDate,
-        reason: absenceReason.trim(),
-        attachment_url: attachmentUrl,
-        attachment_document_id: attachmentDocumentId,
-      });
-      toast.success("Pengajuan izin/cuti/sakit berhasil dikirim");
+      for (const r of ranges) {
+        await requestAbsence({
+          type: absenceType,
+          start_date: r.start,
+          end_date: r.end,
+          reason: absenceReason.trim(),
+          attachment_url: attachmentUrl,
+          attachment_document_id: attachmentDocumentId,
+        });
+      }
+      toast.success(
+        `Pengajuan izin/cuti/sakit terkirim (${workingKeys.length} hari kerja${
+          ranges.length > 1 ? `, ${ranges.length} pengajuan` : ""
+        })`
+      );
       setShowAbsenceForm(false);
       setAbsenceType("permission");
       setAbsenceStartDate("");
@@ -2984,7 +3051,7 @@ const Attendance = () => {
                                 type="number" min={0.25} step={0.25}
                                 value={lateNewTaskHourByProject[projectId] ?? 1}
                                 onChange={(e) => handleLateNewTaskHourChange(projectId, e.target.value)}
-                                className="w-20 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
+                                className="w-10 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-blue-500"
                               />
                               <select
                                 value={lateNewTaskTierByProject[projectId] || "normal"}
@@ -3002,7 +3069,7 @@ const Attendance = () => {
                                 value={lateNewTaskNoteByProject[projectId] || ""}
                                 onChange={(e) => handleLateNewTaskNoteChange(projectId, e.target.value)}
                                 placeholder="Note (opsional)"
-                                className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
+                                className="flex-1 px-2 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500"
                               />
                               <motion.button
                                 onClick={() => handleLateAddProjectTask(projectId)}
