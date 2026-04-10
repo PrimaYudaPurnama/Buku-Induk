@@ -77,3 +77,51 @@ export const generateEmployeeCode = async () => {
     return "RESO-0001";
   }
 };
+
+/**
+ * Generate pending employee code in format PEND-0001, PEND-0002, etc.
+ * Dipakai untuk user register yang statusnya masih "pending"
+ * agar tidak bentrok dengan employee_code karyawan aktif (RESO-xxxx).
+ * @returns {Promise<string>} Pending employee code yang valid
+ */
+export const generatePendingEmployeeCode = async () => {
+  try {
+    const latest = await User.aggregate([
+      {
+        $match: {
+          employee_code: {
+            $type: "string",
+            $regex: /^PEND-\d{1,}$/,
+          },
+        },
+      },
+      {
+        $addFields: {
+          _pend_num: {
+            $toInt: {
+              $substrBytes: [
+                "$employee_code",
+                5,
+                { $subtract: [{ $strLenBytes: "$employee_code" }, 5] },
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { _pend_num: -1 } },
+      { $limit: 1 },
+      { $project: { _pend_num: 1 } },
+    ]);
+
+    const nextNumber =
+      Array.isArray(latest) && latest.length > 0 && Number.isFinite(latest[0]._pend_num)
+        ? latest[0]._pend_num + 1
+        : 1;
+
+    const formattedNumber = nextNumber.toString().padStart(4, "0");
+    return `PEND-${formattedNumber}`;
+  } catch (error) {
+    console.error("Error generating pending employee code:", error);
+    return "PEND-0001";
+  }
+};

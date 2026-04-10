@@ -3,6 +3,7 @@ import argon2 from "argon2";
 import User from "../models/user.js";
 import Role from "../models/role.js";
 import { logAudit } from "../utils/auditLogger.js";
+import { generatePendingEmployeeCode } from "../utils/employeeCode.js";
 import { setCookie, getCookie, deleteCookie } from "hono/cookie";
 
 
@@ -276,23 +277,41 @@ class AuthController {
       };
 
       // Create user with status pending
-      const newUser = await User.create({
-        email: email.toLowerCase().trim(),
-        password: hashedPassword,
-        full_name: full_name.trim(),
-        phone: phone || null,
-        role_id: defaultRoleId,
-        division_id: division_id || null,
-        status: "pending",
-        gender: gender,
-        date_of_birth: date_of_birth ? new Date(date_of_birth) : null,
-        national_id: national_id || null,
-        npwp: npwp || null,
-        address: address,
-        emergency_contact_name: emergency_contact_name || null,
-        emergency_contact_phone: emergency_contact_phone || null,
-        emergency_contact_relation: emergency_contact_relation || null,
-      });
+      let newUser = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const pendingEmployeeCode = await generatePendingEmployeeCode();
+
+          newUser = await User.create({
+            email: email.toLowerCase().trim(),
+            password: hashedPassword,
+            full_name: full_name.trim(),
+            phone: phone || null,
+            role_id: defaultRoleId,
+            division_id: division_id || null,
+            status: "pending",
+            employee_code: pendingEmployeeCode,
+            employment_type: "unspecified",
+            gender: gender,
+            date_of_birth: date_of_birth ? new Date(date_of_birth) : null,
+            national_id: national_id || null,
+            npwp: npwp || null,
+            address: address,
+            emergency_contact_name: emergency_contact_name || null,
+            emergency_contact_phone: emergency_contact_phone || null,
+            emergency_contact_relation: emergency_contact_relation || null,
+          });
+          break;
+        } catch (err) {
+          // Retry if collision on unique index (employee_code)
+          if (err?.code === 11000 && err?.keyPattern?.employee_code) continue;
+          throw err;
+        }
+      }
+
+      if (!newUser) {
+        return c.json({ message: "Failed to generate unique pending employee code" }, 500);
+      }
 
       // Upload documents
       const { createDocumentForEvent } = await import("../services/documentService.js");

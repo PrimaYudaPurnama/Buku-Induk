@@ -224,6 +224,7 @@ const superadminData = {
 	full_name: "Warid Ganteng",
 	password:
 		"$argon2id$v=19$m=65536,t=3,p=4$sZx3VfS3BQlqApAiV5CPLA$TrlxfjL3UbpMZ9oWn9jxUz9rPrubbwuC49/41/hWARY",
+	employee_code: "RESO-0001",
 	phone: "081234567890",
 	status: "active",
 	employment_type: "full-time",
