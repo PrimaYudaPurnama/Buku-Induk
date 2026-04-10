@@ -2,6 +2,15 @@ import { connect, disconnect, mongoose } from "./utils/mongoose.js";
 
 async function migrateFresh() {
 	try {
+		if (process.env.ALLOW_MIGRATE_FRESH !== "true") {
+			throw new Error(
+				'Refusing to drop database. Set ALLOW_MIGRATE_FRESH="true" to proceed.'
+			);
+		}
+		if (process.env.NODE_ENV === "production") {
+			throw new Error("Refusing to drop database in production environment.");
+		}
+
 		const uri = process.env.MONGODB_URI;
 		console.log("🔗 Connecting to MongoDB...");
 		await connect(uri);
@@ -14,19 +23,21 @@ async function migrateFresh() {
 
 		await disconnect();
 		console.log("🔌 DB connection closed");
-		process.exit(0);
+		return;
 	} catch (err) {
 		console.error("❌ migrate:fresh failed:", err.message || err);
 		try {
 			await disconnect();
 		} catch {}
-		process.exit(1);
+		throw err;
 	}
 }
 
 // Execute when run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-	migrateFresh();
+	migrateFresh()
+		.then(() => process.exit(0))
+		.catch(() => process.exit(1));
 }
 
 export default migrateFresh;

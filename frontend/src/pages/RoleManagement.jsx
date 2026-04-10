@@ -368,7 +368,7 @@ export default function RoleManagement() {
                       Permissions ({formData.permissions.length} dipilih)
                     </label>
 
-                    <div className="flex items-center gap-4 mb-6">
+                    {/* <div className="flex items-center gap-4 mb-6">
                       <input
                         type="text"
                         placeholder="Tambah permission custom (contoh: dashboard:read)"
@@ -395,7 +395,7 @@ export default function RoleManagement() {
                         <RefreshCw className={`w-6 h-6 ${loadingPermissions ? "animate-spin" : ""}`} />
                         Refresh
                       </motion.button>
-                    </div>
+                    </div> */}
 
                     <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 max-h-96 overflow-y-auto">
                       {loadingPermissions ? (

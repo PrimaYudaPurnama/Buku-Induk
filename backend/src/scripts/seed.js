@@ -28,6 +28,9 @@ const roles = [
 			"user:update_salary:any",
 			"system:manage_activities",
 			"system:manage_projects",
+			"system:manage_weeklyschedule",
+			"system:manage_workday",
+			"org_chart:read",
 		],
 		hierarchy_level: 1,
 	},
@@ -53,6 +56,9 @@ const roles = [
 			"user:update_salary:any",
 			"system:manage_activities",
 			"system:manage_projects",
+			"system:manage_workday",
+			"system:manage_weeklyschedule",
+			"org_chart:read",
 		],
 		hierarchy_level: 2,
 	},
@@ -71,10 +77,10 @@ const roles = [
 			"employee:transfer:any",
 			"system:view_audit_logs",
 			"system:manage_analytics",
+			"user:update_salary:any",
 			"system:manage_divisions",
 			"system:manage_projects",
 			"system:manage_activities",
-			"user:update_salary:any",
 		],
 		hierarchy_level: 3,
 	},
@@ -82,7 +88,11 @@ const roles = [
 		_id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbc"),
 		name: "Investor",
 		description: "Read-only investor access",
-		permissions: ["dashboard:read", "report:financial:read", "system:manage_analytics"],
+		permissions: [
+			"system:manage_analytics",
+			"org_chart:read",
+			"user:read:self",
+		],
 		hierarchy_level: 3,
 	},
 	{
@@ -100,6 +110,11 @@ const roles = [
 			"employee:transfer:any",
 			"user:create",
 			"user:update_salary:any",
+			"system:manage_weeklyschedule",
+			"system:manage_workday",
+			"org_chart:read",
+			"system:attendance",
+			"system:manage_analytics",
 		],
 		hierarchy_level: 4,
 	},
@@ -116,6 +131,13 @@ const roles = [
 			"employee:promote:any",
 			"employee:terminate:any",
 			"employee:transfer:any",
+			"system:manage_analytics",
+			"system:manage_projects",
+			"system:manage_workday",
+			"system:manage_weeklyschedule",
+			"system:manage_activities",
+			"system:attendance",
+			"org_chart:read",
 		],
 		hierarchy_level: 4,
 	},
@@ -130,6 +152,8 @@ const roles = [
 			"user:view_salary:any",
 			"user:export",
 			"user:update_salary:any",
+			"system:attendance",
+			"report:financial:read",
 		],
 		hierarchy_level: 4,
 	},
@@ -146,6 +170,8 @@ const roles = [
 			"user:view_salary:own_division",
 			"employee:promote:own_division",
 			"employee:terminate:own_division",
+			"system:attendance",
+			"org_chart:read",
 		],
 		hierarchy_level: 5,
 	},
@@ -153,36 +179,48 @@ const roles = [
 		_id: new mongoose.Types.ObjectId("69c62b7f3b1d6aa5731fb98f"),
 		name: "Manager Project",
 		description: "Mengatur project",
-		permissions: ["system:manage_projects", "system:manage_analytics", "user:read:any"],
+		permissions: [
+			"system:manage_projects",
+			"system:manage_analytics",
+			"user:read:any",
+			"system:attendance",
+			"org_chart:read",
+		],
 		hierarchy_level: 5,
 	},
 	{
 		_id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbba"),
 		name: "Team Lead",
 		description: "Team Leader - hanya data diri sendiri",
-		permissions: ["user:read:self", "account:create", "user:view_history:self", "user:view_salary:self"],
+		permissions: [
+			"user:read:self",
+			"account:create",
+			"user:view_history:self",
+			"user:view_salary:self",
+			"system:attendance",
+			"org_chart:read",
+		],
 		hierarchy_level: 6,
 	},
 	{
 		_id: new mongoose.Types.ObjectId("692fb92f9411b0f083edbbbb"),
 		name: "Staff",
 		description: "Regular employee",
-		permissions: ["user:read:self", "account:create", "user:view_history:self", "user:view_salary:self"],
+		permissions: [
+			"user:read:self",
+			"account:create",
+			"user:view_history:self",
+			"user:view_salary:self",
+			"system:attendance",
+		],
 		hierarchy_level: 7,
 	},
-];
-
-const divisions = [
-	{ name: "Human Resources", description: "HR / People Operations" },
-	{ name: "Finance", description: "Finance & Accounting" },
-	{ name: "IT", description: "Information Technology" },
-	{ name: "Operations", description: "General Operations" },
 ];
 
 const SUPERADMIN_EMAIL = "superadmin@gmail.com";
 const superadminData = {
 	email: SUPERADMIN_EMAIL,
-	full_name: "Super Admin",
+	full_name: "Warid Ganteng",
 	password:
 		"$argon2id$v=19$m=65536,t=3,p=4$sZx3VfS3BQlqApAiV5CPLA$TrlxfjL3UbpMZ9oWn9jxUz9rPrubbwuC49/41/hWARY",
 	phone: "081234567890",
@@ -191,32 +229,35 @@ const superadminData = {
 	hire_date: new Date("2024-01-01"),
 	division_id: null,
 	profile_photo_url:
-		"https://res.cloudinary.com/dtbqhmgjz/image/upload/v1766133862/users/default.png",
+		"https://res.cloudinary.com/dtbqhmgjz/image/upload/v1775793040/users/692ff732d6ecc384940d02c8/profile_1775793038333.jpg",
 	emergency_contact_name: "Admin Backup",
 	emergency_contact_phone: "081298765432",
 	emergency_contact_relation: "Rekan Kerja",
 	address: {
-		street: "Jl. Contoh No. 123",
-		city: "Jakarta",
-		state: "DKI Jakarta",
-		postal_code: "12345",
+		domicile: null,
+		street: null,
+		subdistrict: null,
+		city: null,
+		state: null,
+		postal_code: null,
 		country: "Indonesia",
 	},
+	city: "Jakarta",
+	state: "DKI Jakarta",
+	postal_code: "12345",
+	country: "Indonesia",
 	date_of_birth: new Date("1990-01-01"),
 	national_id: "3210123456789001",
+	termination_date: null,
+	expired_date: null,
+	gender: "female",
+	npwp: null,
 };
 
 async function upsertRoles() {
 	for (const role of roles) {
 		await Role.findOneAndUpdate({ _id: role._id }, { $set: role }, { upsert: true });
 		console.log(`✅ Seeded role: ${role.name}`);
-	}
-}
-
-async function upsertDivisions() {
-	for (const d of divisions) {
-		await Division.findOneAndUpdate({ name: d.name }, { $set: d }, { upsert: true, new: true });
-		console.log(`✅ Seeded division: ${d.name}`);
 	}
 }
 
@@ -248,25 +289,25 @@ async function seed() {
 		await connect(uri);
 
 		await upsertRoles();
-		await upsertDivisions(); // tambahan penting untuk start
 		await upsertSuperadmin();
 
 		await disconnect();
 		console.log("🔌 DB connection closed");
-		process.exit(0);
+		return;
 	} catch (err) {
 		console.error("❌ Seed failed:", err.message || err);
 		try {
 			await disconnect();
 		} catch {}
-		process.exit(1);
+		throw err;
 	}
 }
 
 // Execute when run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-	seed();
+	seed()
+		.then(() => process.exit(0))
+		.catch(() => process.exit(1));
 }
 
 export default seed;
-

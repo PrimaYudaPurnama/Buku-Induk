@@ -9,13 +9,15 @@ async function runAll() {
 		await seed();
 	} catch (err) {
 		console.error("❌ migrate:fresh + seed failed:", err.message || err);
-		process.exit(1);
+		throw err;
 	}
 }
 
 // Execute when run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-	runAll();
+	runAll()
+		.then(() => process.exit(0))
+		.catch(() => process.exit(1));
 }
 
 export default runAll;

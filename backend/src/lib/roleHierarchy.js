@@ -8,9 +8,10 @@ export const ROLE_HIERARCHY = {
   Admin: 2,
   Director: 3,
   Investor: 3, // Same level as Director
-  "Manager HR": 4,
   "General Manager": 4,
-  Finance: 4,
+  "Manager HR": 5,
+  "Manager Project": 5,
+  Finance: 5,
   Manager: 5,
   "Team Lead": 6,
   Staff: 7,

@@ -1574,7 +1574,7 @@ export default function UserList() {
                       </label>
                       <input required type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500" />
                     </div>
-                    {showAddModal && (
+                    
                       <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
                         <Lock className="w-4 h-4 text-blue-400" />
@@ -1601,7 +1601,7 @@ export default function UserList() {
                         </button>
                       </div>
                     </div>
-                    )}
+                    
                   </div>
                 </div>
 
