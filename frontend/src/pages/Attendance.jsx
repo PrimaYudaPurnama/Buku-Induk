@@ -1392,14 +1392,9 @@ const Attendance = () => {
       return `${y}-${m}-${day}`;
     };
     const parseLocalDateKey = (key) => new Date(`${key}T00:00:00`);
-    const addDaysToKey = (key, amount) => {
-      const d = parseLocalDateKey(key);
-      d.setDate(d.getDate() + amount);
-      return normalizeDateKey(d);
-    };
 
-    // Ambil metadata workday dari backend (sama seperti yang dipakai calendar view),
-    // supaya tanggal libur / non-working bisa otomatis di-skip dan tidak memicu error backend.
+    // Ambil metadata workday dari backend (sama seperti yang dipakai calendar view)
+    // untuk konflik cek hanya di hari kerja (libur/minggu tidak dihitung konflik).
     const startD = parseLocalDateKey(absenceStartDate);
     const endD = parseLocalDateKey(absenceEndDate);
     const monthKeys = new Set();
@@ -1456,22 +1451,6 @@ const Attendance = () => {
       return;
     }
 
-    // Kelompokkan hari kerja menjadi blok berurutan supaya backend tetap menerima
-    // (backend menolak jika ada tanggal non-working di tengah rentang).
-    const ranges = [];
-    let rangeStart = workingKeys[0];
-    let prev = workingKeys[0];
-    for (let i = 1; i < workingKeys.length; i++) {
-      const cur = workingKeys[i];
-      const expected = addDaysToKey(prev, 1);
-      if (cur !== expected) {
-        ranges.push({ start: rangeStart, end: prev });
-        rangeStart = cur;
-      }
-      prev = cur;
-    }
-    ranges.push({ start: rangeStart, end: prev });
-
     try {
       setSubmittingAbsence(true);
       let attachmentUrl = null;
@@ -1486,21 +1465,15 @@ const Attendance = () => {
         attachmentUrl = uploadRes?.data?.file_url || uploadRes?.data?.url || null;
         attachmentDocumentId = uploadRes?.data?._id || null;
       }
-      for (const r of ranges) {
-        await requestAbsence({
-          type: absenceType,
-          start_date: r.start,
-          end_date: r.end,
-          reason: absenceReason.trim(),
-          attachment_url: attachmentUrl,
-          attachment_document_id: attachmentDocumentId,
-        });
-      }
-      toast.success(
-        `Pengajuan izin/cuti/sakit terkirim (${workingKeys.length} hari kerja${
-          ranges.length > 1 ? `, ${ranges.length} pengajuan` : ""
-        })`
-      );
+      await requestAbsence({
+        type: absenceType,
+        start_date: absenceStartDate,
+        end_date: absenceEndDate,
+        reason: absenceReason.trim(),
+        attachment_url: attachmentUrl,
+        attachment_document_id: attachmentDocumentId,
+      });
+      toast.success("Pengajuan izin/cuti/sakit berhasil dikirim");
       setShowAbsenceForm(false);
       setAbsenceType("permission");
       setAbsenceStartDate("");

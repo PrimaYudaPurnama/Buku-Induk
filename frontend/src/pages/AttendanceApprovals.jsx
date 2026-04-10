@@ -442,6 +442,22 @@ const AttendanceApprovals = () => {
                             <CheckCircle className="w-4 h-4" />
                             Setujui
                           </motion.button>
+                          <motion.button
+                            onClick={() =>
+                              setRejectModal({
+                                open: true,
+                                id: r._id,
+                                requestKind: r.request_kind,
+                              })
+                            }
+                            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white rounded-xl text-sm font-semibold shadow-lg transition-all flex-shrink-0"
+                            whileHover={{ scale: 1.04 }}
+                            whileTap={{ scale: 0.96 }}
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Tolak Permintaan
+                            
+                          </motion.button>
                         </div>
 
                         {/* Row 2: Meta info grid */}
@@ -483,7 +499,7 @@ const AttendanceApprovals = () => {
                           ) : (
                             <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
                               <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Status</p>
-                              <p className="text-sm font-medium text-amber-300 capitalize">
+                              <p className="text-sm font-medium text-amber-400 capitalize">
                                 {r.status || "pending"}
                               </p>
                             </div>
@@ -493,13 +509,13 @@ const AttendanceApprovals = () => {
                           {r.request_kind === "absence" ? (
                             <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
                               <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Tipe</p>
-                              <p className="text-sm font-medium text-slate-100 capitalize">{r.type || "-"}</p>
+                              <p className="text-sm font-medium text-slate-100 capitalize">Perizinan</p>
                             </div>
                           ) : (
                             <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/40">
-                              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Status</p>
-                              <p className="text-sm font-medium text-amber-300 capitalize">
-                                {r.status || "pending"}
+                              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Tipe</p>
+                              <p className="text-sm font-medium text-slate-100 capitalize">
+                                Lupa Presensi
                               </p>
                             </div>
                           )}
@@ -541,23 +557,9 @@ const AttendanceApprovals = () => {
                         )}
 
                         {/* Reject toggle */}
-                        <div className="mt-4 pt-3 border-t border-slate-700/40">
-                          <motion.button
-                            onClick={() =>
-                              setRejectModal({
-                                open: true,
-                                id: r._id,
-                                requestKind: r.request_kind,
-                              })
-                            }
-                            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-400 transition-colors"
-                            whileHover={{ x: 3 }}
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                            Tolak Permintaan
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </motion.button>
-                        </div>
+                        {/* <div className="mt-4 pt-3 border-t border-slate-700/40">
+                          
+                        </div> */}
                       </div>
                     </div>
                   </motion.div>

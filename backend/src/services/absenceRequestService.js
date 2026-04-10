@@ -62,25 +62,50 @@ const assertValidType = (type) => {
 
 const getDayOfWeekWib = (date = new Date()) => getWIBDate(date).getDay();
 
-const resolveDateWorkRule = async (date) => {
+/** Untuk rentang izin: hari libur / non-kerja (sesuai WorkDay) dilewati; tetap 1 record request. */
+const classifyDayForAbsence = async (date) => {
   const norm = normalizeToDateOnly(date);
   const dow = getDayOfWeekWib(date);
   const workDay = await WorkDay.findOne({ date: norm }).lean();
   const weekly = await WeeklySchedule.findOne({ day_of_week: dow }).lean();
 
   if (!workDay) {
-    return { isWorkingDay: false, reason: "Tanggal belum diset HR (WorkDay tidak tersedia)" };
+    return { kind: "missing_workday" };
   }
   if (!workDay.is_working_day || workDay.is_holiday) {
-    return { isWorkingDay: false, reason: workDay.holiday_name || "Bukan hari kerja" };
+    return { kind: "skip" };
   }
   if (!weekly?.is_working_day || !weekly?.check_in || !weekly?.check_out) {
-    return { isWorkingDay: false, reason: "Jadwal mingguan belum lengkap" };
+    return { kind: "invalid", reason: "Jadwal mingguan belum lengkap" };
   }
-  return { isWorkingDay: true };
+  return { kind: "working" };
+};
+
+const resolveWorkingDatesInRange = async (start, end) => {
+  const dates = eachDateInclusive(start, end);
+  const workingDates = [];
+  for (const d of dates) {
+    const c = await classifyDayForAbsence(d);
+    if (c.kind === "missing_workday") {
+      const err = new Error(`Tanggal ${normalizeDateKey(d)} belum diset HR (WorkDay tidak tersedia)`);
+      err.code = "WORKDAY_NOT_CONFIGURED";
+      err.status = 400;
+      throw err;
+    }
+    if (c.kind === "invalid") {
+      const err = new Error(`Tanggal ${normalizeDateKey(d)} tidak bisa diajukan: ${c.reason}`);
+      err.code = "INVALID_SCHEDULE";
+      err.status = 400;
+      throw err;
+    }
+    if (c.kind === "working") workingDates.push(d);
+  }
+  return workingDates;
 };
 
 const collectDateConflicts = async ({ userId, dates, skipAbsenceId = null }) => {
+  if (!Array.isArray(dates) || dates.length === 0) return [];
+
   const start = dates[0];
   const end = dates[dates.length - 1];
   const dateKeys = new Set(dates.map((d) => normalizeDateKey(d)));
@@ -208,17 +233,16 @@ class AbsenceRequestService {
       err.status = 400;
       throw err;
     }
-    for (const d of dates) {
-      const rule = await resolveDateWorkRule(d);
-      if (!rule.isWorkingDay) {
-        const err = new Error(`Tanggal ${normalizeDateKey(d)} tidak bisa diajukan: ${rule.reason}`);
-        err.code = "NON_WORKING_DAY_NOT_ALLOWED";
-        err.status = 400;
-        throw err;
-      }
+
+    const workingDates = await resolveWorkingDatesInRange(start, end);
+    if (workingDates.length === 0) {
+      const err = new Error("Rentang tanggal tidak memiliki hari kerja");
+      err.code = "NO_WORKING_DAYS_IN_RANGE";
+      err.status = 400;
+      throw err;
     }
 
-    const conflicts = await collectDateConflicts({ userId: user._id, dates });
+    const conflicts = await collectDateConflicts({ userId: user._id, dates: workingDates });
     if (conflicts.length > 0) {
       const err = new Error(
         `Konflik tanggal ditemukan: ${conflicts.slice(0, 10).join("; ")}${conflicts.length > 10 ? " ..." : ""}`
@@ -292,10 +316,16 @@ class AbsenceRequestService {
 
     const start = normalizeToDateOnly(reqDoc.start_date);
     const end = normalizeToDateOnly(reqDoc.end_date);
-    const dates = eachDateInclusive(start, end);
+    const workingDates = await resolveWorkingDatesInRange(start, end);
+    if (workingDates.length === 0) {
+      const err = new Error("Tidak dapat approve: rentang tidak memiliki hari kerja");
+      err.code = "NO_WORKING_DAYS_IN_RANGE";
+      err.status = 400;
+      throw err;
+    }
     const conflicts = await collectDateConflicts({
       userId: reqDoc.user_id,
-      dates,
+      dates: workingDates,
       skipAbsenceId: reqDoc._id,
     });
     if (conflicts.length > 0) {
@@ -307,7 +337,7 @@ class AbsenceRequestService {
       throw err;
     }
 
-    const attendanceDocs = dates.map((d) => {
+    const attendanceDocs = workingDates.map((d) => {
       const day = getWIBDate(d).getDay();
       const checkInHour = 8;
       const checkOutHour = day === 6 ? 12 : 16;
