@@ -10,10 +10,9 @@ orgChartRouter.get(
   authenticate(),
   authorize({
     permissions: [
-      "dashboard:read",
       "user:read:any",
       "user:read:own_division",
-      "system:manage_analytics",
+      "org_chart:read",
     ],
   }),
   (c) => OrgChartController.getOrgChart(c)

@@ -28,8 +28,15 @@ export const BASE_PERMISSIONS = [
   "system:manage_divisions",
   "system:manage_roles",
   "system:view_audit_logs",
-  "dashboard:read",
-  "report:financial:read",
+  "system:manage_analytics",
+  "system:manage_activities",
+  "system:manage_projects",
+  "system:manage_weeklyschedule",
+  "system:manage_workday",
+  // "dashboard:read",
+  // "report:financial:read",
+  "system:attendance",
+  "org_chart:read",
 ];
 
 /**

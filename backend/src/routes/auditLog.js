@@ -9,7 +9,7 @@ auditLogRouter.get(
   "/",
   authenticate(),
   authorize({
-    permissions: ["system:view_audit_logs", "dashboard:read"],
+    permissions: ["system:view_audit_logs"],
   }),
   (c) => AuditLogController.getAuditLogs(c)
 );

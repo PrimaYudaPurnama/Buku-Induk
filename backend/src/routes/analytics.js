@@ -9,7 +9,7 @@ analyticsRouter.get(
   "/workflow-overview",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getWorkflowOverview(c)
 );
@@ -19,7 +19,7 @@ analyticsRouter.get(
   "/workflow-details",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getWorkflowDetails(c)
 );
@@ -29,7 +29,7 @@ analyticsRouter.get(
   "/workflow-timeline/:id",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getWorkflowTimeline(c)
 );
@@ -39,7 +39,7 @@ analyticsRouter.get(
   "/workflow-statistics",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getWorkflowStatistics(c)
 );
@@ -49,7 +49,7 @@ analyticsRouter.get(
   "/attendance-overview",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getAttendanceOverview(c)
 );
@@ -59,7 +59,7 @@ analyticsRouter.get(
   "/attendance-details",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getAttendanceDetails(c)
 );
@@ -69,7 +69,7 @@ analyticsRouter.get(
   "/attendance-drilldown",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getAttendanceDrilldown(c)
 );
@@ -79,7 +79,7 @@ analyticsRouter.get(
   "/project-overview",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getProjectOverview(c)
 );
@@ -89,7 +89,7 @@ analyticsRouter.get(
   "/project-details/:id",
   authenticate(),
   authorize({
-    permissions: ["system:manage_analytics", "dashboard:read"],
+    permissions: ["system:manage_analytics"],
   }),
   (c) => AnalyticsController.getProjectDetails(c)
 );

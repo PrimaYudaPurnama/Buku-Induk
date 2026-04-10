@@ -8,7 +8,7 @@ userRouter.get(
   "/pending",
   authenticate(),
   authorize({
-    permissions: ["user:read:any", "user:create", "user:update"],
+    permissions: ["user:create", "user:update"],
   }),
   (c) => UserController.getPendingUsers(c)
 );
@@ -17,7 +17,7 @@ userRouter.post(
   "/:id/approve",
   authenticate(),
   authorize({
-    permissions: ["user:read:any", "user:create", "user:update"],
+    permissions: ["user:create", "user:update"],
   }),
   (c) => UserController.approveUser(c)
 );
@@ -26,7 +26,7 @@ userRouter.post(
   "/:id/reject",
   authenticate(),
   authorize({
-    permissions: ["user:read:any", "user:create", "user:update"],
+    permissions: ["user:create", "user:update"],
   }),
   (c) => UserController.rejectUser(c)
 );
@@ -43,7 +43,7 @@ userRouter.get(
   "/:id",
   authenticate(),
   authorize({
-    permissions: ["user:read:any", "user:read:own_division", "user:read:self", "dashboard:read"],
+    permissions: ["user:read:any", "user:read:own_division", "user:read:self"],
   }),             
   (c) => UserController.getUserById(c)
 );
@@ -52,7 +52,7 @@ userRouter.get(
   "/:id/history",
   authenticate(),
   authorize({
-    permissions: ["user:view_history:any", "user:view_history:own_division", "user:view_history:self", "dashboard:read"],
+    permissions: ["user:view_history:any", "user:view_history:own_division", "user:view_history:self"],
   }),
   (c) => UserController.getUserHistory(c)
 );
@@ -61,7 +61,7 @@ userRouter.get(
   "/",
   authenticate(),
   authorize({
-    permissions: ["user:read:any", "user:read:own_division", "user:read:self", "dashboard:read"],
+    permissions: ["user:read:any", "user:read:own_division", "user:read:self"],
   }),
   (c) => UserController.getUsers(c)  
 );
@@ -94,7 +94,7 @@ userRouter.get(
   "/:id/salary",
   authenticate(),
   authorize({
-    permissions: ["user:view_salary:any", "user:view_salary:own_division", "user:view_salary:self", "dashboard:read"],
+    permissions: ["user:view_salary:any", "user:view_salary:own_division", "user:view_salary:self"],
   }),
   (c) => UserController.getUserSalary(c)
 );

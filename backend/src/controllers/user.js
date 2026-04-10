@@ -74,7 +74,7 @@ class UserController {
       // ===============================
       let divisionId = null;
   
-      if (has("user:read:any") || has("dashboard:read")) {
+      if (has("user:read:any")) {
         // full access
       } else if (has("user:read:own_division")) {
         const division = await Division.findOne({ manager_id: currentUser._id })
