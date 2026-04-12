@@ -1578,7 +1578,7 @@ export default function UserList() {
                       <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
                         <Lock className="w-4 h-4 text-blue-400" />
-                        Password *
+                        Password {showAddModal ? " *" : " (diisi jika ingin diganti)"}
                       </label>
                 
                       <div className="relative">

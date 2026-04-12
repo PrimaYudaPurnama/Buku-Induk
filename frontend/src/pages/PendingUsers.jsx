@@ -11,6 +11,15 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') || "http://localhost:3000";
 
+/** YYYY-MM-DD in local timezone (for <input type="date" />) */
+const localTodayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 const PendingUsers = () => {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
@@ -84,9 +93,11 @@ const PendingUsers = () => {
       return;
     }
 
+    const hireDate = (approvalData.hire_date || "").trim() || localTodayISO();
+
     // Validate hire_date and expired_date for non-full-time
     if (approvalData.employment_type !== "full-time") {
-      if (!approvalData.hire_date) {
+      if (!hireDate) {
         toast.error("Tanggal mulai kerja harus diisi untuk tipe karyawan ini");
         return;
       }
@@ -94,7 +105,7 @@ const PendingUsers = () => {
         toast.error("Tanggal berakhir kontrak harus diisi untuk tipe karyawan ini");
         return;
       }
-      if (new Date(approvalData.expired_date) <= new Date(approvalData.hire_date)) {
+      if (new Date(approvalData.expired_date) <= new Date(hireDate)) {
         toast.error("Tanggal berakhir kontrak harus setelah tanggal mulai kerja");
         return;
       }
@@ -102,7 +113,7 @@ const PendingUsers = () => {
 
     try {
       setApproving(true);
-      await approveUser(selectedUser._id, approvalData);
+      await approveUser(selectedUser._id, { ...approvalData, hire_date: hireDate });
       toast.success("Pengguna berhasil disetujui dan diaktifkan!");
       setShowApproveModal(false);
       setSelectedUser(null);
@@ -230,6 +241,16 @@ const PendingUsers = () => {
 
   const openApproveModal = (user) => {
     setSelectedUser(user);
+    setApprovalData({
+      employment_type: "full-time",
+      base_salary: "",
+      currency: "IDR",
+      hire_date: localTodayISO(),
+      expired_date: "",
+      allowances: [],
+      deductions: [],
+      note: "",
+    });
     setShowApproveModal(true);
   };
 
@@ -497,9 +518,15 @@ const PendingUsers = () => {
                 </label>
                 <select
                   value={approvalData.employment_type}
-                  onChange={(e) =>
-                    setApprovalData({ ...approvalData, employment_type: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const employment_type = e.target.value;
+                    setApprovalData((prev) => ({
+                      ...prev,
+                      employment_type,
+                      hire_date: prev.hire_date || localTodayISO(),
+                      ...(employment_type === "full-time" ? { expired_date: "" } : {}),
+                    }));
+                  }}
                   className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
                 >
                   <option value="full-time">Full-time</option>
@@ -507,6 +534,40 @@ const PendingUsers = () => {
                   <option value="intern">Intern</option>
                   <option value="freelance">Freelance</option>
                 </select>
+              </section>
+
+              <section className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Tanggal Masuk {approvalData.employment_type !== "full-time" && "*"}
+                  </label>
+                  <input
+                    type="date"
+                    required={approvalData.employment_type !== "full-time"}
+                    value={approvalData.hire_date || ""}
+                    onChange={(e) =>
+                      setApprovalData({ ...approvalData, hire_date: e.target.value })
+                    }
+                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+                {approvalData.employment_type !== "full-time" && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Tanggal Berakhir Kontrak *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={approvalData.expired_date || ""}
+                      onChange={(e) =>
+                        setApprovalData({ ...approvalData, expired_date: e.target.value })
+                      }
+                      min={approvalData.hire_date || undefined}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    />
+                  </div>
+                )}
               </section>
 
               {/* Salary */}

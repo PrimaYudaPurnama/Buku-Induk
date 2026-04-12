@@ -331,13 +331,13 @@ export const handlePromotion = async (user, oldRole, newRole) => {
       { action_url: `/profile/${user._id}` }
     );
 
-    if (user.email) {
-      await notifyEmail(
-        user.email,
-        "Promotion Approved",
-        `Congratulations! You have been promoted to ${newRole?.name || "new role"}.`
-      );
-    }
+    // if (user.email) {
+    //   await notifyEmail(
+    //     user.email,
+    //     "Promotion Approved",
+    //     `Congratulations! You have been promoted to ${newRole?.name || "new role"}.`
+    //   );
+    // }
   }
 };
 
@@ -354,13 +354,13 @@ export const handleDemotion = async (user, oldRole, newRole) => {
       { action_url: `/profile/${user._id}` }
     );
 
-    if (user.email) {
-      await notifyEmail(
-        user.email,
-        "Role Change",
-        `Your role has been changed to ${newRole?.name || "new role"}.`
-      );
-    }
+    // if (user.email) {
+    //   await notifyEmail(
+    //     user.email,
+    //     "Role Change",
+    //     `Your role has been changed to ${newRole?.name || "new role"}.`
+    //   );
+    // }
   }
 };
 
@@ -377,13 +377,13 @@ export const handleTransfer = async (user, oldDivision, newDivision) => {
       { action_url: `/profile/${user._id}` }
     );
 
-    if (user.email) {
-      await notifyEmail(
-        user.email,
-        "Division Transfer Approved",
-        `You have been transferred to ${newDivision?.name || "new division"}.`
-      );
-    }
+    // if (user.email) {
+    //   await notifyEmail(
+    //     user.email,
+    //     "Division Transfer Approved",
+    //     `You have been transferred to ${newDivision?.name || "new division"}.`
+    //   );
+    // }
   }
 };
 
@@ -400,13 +400,13 @@ export const handleTerminationNotice = async (user, terminationDate, reason = ""
       { action_url: `/profile/${user._id}` }
     );
 
-    if (user.email) {
-      await notifyEmail(
-        user.email,
-        "Termination Notice",
-        `Your employment has been terminated effective ${terminationDate}.${reason ? ` Reason: ${reason}` : ""}`
-      );
-    }
+    // if (user.email) {
+    //   await notifyEmail(
+    //     user.email,
+    //     "Termination Notice",
+    //     `Your employment has been terminated effective ${terminationDate}.${reason ? ` Reason: ${reason}` : ""}`
+    //   );
+    // }
   }
 };
 

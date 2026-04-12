@@ -2,7 +2,8 @@ import { Cron } from "croner";
 import Project from "../models/project.js";
 import Attendance from "../models/attendance.js";
 import Task from "../models/task.js";
-import { logAudit } from "../utils/auditLogger.js";
+import User from "../models/user.js";
+import { createAuditLog } from "./auditLogService.js";
 
 // ===== WIB helpers (UTC+7) =====
 const getWIBDate = (date = new Date()) => {
@@ -75,17 +76,58 @@ export const startProjectCronJob = () => {
       }
 
       await Attendance.deleteMany({ _id: { $in: attendanceIds } });
-      // Log audit
-      await logAudit(
-        c,
+      await createAuditLog(
+        null,
         "attendance_cleanup",
         "attendance",
-        attendanceIds,
         null,
-        { date: today }
+        null,
+        { attendance_ids: attendanceIds.map((id) => String(id)), date: today },
+        null,
+        "cron"
       );
     } catch (err) {
       console.error("Attendance cleanup cron error:", err);
+    }
+  });
+
+  // Daily (02:00): deactivate active users whose contract end date (WIB calendar) is before today.
+  new Cron("0 0 2 * * *", async () => {
+    try {
+      const result = await User.updateMany(
+        {
+          status: "active",
+          expired_date: { $exists: true, $ne: null },
+          $expr: {
+            $lt: [
+              {
+                $dateToString: {
+                  format: "%Y-%m-%d",
+                  date: "$expired_date",
+                  timezone: "Asia/Jakarta",
+                },
+              },
+              {
+                $dateToString: {
+                  format: "%Y-%m-%d",
+                  date: "$$NOW",
+                  timezone: "Asia/Jakarta",
+                },
+              },
+            ],
+          },
+        },
+        { $set: { status: "inactive" } }
+      );
+      if (result.modifiedCount > 0) {
+        console.log(
+          "[cron] contract_expired: set inactive:",
+          result.modifiedCount,
+          "user(s)"
+        );
+      }
+    } catch (err) {
+      console.error("Contract expiry cron error:", err);
     }
   });
 }
