@@ -493,11 +493,10 @@ class AttendanceService {
     }
 
     const now = new Date(); // simpan timestamp asli untuk checkIn_at/checkOut_at
-    const nowWIB = getWIBDate(now); // hanya untuk validasi jam/hari
     const today = normalizeToDateOnly(now);
 
     // Validate working day via WorkDay/WeeklySchedule
-    if (!(await isWorkingDay(nowWIB))) {
+    if (!(await isWorkingDay(now))) {
       const err = new Error("Hari ini bukan hari kerja");
       err.code = "NOT_WORKING_DAY";
       err.status = 400;
@@ -517,9 +516,11 @@ class AttendanceService {
     }
 
     // Validate check-in time based on working hours
-    const checkInValidation = await validateCheckInTime(nowWIB);
+    // IMPORTANT:
+    // pass raw `now` so conversion to WIB happens exactly once in validator.
+    const checkInValidation = await validateCheckInTime(now);
     if (!checkInValidation.isValid) {
-      const cfg = await getResolvedWorkingConfig(nowWIB);
+      const cfg = await getResolvedWorkingConfig(now);
       const startHour = Math.floor((cfg.checkInTotalMinutes ?? 480) / 60);
       const startMinute = (cfg.checkInTotalMinutes ?? 480) % 60;
       const err = new Error(
@@ -830,7 +831,6 @@ class AttendanceService {
     }
 
     const now = new Date();         // UTC asli — untuk disimpan ke DB
-    const nowWIB = getWIBDate(now); // WIB — untuk validasi jam/hari
     const today = normalizeToDateOnly(now);
 
     const attendance = await Attendance.findOne({
@@ -889,8 +889,10 @@ class AttendanceService {
     }
 
     // Validate check-out time based on working hours
-    const checkOutValidation = await validateCheckOutTime(nowWIB);
-    const cfg = await getResolvedWorkingConfig(nowWIB);
+    // IMPORTANT:
+    // pass raw `now` so conversion to WIB happens exactly once in validator/config resolver.
+    const checkOutValidation = await validateCheckOutTime(now);
+    const cfg = await getResolvedWorkingConfig(now);
     const endTotalMinutes = cfg.checkOutTotalMinutes ?? (16 * 60);
     
     // Allow check-out until MAX_CHECKOUT (grace period for late checkout)
