@@ -172,7 +172,7 @@ attendanceRouter.post(
   "/late-approve/:id",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => LateAttendanceRequestController.approveLateAttendance(c)
 );
@@ -181,7 +181,7 @@ attendanceRouter.post(
   "/late-reject/:id",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => LateAttendanceRequestController.rejectLateAttendance(c)
 );
@@ -199,7 +199,7 @@ attendanceRouter.get(
   "/late-requests/pending",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => LateAttendanceRequestController.pendingRequests(c)
 );
@@ -229,7 +229,7 @@ attendanceRouter.get(
   "/absence-requests/pending",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => AbsenceRequestController.pendingRequests(c)
 );
@@ -238,7 +238,7 @@ attendanceRouter.post(
   "/absence-approve/:id",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => AbsenceRequestController.approveAbsence(c)
 );
@@ -247,7 +247,7 @@ attendanceRouter.post(
   "/absence-reject/:id",
   authenticate(),
   authorize({
-    permissions: ["user:update"],
+    permissions: ["user:approve_attendance"],
   }),
   (c) => AbsenceRequestController.rejectAbsence(c)
 );

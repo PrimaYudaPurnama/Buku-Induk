@@ -48,7 +48,7 @@ const menuGroups = [
       { id: 'UserList', label: 'Manajemen Pengguna', icon: Users, permission: ['user:read:any', 'user:read:own_division'] },
       { id: 'PendingUsers', label: 'Registrasi Menunggu', icon: UserCheck, permission: ['user:create', 'user:update'] },
       { id: 'ApprovalInbox', label: 'Kotak Masuk Persetujuan', icon: Inbox, permission: ['account:approve:any', 'account:approve:own_division'] },
-      { id: 'AttendanceApprovals', label: 'Persetujuan Presensi', icon: CheckCircle, permission: ['user:update'] },
+      { id: 'AttendanceApprovals', label: 'Persetujuan Presensi', icon: CheckCircle, permission: ['user:approve_attendance'] },
       { id: 'Documents', label: 'Dokumen', icon: FolderOpen, permission: ['user:read:any', 'user:read:own_division', 'user:read:self'] },
     ],
   },
