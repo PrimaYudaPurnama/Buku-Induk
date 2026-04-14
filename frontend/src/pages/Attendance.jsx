@@ -336,8 +336,8 @@ const Attendance = () => {
   }, []);
 
   // ─── Late attendance MODAL state (aligned with regular attendance flow) ───
-  const [lateCheckInTime, setLateCheckInTime] = useState("08:00");
-  const [lateCheckOutTime, setLateCheckOutTime] = useState("17:00");
+  const [lateCheckInTime, setLateCheckInTime] = useState(() => getDefaultTimeRangeForDate(new Date()).checkIn);
+  const [lateCheckOutTime, setLateCheckOutTime] = useState(() => getDefaultTimeRangeForDate(new Date()).checkOut);
   const [lateSelectedActivities, setLateSelectedActivities] = useState([]);
   const [lateNote, setLateNote] = useState("");
 
@@ -366,14 +366,17 @@ const Attendance = () => {
 
   // Dynamic working config (from backend)
   const [workingConfig, setWorkingConfig] = useState(null);
+  const todayDefaultRange = getDefaultTimeRangeForDate(new Date());
+  const effectiveCheckIn = workingConfig?.check_in || todayDefaultRange.checkIn;
+  const effectiveCheckOut = workingConfig?.check_out || todayDefaultRange.checkOut;
+  const effectiveMaxCheckOut = workingConfig?.max_checkout || "21:00";
+  const effectiveCheckOutMinutes = toMinutes(effectiveCheckOut) ?? 16 * 60;
 
   // Helper: check if now is past check-in deadline based on workingConfig
   const isPastCheckInDeadline = () => {
     const now = getWIBDate();
     const minsNow = now.getHours() * 60 + now.getMinutes();
-    const deadline = workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00");
-    const minsDeadline = toMinutes(deadline) ?? (16 * 60);
-    return minsNow >= minsDeadline;
+    return minsNow >= effectiveCheckOutMinutes;
   };
 
   // Load today's attendance, master data, dan overview
@@ -1191,18 +1194,20 @@ const Attendance = () => {
 
   // Enhanced status helpers
   const getAttendanceStatus = (checkInTime, checkOutTime) => {
+    const targetDate = new Date(checkInTime || checkOutTime || Date.now());
+    const defaultRange = getDefaultTimeRangeForDate(targetDate);
+    const cfgStart = toMinutes(workingConfig?.check_in) ?? toMinutes(defaultRange.checkIn) ?? 8 * 60;
+    const cfgEnd = toMinutes(workingConfig?.check_out) ?? toMinutes(defaultRange.checkOut) ?? 16 * 60;
     const checkInHour = new Date(checkInTime).getHours();
     const checkInMinute = new Date(checkInTime).getMinutes();
     const checkInTotalMinutes = checkInHour * 60 + checkInMinute;
-    const eightAM = 8 * 60;
 
     const checkOutHour = new Date(checkOutTime).getHours();
     const checkOutMinute = new Date(checkOutTime).getMinutes();
     const checkOutTotalMinutes = checkOutHour * 60 + checkOutMinute;
-    const fourPM = 16 * 60;
 
-    const isLateCheckIn = checkInTotalMinutes > eightAM;
-    const isEarlyCheckOut = checkOutTotalMinutes < fourPM;
+    const isLateCheckIn = checkInTotalMinutes > cfgStart;
+    const isEarlyCheckOut = checkOutTotalMinutes < cfgEnd;
 
     if (isLateCheckIn && isEarlyCheckOut) {
       return {
@@ -1243,8 +1248,8 @@ const Attendance = () => {
     const hour = new Date(checkInTime).getHours();
     const minute = new Date(checkInTime).getMinutes();
     const totalMinutes = hour * 60 + minute;
-    const defaultStart = 8 * 60;
-    const cfgStart = toMinutes(workingConfig?.check_in) ?? defaultStart;
+    const defaultRange = getDefaultTimeRangeForDate(new Date(checkInTime));
+    const cfgStart = toMinutes(workingConfig?.check_in) ?? toMinutes(defaultRange.checkIn) ?? 8 * 60;
 
     if (totalMinutes <= cfgStart) {
       return {
@@ -1269,11 +1274,10 @@ const Attendance = () => {
     const hour = new Date(checkOutTime).getHours();
     const minute = new Date(checkOutTime).getMinutes();
     const totalMinutes = hour * 60 + minute;
-    const defaultEnd = 16 * 60;
-    const fourPM = defaultEnd;
+    const defaultRange = getDefaultTimeRangeForDate(new Date(checkOutTime));
+    const defaultEnd = toMinutes(defaultRange.checkOut) ?? 16 * 60;
     const ninePM = 21 * 60;
     const cfgEnd = toMinutes(workingConfig?.check_out) ?? defaultEnd;
-    // const ninePM = 21 * 60;
 
     if (totalMinutes >= cfgEnd && totalMinutes <= ninePM) {
       return {
@@ -2064,9 +2068,9 @@ const Attendance = () => {
                 <div className="text-sm text-slate-300">
                   <p className="font-medium text-blue-400 mb-2">Informasi Jam Kerja:</p>
                   <ul className="list-disc list-inside space-y-1 text-slate-300">
-                    <li>Jam mulai: <span className="font-semibold text-white">{workingConfig?.check_in || (isSaturday(new Date()) ? "08:00" : "08:00")}</span></li>
-                    <li>Jam selesai standar: <span className="font-semibold text-white">{workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00")}</span></li>
-                    <li>Check-out maksimal: <span className="font-semibold text-white">{workingConfig?.max_checkout || "21:00"}</span></li>
+                    <li>Jam mulai: <span className="font-semibold text-white">{effectiveCheckIn}</span></li>
+                    <li>Jam selesai standar: <span className="font-semibold text-white">{effectiveCheckOut}</span></li>
+                    <li>Check-out maksimal: <span className="font-semibold text-white">{effectiveMaxCheckOut}</span></li>
                   </ul>
                 </div>
               </div>
@@ -2075,17 +2079,15 @@ const Attendance = () => {
             {/* Check-in deadline warning */}
             {(() => {
               const now = getWIBDate();
-              const hhmmDeadline = workingConfig?.check_out || (isSaturday(new Date()) ? "12:00" : "16:00");
               const minsNow = now.getHours() * 60 + now.getMinutes();
-              const minsDeadline = toMinutes(hhmmDeadline) ?? (16 * 60);
-              return minsNow >= minsDeadline;
+              return minsNow >= effectiveCheckOutMinutes;
             })() && (
               <div className="mb-6 p-6 bg-red-500/20 backdrop-blur-xl rounded-3xl border border-red-500/30">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5" />
                   <div className="text-sm text-red-300">
                     <p className="font-medium mb-1 text-red-400">⚠️ Waktu check-in sudah lewat!</p>
-                    <p>Check-in hanya dapat dilakukan sebelum jam {workingConfig?.check_out || "16:00"}. Silakan ajukan presensi terlambat di bawah ini.</p>
+                    <p>Check-in hanya dapat dilakukan sebelum jam {effectiveCheckOut}. Silakan ajukan presensi terlambat di bawah ini.</p>
                   </div>
                 </div>
               </div>
@@ -2282,7 +2284,7 @@ const Attendance = () => {
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-800 text-white font-semibold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
               >
                 <Clock className="w-5 h-5" />
-                {isPastCheckInDeadline() ? `Check-in Tidak Tersedia (Lewat Jam ${workingConfig?.check_out || "16:00"})`
+                {isPastCheckInDeadline() ? `Check-in Tidak Tersedia (Lewat Jam ${effectiveCheckOut})`
                   : checkingIn ? "Memproses..."
                   : selectedTasksToday.length === 0 ? "Pilih minimal 1 task untuk check-in"
                   : "Check-in"}
@@ -2856,11 +2858,7 @@ const Attendance = () => {
                     <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
                     <div className="text-xs text-slate-300">
                       <p className="font-medium text-blue-400 mb-1">Jam Kerja:</p>
-                      {isSaturday(new Date(editingLateRequest.date)) ? (
-                        <p>Sabtu (Setengah Hari): Check-in: 08:00 | Check-out: 12:00 - 21:00</p>
-                      ) : (
-                        <p>Senin–Jumat: Check-in: 08:00 | Check-out: 16:00 - 21:00</p>
-                      )}
+                      <p>Check-in: {lateCheckInTime} | Check-out standar: {lateCheckOutTime} | Maksimal: {effectiveMaxCheckOut}</p>
                     </div>
                   </div>
                 </div>
